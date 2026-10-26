@@ -478,6 +478,9 @@ static void local(M r, V t, int slot, const float *to)
 }
 
 /* 0x463d90 for a root (M = P^-1 L), 0x464190 for the others (M = parent's M, then L) */
+static M g_rinv;                 /* the rider's root (slot 3): +0x3085 inverted */
+static V g_rinvt;
+
 static void bone_matrix(int slot, const M pinv, const V pinvt)
 {
     M r;
@@ -486,9 +489,9 @@ static void bone_matrix(int slot, const M pinv, const V pinvt)
     if (g_made[slot])
         return;
     local(r, t, slot, 0);
-    if (p < 0) {
-        mm(g_bm[slot], pinv, (const float (*)[3])r);
-        vm(g_bt[slot], pinvt, (const float (*)[3])r, t);
+    if (p < 0) {                /* 0x463d90: slot 0 by the frame, slot 3 by +0x3085 */
+        mm(g_bm[slot], slot == 3 ? (const float (*)[3])g_rinv : pinv, (const float (*)[3])r);
+        vm(g_bt[slot], slot == 3 ? g_rinvt : pinvt, (const float (*)[3])r, t);
     } else {
         bone_matrix(p, pinv, pinvt);
         mm(g_bm[slot], (const float (*)[3])g_bm[p], (const float (*)[3])r);
@@ -533,7 +536,7 @@ static void draw_far(const Rider *rd, int lod)
     float n[3][3], tt[3];
     int base;
     rmat(a, 0.0, 1.5707963267948966, 0.0);
-    rmat(b, 0.0, 0.0, -0.0);
+    rmat(b, 0.0, 0.0, -(rd->crashed ? rd->roll_side : rd->lean));
     mm(mm1, (const float (*)[3])a, (const float (*)[3])b);
     mm(mm1, (const float (*)[3])mm1, (const float (*)[3])rd->m);
     v[0] = 0.0f, v[1] = carac(rd->bike, 0x40) * 96.0f, v[2] = 0.0f;
@@ -554,14 +557,14 @@ void bike3d_draw(int bike, int skin)
     bike3d_draw_rider(&r, 0);
 }
 
-void bike3d_draw_rider(const Rider *rd, int lod)
+void bike3d_draw_rider(Rider *rd, int lod)
 {
     static const V zero;
     M B, L298, Mframe, Mfront, Mrear, Msteer, Rphi, swing, Pinv, r;
     V rear, front0, front, mid, dir, v, Pbody, head, grip, fdir, axle_f, axle_r, piv15s, d, w;
-    V p3, k, nn, a, Pinvt, t;
+    V p3, k, nn, a, Pinvt, t, Pref;
     const Bone *b = g_skl.b;
-    float c38, c3c, c40, c58, c6c, y1, h, ln, reach, q, phi;
+    float c38, c3c, c40, c58, c6c, y1, h, ln, reach, q, phi, fade, st, tl;
     double cr[3], ka, th3;
     int i, base = -2, bike = rd->bike, skin = rd->skin;
     if (!g_loaded || bike < 0 || bike >= BIKES)
@@ -576,20 +579,33 @@ void bike3d_draw_rider(const Rider *rd, int lod)
     memcpy(rear, rd->rear, sizeof rear);        /* +0x338, +0x1b4 */
     memcpy(front0, rd->front, sizeof front0);
 
-    /* steps 2-4 with the lean, pitch, steering and spins at 0 */
-    rmat(r, 0.0, 0.0, -0.0);
+    /* 2-4: the lean (the crash's roll when crashed), the pitch, the steering faded out
+       with the speed, the wheels' spins */
+    tl = rd->crashed ? rd->roll_side : rd->lean;
+    rmat(r, 0.0, 0.0, -tl);
     mm(L298, (const float (*)[3])r, (const float (*)[3])B);
     {
         M rp;
-        rmat(rp, -0.0, 0.0, 0.0);
+        rmat(rp, -rd->pitch, 0.0, 0.0);
         mm(Mframe, (const float (*)[3])r, (const float (*)[3])rp);
         mm(Mframe, (const float (*)[3])Mframe, (const float (*)[3])B);
     }
-    rmat(r, 0.0, 0.0, 0.0);
+    if (g_bikes[bike].perso)                    /* dirt */
+        fade = f32(1.0 - rd->speed / ((double)carac(bike, 0x48) * 2.0f));
+    else {
+        fade = f32(1.0 - rd->speed * 2.0f / (double)carac(bike, 0x48));
+        if (fade < 0.0f)
+            fade = 0.0f;
+        if (fade > 1.0f)
+            fade = 1.0f;
+    }
+    st = f32(rd->steer * (double)fade * 0.0007669903939428206);
+    rmat(r, rd->spin_rear, 0.0, 0.0);
     {
         M Mbody0, rs;
         mm(Mbody0, (const float (*)[3])r, (const float (*)[3])L298);
-        rmat(rs, 0.0, 0.0, 0.0);
+        rmat(r, rd->spin_front, 0.0, 0.0);
+        rmat(rs, 0.0, st, 0.0);
         mm(Mfront, (const float (*)[3])r, (const float (*)[3])rs);
         mm(Mfront, (const float (*)[3])Mfront, (const float (*)[3])Mframe);
 
@@ -600,8 +616,8 @@ void bike3d_draw_rider(const Rider *rd, int lod)
         add(front, rear, v);
         scl(v, c38 * 48.0f, dir);
         add(mid, rear, v);
-        y1 = c58 * 96.0f;
-        h = c40 * 48.0f;
+        y1 = f32((double)c58 * 96.0f + (double)rd->dive * 40.0f);
+        h = f32((double)c40 * 48.0f + (double)c40 * 0.125f * 96.0f * rd->susp);
         v[0] = 0.0f, v[1] = y1, v[2] = 0.0f;
         vm(Pbody, v, (const float (*)[3])Mframe, 0);
         add(Pbody, mid, Pbody);
@@ -612,7 +628,7 @@ void bike3d_draw_rider(const Rider *rd, int lod)
 
         /* 8: the fork, stretched to the front axle */
         vm(head, b[1].pivot, (const float (*)[3])Mrear, Pbody);
-        rmat(r, 0.0, 0.0, 0.0);
+        rmat(r, 0.0, st, 0.0);
         mm(Msteer, (const float (*)[3])r, (const float (*)[3])Mframe);
         sub(v, b[15].pivot, b[1].pivot);
         vm(grip, v, (const float (*)[3])Msteer, head);
@@ -630,7 +646,7 @@ void bike3d_draw_rider(const Rider *rd, int lod)
         norm(w, v);
         scl(w, q, w);
         add(piv15s, b[1].pivot, w);
-        g_skl.b[1].ang[0] = 0.0f, g_skl.b[1].ang[1] = -0.0f, g_skl.b[1].ang[2] = 0.0f;
+        g_skl.b[1].ang[0] = 0.0f, g_skl.b[1].ang[1] = -st, g_skl.b[1].ang[2] = 0.0f;
 
         /* 9: the swing arm, by slot 3's pivot (the rider's root, as the game has it) */
         vm(p3, b[3].pivot, (const float (*)[3])Mrear, Pbody);
@@ -656,9 +672,19 @@ void bike3d_draw_rider(const Rider *rd, int lod)
         wheel(&g_wheel[0], (const float (*)[3])Mbody0, rear, d, skin);
     }
 
-    /* 10-11: the bones' matrices from the frame (the rider's reference is the frame too
-       while not crashed), then the fork's end again with its stretched pivot */
+    /* 10: the rider's reference: the frame while riding (kept for a crash), else what the
+       crash has made of it, 32 (dirt) or 64 higher */
+    if (!rd->crashed) {
+        memcpy(rd->body, Mframe, sizeof rd->body);
+        memcpy(rd->body_pt, Pbody, sizeof rd->body_pt);
+        memcpy(Pref, Pbody, sizeof Pref);
+    } else {
+        memcpy(Pref, rd->body_pt, sizeof Pref);
+        Pref[1] = f32((double)Pref[1] + (g_bikes[bike].perso ? 32.0f : 64.0f));
+    }
+    /* 11: the bones' matrices, then the fork's end again with its stretched pivot */
     inv(Pinv, Pinvt, (const float (*)[3])Mframe, zero);
+    inv(g_rinv, g_rinvt, (const float (*)[3])rd->body, zero);
     memset(g_made, 0, sizeof g_made);
     for (i = 0; i < g_skl.n; i++)
         bone_matrix(g_skl.slot[i], (const float (*)[3])Pinv, Pinvt);
@@ -676,7 +702,7 @@ void bike3d_draw_rider(const Rider *rd, int lod)
             part((const float (*)[3])swing, Pbody, i, &base);
         else {
             inv(r, t, (const float (*)[3])g_bm[s], g_bt[s]);
-            add(t, t, Pbody);
+            add(t, t, s >= 3 && s <= 14 ? Pref : Pbody);
             part((const float (*)[3])r, t, i, &base);
         }
     }

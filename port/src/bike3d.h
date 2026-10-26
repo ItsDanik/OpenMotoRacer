@@ -9,6 +9,15 @@ typedef struct {                /* a rider's bike, the fields the drawer reads (
     float pos[3];               /* +0x30 */
     float rear[3], front[3];    /* +0x338, +0x1b4: the wheels' ground points */
     int sec;                    /* +0x31c1: its section */
+    /* the race's parts (all 0 in the menu) */
+    float lean, pitch, steer;   /* +0x2e1d, +0x2e8d, +0x110 */
+    float speed;                /* +0x124: m/s, fades the steering out */
+    float dive, susp;           /* +0x2e39, +0x2e91: the frame's dive, the rear suspension */
+    float spin_rear, spin_front;/* +0x2e3d, +0x2e49: the wheels' turn */
+    int crashed;                /* +0x30c1 */
+    float roll_side;            /* +0x30dd: the lean while crashed */
+    float body[3][3], body_pt[3];   /* +0x3085, +0x30b5: the rider's frame and place; the
+                                   drawer writes them while not crashed, the crash moves them */
 } Rider;
 
 /* the banks (pages 0, 1), the skeleton, the pose, wheels; rgb1: page 1 read in RGB */
@@ -20,7 +29,8 @@ void bike3d_menu_camera(float theta, const float target[3]);
    livery `skin` (palette 0..7) */
 void bike3d_draw(int bike, int skin);
 void bike3d_place(Rider *r, const float p[3]);  /* 0x45c7c0 */
-/* 0x45f290 for a rider at a detail: 0 the skeleton, 2..4 the far models */
-void bike3d_draw_rider(const Rider *r, int lod);
+/* 0x45f290 for a rider at a detail: 0 the skeleton, 2..4 the far models; writes body and
+   body_pt back while not crashed */
+void bike3d_draw_rider(Rider *r, int lod);
 
 #endif

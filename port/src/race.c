@@ -65,17 +65,34 @@ static unsigned g_step_at;      /* the clock's time the steps have reached */
 
 static void race_end(int ms);
 
-/* the drawing's copy of a bike: the frame's matrix (the tumbling one when crashed), the
-   place, the wheels, the section */
+/* the drawing's copy of a bike: the frame's matrix +0x2e55, the place, the wheels, the
+   section, the lean, pitch, steering, suspension and spins, the crash */
 static void to_rider(Rider *r, const BikePhys *b)
 {
-    const float *m = b->crashed ? b->tumble : b->frame;
-    memcpy(r->m, m, sizeof r->m);
-    memcpy(r->t, m + 9, sizeof r->t);
+    memcpy(r->m, b->frame, sizeof r->m);
+    memcpy(r->t, b->frame + 9, sizeof r->t);
     memcpy(r->pos, b->pos, sizeof r->pos);
     memcpy(r->rear, b->rear, sizeof r->rear);
     memcpy(r->front, b->front, sizeof r->front);
     r->sec = b->sec;
+    r->lean = b->lean, r->pitch = b->pitch, r->steer = b->steer, r->speed = b->speed;
+    r->dive = b->dive, r->susp = b->susp;
+    r->spin_rear = b->spin_rear, r->spin_front = b->spin_front;
+    r->crashed = b->crashed, r->roll_side = b->roll_side;
+    if (b->crashed) {
+        memcpy(r->body, b->tumble, sizeof r->body);
+        memcpy(r->body_pt, b->tumble_pt, sizeof r->body_pt);
+    }
+}
+
+/* what the drawer leaves for a crash to start from (+0x3085, +0x30b5) */
+static void from_rider(BikePhys *b, const Rider *r)
+{
+    if (b->crashed)
+        return;
+    memcpy(b->tumble, r->body, sizeof r->body);
+    memset(b->tumble + 9, 0, 3 * sizeof(float));
+    memcpy(b->tumble_pt, r->body_pt, sizeof r->body_pt);
 }
 
 /* one step of Game_Frame (0x47d660) of ms milliseconds: the timers, the countdown and
@@ -444,7 +461,12 @@ void race_frame(void)
     land_draw(sec, (const float (*)[3])c, eye);
     for (i = 1; i < g_riders; i++)
         if (g_mode != 0 || i == g_player)       /* (practice's second record: unseen) */
-            bike3d_draw_rider(&g_rider[i], detail_of(&g_rider[i], eye));
+        {
+            int lod = detail_of(&g_rider[i], eye);
+            bike3d_draw_rider(&g_rider[i], lod);
+            if (lod < 2)
+                from_rider(&g_phys[i], &g_rider[i]);
+        }
     /* 0x484810: the speed O+0x118, the rev needle's target rpm / bike+0x70 x 16000 */
     hud_bike(b->kmh, (int)(b->rpm / (double)g_bikes[me->bike].phys[(0x70 - 0x14) / 4]
                            * 16000.0), b->gear);

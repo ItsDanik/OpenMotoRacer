@@ -118,8 +118,8 @@ static void chase(const BikePhys *b, float dt, int finished)
         d -= (g_cam.ang[1] * -0.4244131815783876) * (OFF_Z * -0.5);
     }
     chase_frame(w, b);
-    e0[0] = g_preset_off[0][0], e0[1] = CHASE_Y, e0[2] = (float)d;
-    place(e0, e0, (const float (*)[3])w, b->pos);
+    v[0] = g_preset_off[0][0], v[1] = CHASE_Y, v[2] = (float)d;
+    place(e0, v, (const float (*)[3])w, b->pos);
     for (i = 0; i < 3; i++)     /* 0.2 a picture, whatever dt */
         g_cam.lerp[i] = (float)((e0[i] - (double)g_cam.lerp[i]) * 0.2f + g_cam.lerp[i]);
     if (finished) {
