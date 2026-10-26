@@ -40,7 +40,7 @@ W, H = 640, 480
 CX, CY = 320, 240            # 0x60d3c4, 0x624f88: half the 640x480 viewport (0x499ba0)
 FOCAL = 1911.0               # 0x44eee000, set by the menu (0x40a003) through 0x49a0e0/0x49a100
 NEAR = 256.0                 # 0x625774, the menu's (0x40a037)
-TO_INDEX = 2607.5945876176133  # double 0x4d1bf8: 16384 / 2pi
+TO_INDEX = 2607.594587618272  # double 0x4d1bf8: 16384 / 2pi
 
 
 def f32(x):

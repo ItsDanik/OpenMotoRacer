@@ -92,7 +92,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - Pages written: 25 logo and 14 title (`page_intro.c`), 15 name entry (`page_name.c`, its
   3D letters through `obj3d.c`, NOTES §4.11), 3 main menu (`page_main.c`), 4 quit,
   5 SELECT MODE (`page_mode.c`), 6 SELECT RACE (`page_track.c`), 10 CHOOSE BIKE
-  (`page_bike.c`, `bikes.c`; no 3D bike yet), 9 TOP 5 (`page_top5.c`, `scores.c`:
+  (`page_bike.c`, `bikes.c`, its turning 3D bike `bike3d.c`, NOTES §4.15), 9 TOP 5 (`page_top5.c`, `scores.c`:
   bestscor.dat), 1 loading (`page_load.c`: back to page 3 until the race exists), 20/21
   championship Load/Save (`page_champ.c`), 11 Options, 12 controls, 13 diagnostic, 23 data
   disk (`page_options.c`, NOTES §4.14); the race
@@ -125,7 +125,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 | .FNT | bitmap font: first, count, height, palette size, palette, widths, glyphs | `tools/fnt.py`, all 34; NOTES §4.8 |
 | .BPT | the .Spt scripts as tokens, XOR with Park-Miller from 0x1a2b3c4d | `tools/bpt.py`, all |
 | .3DF .MAP | model (float vertices x96, faces) + per-face texture mapping | read from 0x4216a0, NOTES §4.5 |
-| .ROT .SKL .PIV | animations, skeletons | to do |
+| .SKL .ROT | the rider + bike skeleton (17 bones), poses (3 angles a bone) | `tools/bikeparts.py`, all 10 + 106; NOTES §4.15.3 (.PIV, .SNI: never read) |
 | .trk | track (`TRK\0`, v5: sections, road blocks, decor library and objects) | `tools/track.py`, all 10; NOTES §4.13 |
 | .WAV | effects and voices in SFX.BKF: RIFF, enciphered (byte − 4(i+8) per block), mono | `tools/sfx.py`, all 250; NOTES §4.10 |
 | .dem | demo list (text: track, time, picture) | read |

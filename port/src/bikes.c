@@ -1,7 +1,6 @@
 /* The bike family of a track (0x40a4d0): Level.Spt (0x427e80) for the family's script,
    the family's script (0x429e20) for the eight carac<n>.spt, each read by 0x42a580 into
-   the bike table. The models, skeletons and animations the family script also names come
-   with the 3D bike. */
+   the bike table, and the names of its banks, skeletons, models and animations (g_fam). */
 #include "bikes.h"
 #include "choices.h"
 #include "menu.h"
@@ -10,6 +9,7 @@
 #include <string.h>
 
 Bike g_bikes[BIKES];
+Family g_fam;
 int g_bike;
 char g_family[2][64];
 
@@ -43,8 +43,13 @@ static int family_load(const char *path, char carac[BIKES][64])
     int i;
     if (!script_open(&s, path))
         return 0;
-    for (i = 0; i < 4 + 7 * 2; i++)
-        script_str(&s, name, sizeof name);
+    memset(&g_fam, 0, sizeof g_fam);
+    for (i = 0; i < 2; i++)
+        script_str(&s, g_fam.bank[i], sizeof g_fam.bank[i]);
+    for (i = 0; i < 2; i++)
+        script_str(&s, g_fam.skl[i], sizeof g_fam.skl[i]);
+    for (i = 0; i < FM_COUNT * 2; i++)
+        script_str(&s, g_fam.model[i / 2][i % 2], sizeof g_fam.model[0][0]);
     for (;;) {
         script_str(&s, name, sizeof name);
         if (s.bad || !strchr(name, '.'))
@@ -52,7 +57,8 @@ static int family_load(const char *path, char carac[BIKES][64])
         if (name[0] == '_' && name[1] >= '0' && name[1] <= '9') {
             script_int(&s);
             script_int(&s);
-        }
+        } else if (g_fam.nrot < FAMILY_ROTS)
+            memcpy(g_fam.rot[g_fam.nrot++], name, sizeof name);
     }
     for (i = 0; i < BIKES; i++)
         script_str(&s, carac[i], 64);

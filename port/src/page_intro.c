@@ -99,7 +99,7 @@ void page_logo_frame(void)
             double l = sqrt((double)e[0] * e[0] + (double)e[1] * e[1] + (double)e[2] * e[2]);
             double r = t * t * -2500.0 + l + 2500.0, x = e[0] / l * r, y = e[1] / l * r;
             double z = e[2] / l * r;
-            int n = (int)(t * (-2 * PI) * 2607.5945876176133);
+            int n = (int)(t * (-2 * PI) * 2607.594587618272);
             double c = g_cos[n & 0x3fff], s = g_cos[(n - 0x1000) & 0x3fff];
             g_dsi_ang[i][1] = (float)((1 - fabs(t)) * 8 * PI + (i == 3 ? PI / 2 : -PI / 2));
             g_dsi_pos[i][0] = (float)(x * c + z * s);

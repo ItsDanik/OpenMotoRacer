@@ -4740,6 +4740,462 @@ Initial values are the image's; CONFIG.BPT overwrites most at start-up (GOG valu
   available."). Page 23's list name takes font 31's back colour from the title (page_intro:
   yellow on black there), so it matches only when the title ran first, as it always does.
 
+### 4.15 The bike + rider object (page 10 CHOOSE BIKE, and the race) (mapped 2026-10-26)
+
+Mapped from game.EXE (GOG 3.22, base 0x400000) for the port. Marks: [asm] read in the
+disassembly (build/mr.asm), [decomp] from Ghidra's text only, [guess] inferred,
+[px] confirmed by a picture. Local variables of 0x45f290 are named `L0xNNN` = the
+frame offset from esp after its `sub esp,0x424` (the drawer's arguments are L0x428 =
+renderer, L0x42c = camera, L0x430 = LOD argument).
+
+**Verified [px]:** `python3 -I tools/bikeparts.py menu build/bkf FAMILY SKIN THETA out.png
+[capture.png]` draws the page-10 bike from this description (doubles rounded to float at
+the main steps, tools/model.py's s-buffer renderer). Against the two captures in
+build/ref, 99.97 % (KTMCROSS, skin 0, θ = 1.302: 24806 of 24814) and 100.0 % (SPEED,
+skin 0, θ = 2.4985: 26329 of 26329) of the drawn pixels are *exactly* the capture's
+RGB565 value (θ found by search; the 8 misses are edge pixels). Everything below about the menu path (loading, the pose, the
+fork stretch, the swing arm, the wheels, the skin palettes, the camera) is therefore
+confirmed as a whole, including the odd parts noted as such.
+
+---------------------------------------------------------------------------------------
+
+#### 4.15.1 Loading (page 10 start, 0x40a4d0) [asm for the calls]
+
+Order:
+
+1. Level.Spt → family script (0x51d068, or the Pocket one 0x51d0a8) read by 0x429e20
+   (field list in §4.15.1.1); the 8 carac files by 0x42a580 into the bike table
+   0x509278 + i·0x124 (carac float at +0x14+4k = `Bike.phys[k]` in port/src/bikes.c).
+2. base page = 0x401f80() (the page counter 0x4db1c0: 0 in the menu).
+3. 0x401d90(FileBnk0 0x518b20, 0) → page 0; 0x401d90(FileBnk1 0x518b60, flag) → page 1,
+   flag = (bike 0's PersoAnim == 1), i.e. 1 for the dirt families.
+4. 0x410a10: every PilotRot file through 0x45b340 into records 0x51d2a8 + k·0xf4
+   (count 0x5191e0).
+5. 0x413450: the 3D models (§4.15.1.3).
+6. 0x45bf70(obj 0x584421, 0, 1, skin 1, 0) – the object (§4.15.2); 0x45bdf0 → 0x45bb30 zeroes
+   every physics field of §4.15.2.2; 0x45b480(rot 0x51d678 = PilotRot #4 = staticPied.rot,
+   obj, slot 0) – the pose; 0x45c7c0(obj, 0, 0, 0) – the position; then obj+0xbc..+0xe8 =
+   the bike matrix built inline from COS[0] and COS[0x3000] (identity up to ~1e-16, zero
+   translation) [asm 0x40a710–0x40a7c2]; 0x45c700(obj, base page) – page offsets.
+   (The Direct3D branch, 0x4dc06c, is out of scope.)
+
+At page end 0x44ecf0 frees the banks 0x4f92f8/0x4f9630, sets 0x4db1c0 = 0 and calls
+0x45be60 (frees the object's arrays) [asm].
+
+##### 4.15.1.1 The family script (0x429e20) [decomp; names checked against the .BPT files]
+
+| # | field | stored at | MOTOSPD (road) | MOTOKTM (dirt) |
+|---|-------|-----------|----------------|----------------|
+| 1 | FileBnk0 | 0x518b20 | speed\bnk00_00.raw | ktmcross\bnk00_00.raw |
+| 2 | FileBnk1 | 0x518b60 | speed\bnk00_01.raw | ktmcross\bnk00_01.raw |
+| 3 | FileSkl | 0x518ba0 | speed\corps.skl | ktmcross\corps.skl |
+| 4 | FileSklHand | 0x518be0 | speed\corps.skl | ktmcross\mHand\corps.skl |
+| 5,6 | FileRoueArriere 3df / map | 0x518c20 / 0x518c60 | rouear | rouear |
+| 7,8 | FileRoueAvant 3df / map | 0x518ca0 / 0x518ce0 | roueav | roueav |
+| 9,10 | FileMotoMed 3df / map | 0x518e60 / 0x518e20 | medium\corps | medium\corps |
+| 11,12 | FileMotoLow | 0x519020 / 0x518fe0 | kawalow\kawalow | low\ktmlow |
+| 13,14 | FileMotoVeryLow | 0x5190a0 / 0x519060 | kawavlow\kawa_vlw | verylow\ktmveryl |
+| 15,16 | FileGuidon | 0x5190e0 / 0x519120 | guidon | guidon |
+| 17,18 | FileCockpit | 0x519160 / 0x5191a0 | cockpit | cockpit |
+| … | PilotRot names until one without '.' | 0x5191e4 + k·0x40, count 0x5191e0 | static, gauche, droite, staticHaut, **staticPied** (#4), … | same + depart, sautdelire… |
+| | "_N_name" entries take two ints (race jumps) | 0x580d10 + k·0x10, list 0x580d0c, count 0x5cf4fc | – | `_1_`, `_3_` … |
+| | MotoCarac ×8 | 0x519de4 + k·0x40 (+0x519fa4) | carac1..8 | carac1..8 |
+
+PKTKTM names `rouearF.map` / `roueavF.map` and uses medium\corps for all three LODs;
+PKTSPEED uses data\SpeedPkt.
+
+##### 4.15.1.2 Texture pages (0x401d90 → 0x401160) [asm]
+
+0x401d90(name, flag): page object 0x4f92f8 + n·0x338 (n = 0x4db1c0, at most 0x2c), the
+old one freed (0x401ab0), loaded by 0x401160, name copied to page+0x4c, returns n, counter+1.
+
+0x401160(page, name, flag) on the RAW ("mhwanh", big-endian header, see tools/raw.py):
+- **Paletted (palette count ≤ 256) with flag 0** (bnk00_00 of every family): the 8-bit
+  texels are kept as they are at page+0x330 (pointer; 256 bytes a row); palette 0 = the
+  RAW's own palette converted to RGB565 as (R>>3)<<11 | (G>>3)<<6 | (B>>3) (green keeps 5
+  bits, its low bit 0), pointer at page+0xc; then "<name without extension>.%d" (format
+  0x4db1e4) for 1..7 – each a whole RAW file of which only the 0x20-byte header is skipped
+  and 256 RGB triples read – into page+0xc+k·4; page+8 = palette count (8 here: the banks
+  hold .1 … .11 but only .1–.7 are read). **The 8 palettes are the 8 bikes' liveries.**
+- 24-bit with flag 1 (dirt bnk00_01): RGB565 texels as above, page+0x254 = 2.
+- **24-bit, 256x256, flag 0** (road bnk00_01 in the menu): the texels are *not read* (the
+  page keeps no picture) [asm 0x4012f3 → 0x401432]. Harmless: no menu face uses page 1 on
+  road bikes (only one face of the medium LOD model does).
+
+##### 4.15.1.3 The models (0x413450) [asm]
+
+Each through 0x420a50(3df, map, -1, flag) (flag = bike 0's PersoAnim == 1), then
+0x4204b0 scale or 0x420250 centre (+0x41fa10, not needed for drawing [guess]):
+
+| model | address | treatment |
+|-------|---------|-----------|
+| guidon (handlebar, cockpit view) | 0x504ed8 | ×8 |
+| cockpit | 0x51bf60 | ×8 (flag 0) |
+| medium / low / very low (LOD 2, 3, 4) | 0x53a788 / 0x53a7f8 / 0x53a868 (skeleton model slots 2–4) | ×0.95 |
+| rear wheel | 0x52c240 and 0x52c2b0 (one per skeleton slot 0/1) | centred on its box |
+| front wheel | 0x51ac58 and 0x51acc8 | centred on its box |
+
+0x420a50 is 0x4216a0 (§4.9.3.1: ×96, corner order, mirror x) with these kinds
+[decomp, checked by the picture]:
+- MAP kind 3/4 (textured; must equal the corner count): kind **0x10** if flag and the face's
+  page ≠ 0, else **1**; with MAP flag 0x10000 (see-through) **0x26** / **2**; 0x200000 →
+  0x15 (0x27 if see-through) regardless of flag; 0x40000 → 0xd; 0x80000 → 8; flags +0x38:
+  bit0 = 0x20000, bit1 = 0x400000, bit2 always, bit3 = 0x100000.
+- A textured face whose corners 0,1,2 have the same (u, v) becomes kind 0 with the texel as
+  its colour (the palette index on a paletted page, the RGB565 value otherwise).
+- Otherwise on a paletted page the colour is the index of the 555→565 colour in palette 0
+  (0 if absent); on others the colour itself (0x423110).
+- MAP kind < 3 (untextured): kind 0 (2 if 0x10000, 0xd, 0xc), colour = u16 at MAP **+2**.
+- After loading, faces with bit0 are moved to the front of the list (pairwise swaps)
+  [decomp]; then 0x4232e0 (u, v × 1/256), 0x422070 (mirror).
+
+The wheels in the menu: SPEED kinds 1 (36) and 2 (12) on page 0 (paletted, so they take the
+livery's palette); KTMCROSS kinds 0x10 (30), 0x26 (20), 0 (10) on page 1 (RGB).
+
+#### 4.15.2 The object (0x584421 = player 1; stride 0x3209 for 0x584421 + k·0x3209)
+
+##### 4.15.2.1 0x45bf70(obj, p1, p2, skin, p4) [asm]
+
+- obj+8 = p1, obj+4 = p2; if the bike's PersoAnim == 1, p4 = −1.
+- Race shadow quads at +0x2ef1/+0x2f31 (0x422de0, page 0x2c) and +0x311d/+0x315d
+  (0x422f80) – drawn only by the race (0x461f70 from 0x458b80) [asm].
+- Frees the old per-bone face arrays.
+- Skeleton slot 1: LOD +0x638 = 1, 0x462c60(FileSklHand); slot 0: +0x638 = 0,
+  0x462c60(FileSkl). After each: every vertex and every bone pivot minus bone slot 0's
+  pivot; 0x462580 per-vertex normals into obj+0x2d60+slot·4 (only the race lighting
+  0x462a40 reads them); bone slot 3 unlinked from its parent's child list.
+- 0x48bce0 sub-objects (§4.15.2.2): body (+0x24, model 0x53a6a8), rear wheel (+0x32c,
+  0x52c240), front wheel (+0x1a8, 0x51ac58); +0xb4 = carac+0x48 + 2.0 when manual and
+  p1 && p2; +0x68 = 1 (loaded), +0x6c = 1, +0x108 = obj.
+- Skins: +0x170 = +0x5fc = skin & 7; +0x2f4 = +0x478 = skin & 7 unless p4 == −1 (then −1);
+  skin < 0 → all −1. +0x18/+0x1c = FLT_MAX; +0x2e21, +0x31c1, +0x31bd = 0.
+
+##### 4.15.2.2 Layout (offsets from obj) [asm unless marked]
+
+| offset | size | what |
+|--------|------|------|
+| +0x24 | 0x184 | body sub-object (0x48bce0): angles +0x24, **position +0x30** (copies +0x3c, +0x48), model ptr +0x58, skin **+0x170** (LOD 2–4 model) |
+| +0x78 | 4 | bike number (0x584499): the carac row used for the geometry |
+| +0xbc..+0xe8 | 48 | the bike matrix (3x3 + translation), copied to **+0x2e55** by the drawer |
+| +0x110 | 4 | steering (body+0xec) |
+| +0x124 | 4 | speed (body+0x100) |
+| +0x1a8 | 0x184 | front wheel: position **+0x1b4**, model ptr +0x1dc, skin **+0x2f4** |
+| +0x32c | 0x184 | rear wheel: position **+0x338**, model ptr +0x360, skin **+0x478** |
+| +0x4bc.. | 12 | pos + c38·48·(row 1) + T (0x45c7c0) [decomp] |
+| +0x5fc | 4 | skin of the skeleton faces |
+| +0x638 | 4 | detail: 0 skeleton, 1 hand skeleton, 2/3/4 medium/low/very low model |
+| +0x63c + (s·20 + b)·100 | 100 each | bone b of skeleton slot s (s = 0, 1; 20 bones each) |
+| +0x2d4c + s·4 | 4 | bone count n |
+| +0x2d60 + s·4 | 4 | vertex normals (race lighting) |
+| +0x2d74 + s·4 | 4 | file bone → slot map (int array) |
+| +0x2e1d | 4 | lean t (or +0x30dd while crashed, +0x30c1) |
+| +0x2e39 | 4 | suspension (frame height) |
+| +0x2e3d / +0x2e49 | 12 / 12 | rear / front wheel spin angles |
+| +0x2e8d | 4 | pitch p |
+| +0x2e91 | 4 | suspension (rear) |
+| +0x3085 | 48 | saved frame matrix (the rider's reference) |
+| +0x30b5 | 12 | saved body point |
+| +0x30c1 | 4 | crashed |
+| +0x304d | 4 | current ROT record (0x51d678 = staticPied) |
+
+The skeleton's geometry lives in the model records 0x53a6a8 + s·0x70 (+4 vertices,
++0x1c copy, +0x30 count).
+
+**Bone record (100 bytes)** [asm]: +0 next sibling, +4 parent, +8 first child, +0xc angles
+a, b, c (float, from the ROT), +0x18 matrix (3x3 + T), +0x48 pivot, +0x54 first vertex,
++0x58 vertex count, +0x5c face count, +0x60 faces (0x40-byte Face records as NOTES
+§4.15.4.9.3.1).
+
+**Carac fields used here** (row 0x509278 + bike·0x124, float at +off):
+
+| off | name | road SPEED | dirt KTMCROSS | used for |
+|-----|------|-----------|---------------|----------|
+| +0x38 c38 | RoueAxeDistance | 1.75 | 1.45 | wheelbase /96 |
+| +0x3c c3c | RoueRayonAv | 0.29 | 0.30 | front radius /96 |
+| +0x40 c40 | RoueRayonAr | 0.32 | 0.30 | rear radius /96 |
+| +0x48 c48 | RealSpeedMax | 77–84 | 44–48 | steering fade (race) |
+| +0x58 c58 | HauteurCadre | 0.58 | 0.55 or 0.60 | frame height /96 |
+| +0x6c c6c | FourcheAngleArriere | −0.55 | −1.05 | swing arm angle offset |
+
+#### 4.15.3 File formats
+
+All little-endian; `tools/bikeparts.py check` reads every file of SPEED, SPEEDPKT,
+KTMCROSS, KTMPKT and PODIUM: 10 SKL, 106 ROT – all consumed to the exact last byte, all
+vertex ranges contiguous, all face indices valid.
+
+##### 4.15.3.1 .SKL (0x462c60; reads with 0x458d40 = i16, −1 at end of file, and 0x458d70 = f32) [asm]
+
+| field | type | notes |
+|-------|------|-------|
+| n | i16 | if < 0 (all shipped files: −1): "new" format, **n read again**, scale 3.5 (0x40600000); else old format, scale 10.0 |
+| — | | n ≥ 19 → error message (0x4ea550) |
+| parent[n] | i16 | in file order; −1 root |
+| slot[n] | i16 | new format only: file bone i → bone slot (array at +0x2d74) |
+| nv | i16 | → model +0x30 |
+| vertex[nv] | 3 f32 | × 3.5 (old: 3 i16, each ftol(i/10.0) then float) |
+| per file bone i: pivot | 3 f32 | × 3.5 → bone slot[i] +0x48 (old: 3 i16 / 10 truncated) |
+| first, count, nfaces | 3 i16 | → +0x54, +0x58, +0x5c |
+| faces[nfaces] | 36 bytes each | below |
+| extra group | i16 count, faces | kept in bone slot n (+0x58 = 0; no vertices) |
+
+Face (36 bytes): i16 unused; i16 kind (0x462c30: 3 → **1**, 4 → **2** (see-through), anything
+else kept: KTMPKT/COCKPIT.SKL and the PKTKTM sub-skeletons have kind 0 faces; with 0x4ea4d0
+set, 3 stays 3); i16 colour (RGB555); then 5 × (i16 vertex index, i16 u, i16 v) → indices
+at face+0x2c+2k, u, v as floats at face+4+8k / +8+8k (texels, later ×1/256 by 0x4232e0).
+The 5th index is 0xffff for a triangle (whose 4th repeats the 1st); for a quad the 5th
+repeats the 1st. The file's kind is **not** the corner count (kind 3 occurs on quads and
+4 on triangles). Page +0x36 = 0 for every face (the base page added by 0x45c700).
+Indices refer to the *whole* skeleton vertex array (the bones' ranges follow each other
+in file order, which is the order the drawer transforms them).
+
+Colour of each face at load [asm 0x4634b8–0x46367b]:
+- page 0 has no texels (not in these pages): 0x402020(colour) (555 → 565).
+- **u0 = u1 = u2 and v0 = v1 = v2** (the "flat-uv" faces: 59–98 per skeleton, whatever
+  their file kind): kind 0,
+  colour = 0x402020 of the texel byte at page 0 [v·256 + u] taken as an RGB555 value –
+  which works out as **texel & 0xDF** (bit 5 lost; the drawer then uses it as a palette
+  index). A bug of the original that the port must copy for exact colours.
+- else, paletted page 0: index of the 555→565 colour in palette 0 (0 if none) – unused by
+  textured kinds.
+- then 0x4232e0 (u, v × 1/256).
+In the last (extra group) loop the flat-uv case stores the **raw texel** (no 0x402020, so
+no & 0xDF) [asm 0x4639cb–0x463a2d, px: 19–25 such faces per skeleton; with the mask the
+match with the capture drops from 99.97 % to 99.6 %], and with no texels on page 0 the
+colour is kept as it is.
+
+Linking [asm]: for every file bone with slot[i] > 0, child = slot[i], parent =
+slot[parent[i]]: child+0 = parent+8 (old first child), child+4 = parent, parent+8 = child
+(prepend). 0x45bf70 then unlinks slot 3 (the rider's root) from slot 0's list; slot 3 keeps
+its own next pointer (so recursion from slot 3 also revisits slot 2 – harmless, same
+result).
+
+The shipped skeletons (17 bones, same tree):
+
+| file | slot | parent (file) | what [guess from the picture] | SPEED verts | KTMCROSS verts |
+|------|------|---------------|-----------------------------|-------------|----------------|
+| 0 | 0 | – | frame, tank, seat, engine | 71 | 60 |
+| 1 | 1 | 0 | fork crown + handlebar (steers) | 0 | 58 |
+| 2 | 15 | 1 | lower fork (stretched to the axle) | 24 | 12 |
+| 3 | 2 | 0 | swing arm | 12 | 18 |
+| 4 | 16 | 3 | rear axle (pivot only) | 0 | 0 |
+| 5 | 3 | 0 (unlinked) | rider root (pelvis) | 0 | 0 |
+| 6–16 | 4–14 | 5,6,7,6,9,6,11,12,11,11,15 | rider: body, legs, arms, head | … | … |
+
+Then the extra group (91 / 120 faces) – faces spanning several bones (the rider's joints).
+
+##### 4.15.3.2 .ROT (0x45b340) [asm]
+
+"ROT\0" (compared with "ROT"), 3 i16 read and ignored, then up to 20 records of 3 i16
+(a, b, c); angle = i16 × 0.0015339807878856412 (double 0x4d0e68 = 2π/4096), stored as
+float at record+4+k·12, count at +0; record size 0xf4. File size = 10 + 6·bones
+(STATICPIED.ROT: 17 bones, 112 bytes). 0x45b480(rot, obj, s) copies min(count, n) records
+to bone **slot** k (+0xc), i.e. the records are in slot order. staticPied: slots 0–2 and
+15–16 zero, slot 3 (24,0,0), slots 4–14 the rider's pose.
+
+##### 4.15.3.3 .PIV, .SNI, CORPS.3DF/.MAP/.RAW – not read by the game
+
+No reference in game.EXE to ".piv", ".sni" or their tags ("SNI" occurs only inside a
+Swedish menu string). .PIV is a modeller dump (u32 1, "00-corps", source paths such as
+`C:\CUBED\KTM\corps.skl`, stale memory); .SNI is "SNI\0", 3 i16, then "ROT\0" blocks (an
+animation sequence of the modeller). The top-level CORPS.3DF/.MAP/.RAW of the banks are the
+source of the skeleton, also unused. `bikeparts.py check` lists them; their contents are
+not decoded further [guess for the layouts].
+
+#### 4.15.4 Drawing: 0x45f290(obj, renderer, camera, lod) [asm, traced]
+
+Page 10 calls it with lod = 0 every frame after setting the three skins (+0x2f4, +0x478,
++0x5fc) to the displayed bike. The race calls it with −1 (keeps +0x638 from the LOD
+choice 0x45f160) from 0x458b80, then the shadow 0x461f70.
+
+Matrices are row-vector 3x3 + translation; "A·B" = A then B (0x403a80, out.T = A.T·B +
+B.T). R(a, b, c) = 0x40fd40 (§4.9.3.3 formula, angles through the cosine table, index
+= ftol(angle × 2607.594587618272)). 0x403740 = the same with a translation. angles(M) =
+0x46bd00/0x46d270 (the inverse of R by fpatan; |cos b| < 1e-5 handled).
+
+##### 4.15.4.1 Entry
+
+If lod ≠ −1: +0x638 = lod and +0x2e55 = +0xbc (the bike matrix). B = copy of +0x2e55.
+Light L0x128 = 0x465d60(): 0x1f when there is no track (0x52c10c == 0: the menu), else 0x10
+or 0x1f by the section's lighting (+0xe0) [asm]. The vertex light word becomes 0x1f << 13 =
+0x3e000, which selects the unlit span routines.
+
+##### 4.15.4.2 LOD 2–4 (one model) [asm]
+
+M = R(0, π/2, 0)·R(0, 0, −t)·B, T = (0, c40·96, 0)·M + rear(+0x338) − campos, then ·C;
+0x49b2c0 with the light, or if 0x4dc130 && light: 0x49b2c0 then the lighting 0x422540
+with the light vector 0x52c228..; faces 0x49c110(skin +0x170).
+
+##### 4.15.4.3 LOD 0/1 (the skeleton): placing the parts
+
+Notation: t = lean (+0x2e1d, or +0x30dd when crashed), p = pitch (+0x2e8d), st = steering
+(+0x110), v = speed (+0x124), e39 = +0x2e39, e91 = +0x2e91. **Menu: all 0.**
+
+1. Wheel models of the slot: +0x360 = 0x52c240 + s·0x70, +0x1dc = 0x51ac58 + s·0x70.
+2. L298 = R(0,0,−t)·B; Mbody0 (rear wheel) = R(+0x2e3d spin)·L298.
+3. f = steering fade: dirt 1 − v/(c48·2), road 1 − 2v/c48, clamped to [0, 1] (menu 1);
+   s = st·f·2π/8192 (double 0x4d1048).
+4. Mfront = R(+0x2e49 spin)·R(0, s, 0)·R(0,0,−t)·R(−p,0,0)·B;
+   Mframe (L0x268, copy L0x208) = R(0,0,−t)·R(−p,0,0)·B.
+5. rear = +0x338, front0 = +0x1b4 (set by 0x45c7c0: pos + (0, −c40·96, −c38·48)·Bike and
+   pos + (0, −c3c·96, c38·48)·Bike: the wheels' ground points). dir = unit(front0 − rear);
+   **front = rear + dir·c38·96 (written back to +0x1b4)**; mid L0x1bc = rear + dir·c38·48.
+6. y1 = c58·96 + e39·40; h = c40·48 + c40·0.125·96·e91 (menu: c58·96, c40·48).
+   **P_body = mid + (0, y1, 0)·Mframe + (0, h, 0)·L298** (L0x1b0, again L0x70).
+7. Mrear = R(angles(L298)) with translation P_body.
+8. The fork: head = pivot[1]·Mrear; Msteer = R(0, s, 0)·Mframe; grip = head +
+   (pivot[15] − pivot[1])·Msteer; len = |grip − head|; fdir = unit(grip − head);
+   reach = |front − head| − c3c·96; **front axle = head + fdir·reach**; the front wheel:
+   0x48c400(obj+0x1a8, renderer, cam, Mfront, axle − front) (with 0x4dc130:
+   0x4221d0(light ≠ 0x1f) then 0x48c6d0 – the lit variant).
+   q = |pivot[15] − pivot[1]|·len / reach; **pivot15' = pivot[1] + unit(pivot[15] −
+   pivot[1])·q** (the stretched pivot of the lower fork, L0x1fc); slot 1 angles =
+   (0, −s, 0) (+0x6ac: the handlebar turns with the steering).
+   (Note: the lower fork's vertices move by pivot[15] − pivot15', i.e. by d − d²/reach
+   along the fork, a first-order stretch.)
+9. The swing arm (by **bone slot 3's pivot** – the rider's root, 0x7b0 – not the swing
+   arm bone, slot 2; looks like code written for the old format where slot = file index;
+   kept because the picture matches): P3 = pivot[3]·Mrear; k = (pivot[3] − ẑ)·Mrear − P3;
+   n̂ = unit((pivot[3] − x̂)·Mrear − P3); a = rear − P3;
+   θ3 = atan2(n̂·(k × a), k·a) (both divided by |k||a|, fpatan) → 0x580a70;
+   **φ = c6c + θ3**; swing = R(φ, 0, 0)·Mrear (R built inline with b = c = 0 from COS[0]
+   and COS[0x3000]). The swing arm's vertices (file bone 3) are drawn with
+   swing·(T − campos)·C; **rear axle = pivot[16]·swing**; the rear wheel:
+   0x48c400(obj+0x32c, …, Mbody0, axle − rear).
+10. Rider reference: if not crashed, +0x3085 = Mframe, +0x30b5 = P_body, Pref = P_body;
+    else Pref = saved + (0, 32 dirt / 64 road, 0).
+11. Bone matrices: 0x463d90(slot 0, Mframe) and 0x463d90(slot 3, +0x3085). For a root:
+    L = R(angles) with T = pivot − pivot·R (a rotation about the pivot), **M = P⁻¹·L**
+    (P⁻¹ = the rigid inverse); 0x464190 for the others: **M = parent.M·L**; both recurse
+    into +8 (child) and +0 (next). Then slot 15 again: L = R(angles15) with
+    T = −pivot15·R + pivot15', M15 = M1·L.
+
+##### 4.15.4.4 Vertices and faces
+
+For each file bone i = 0..n−1 (slot = map[i]), the bone's vertex range is transformed
+by 0x49b2c0 into one output array (L0x174 = the start, from i = 0):
+- i = 0: R(angles(Mframe)) with T = P_body − campos, ·C.
+- i = 3: the swing matrix above.
+- other: V = M_slot⁻¹ (transpose, T' = −T·Mᵀ) with T' += (Pref if 3 ≤ slot ≤ 14 else
+  P_body) − campos, ·C (0x403a80 with the camera +0x68); skipped if the range is empty.
+  So a vertex goes through the inverse local rotations from its bone up to the root, then
+  the frame: the ROT angles act as inverse rotations about the pivots.
+Then if 0x4ea4d0 (race only): 0x462a40 lights the output with (0x52c228..) and the camera.
+0x4ea4cc = 0xff. Faces: for slot 0..n (n = the extra group): if +0x5fc ≥ 0,
+0x49c110(output, faces, count, skin +0x5fc), else 0x49b7f0(…, 1).
+
+Drawing order into the buckets: front wheel, rear wheel, then the skeleton's faces slot
+by slot.
+
+##### 4.15.4.5 0x48c400(wheel sub-object, renderer, cam, M by value, dx, dy, dz) [asm]
+
+T = pos(+0xc) + d − campos; N = M(3x3)·C, T·C + cam T; 0x49b2c0(model vertices, 0x1f);
+faces 0x49b7f0 if the skin (+0x14c) < 0, else 0x49c110(…, skin).
+
+##### 4.15.4.6 0x49c110 and the paletted path [asm]
+
+Like 0x49b7f0 (§4.9.3.5) except: skips a face only if flag bit0 and kind 0xd;
+**key = the farthest Z, no +1024**; area > 1.0 (as an int compare of the float). If the
+face's page has palettes (page+8 ≠ 0) → 0x49ca70(face, key, verts, skin, flags), else the
+usual 0x49c590. 0x49ca70: bucket ftol(key·0.25) (0x4d1f9c), clamped to 0x1f3e, < 0
+dropped, at most 0x1d4b faces (0x655d14); entry +0x10 = palette pointer page+0xc+skin·4,
++0x14 = skin; kind copied to face+0x3a (race: 0 or 0x2a when 0x4dc0c4 && detail < 2).
+
+Dispatch 0x4aef20 (bucket entry +0x10 ≠ 0), by face+0x3a (tables 0x4af100/0x4af0e0):
+
+| kind | routine | pixel |
+|------|---------|-------|
+| 0 | 0x4a3cf0 | flat: colour index < 256 → palette[index] (index ≥ 256 kept as RGB565); light < 0x3e000 → (c >> 1) & mask 0x50270c |
+| 1 | light ≥ 0x3e000 ? 0x4a7b70 : 0x4a8c70 | 0x4a7b70 → triangle 0x4a74e0 → span 0x4a72d0 → pixel 0x4a7240: **palette[texel[((v>>13)·256 + (u>>13)) & 0xffff]]**, opaque, s-buffer |
+| 2 | ≥ 0x3e000 ? 0x4ab070 : 0x4ac1f0 | records the visible pieces (0x68b040, 0x1c bytes, ≤ 0x2800) and draws them after all buckets (0x4af130); pixel 0x4aa6c0: palette[texel], **skipped when the palette colour is 0** |
+| 3 | 0x4a6a50 | (crash kind, race) |
+| 4 | 0x4ad410 | |
+| 9 | 0x4ae730 | |
+| 42 | 0x4a9df0 | (race low detail) |
+
+0x4a7b70 is 0x49e510 (§4.9.3.6) with the palette pointer stored in 0x65e1cc, no
+light average, no colour setup; u, v × 2097152 (0x4d1fa8) as there [asm]. In the menu the
+light is 0x3e000, so only the unlit routines run.
+
+##### 4.15.4.7 Menu values (page 10)
+
+LOD slot 0 (main skeleton); pose staticPied; t = p = st = v = e39 = e91 = 0; wheel spins
+0; f = 1; light 0x1f; 0x4dc130 = 0, 0x4ea4d0 = 0; not crashed; no shadow; skins = the
+displayed bike for the frame and both wheels (the frame write overrides the dirt families'
+−1 for the wheels); geometry from the carac of bike +0x78.
+
+Race-only parts: lean, pitch, steering, speed fade, suspension (+0x2e39, +0x2e91), wheel
+spin, the crash reference (+0x30c1), the LOD choice 0x45f160 (d = |pos − campos| /
+zoom 0x6d1f74: ≥ 3000 → 4, 2500–3000 → 3, < 1000 (and 0x4ea4e0 == 0) → 0, else 2), the
+hand skeleton (slot 1, chosen at 0x45c23d, 0x45e30f, 0x467b98…), lighting (0x422540,
+0x462a40, 0x48c6d0 with 0x4dc130), the shadow (0x461f70), the paletted kinds 3/4/9/42.
+
+#### 4.15.5 The camera (page 10) [asm]
+
+- Start: 0x46da40(cam, angles (0,0,0), offset (0,0,1500)) – thiscall, the *second* argument
+  goes to +0x50..+0x58, the first to the angles +0x38..+0x40; position (0, 0, 1500);
+  0x46e140(cam, (0,0,0)); 0x49a120(1.0).
+- Each frame, 0x46dab0(cam, obj+0x24): Mcam = R(+0x38, +0x3c = θ, +0x40) (same formula as
+  0x40fd40), Mobj = R(obj angles +0x24..) ; +0x68 = **Mobj·Mcam**; position = obj pos
+  (+0x30..) + cam+0x8c.. + (+0x58 = 1500)·(third row of that product); +0xc0 = 0x490220
+  (a roll angle, not used for drawing). With the object's angles 0 and +0x8c = 0 (the
+  previous look-at leaves it 0): **eye = (1500 sin θ, 0, 1500 cos θ)** (sin/cos from the
+  table).
+- Then y += 200.0 (0x4d0c44); 0x46e140(cam, target 0x53f540 = (0, 0, 0) when idle): d =
+  unit(target − eye), h = √(dx² + dz²); A = [[dz/h, 0, dx/h], [0, 1, 0], [−dx/h, 0, dz/h]],
+  Bp = [[1, 0, 0], [0, h, dy], [0, −dy, h]], **C = A·Bp**, translation +0x8c = 0 (if h = 0
+  nothing changes).
+- Then y += 40.0 (0x4d0bac) without a new look-at: the picture is taken from
+  **(1500 sin θ, 240, 1500 cos θ)** with the orientation aimed from y = 200.
+- Projection as the menu's: fx = fy = 1911, centre (320, 240), near 256 (§4.9.3.4).
+- θ: += dt × 2π/10240 per frame (one turn in 10.24 s), see §4.12 page 10 frame.
+
+With this, `bikeparts.py menu` matches the captures at θ = 1.302 (dirt) and 2.4985 (road).
+
+#### 4.15.6 What a port needs (estimate)
+
+| part | C lines |
+|------|---------|
+| SKL + ROT readers, the 17-bone tree, recentring, unlinking slot 3 | ~180 |
+| paletted texture pages (8-bit texels + 8 palettes from .1–.7) | ~70 |
+| wheel loading = model_load with the 0x420a50 kind rules (flag, page ≠ 0, flat-uv) | ~60 |
+| the drawer (menu subset of 0x45f290: §4.15.4.3–4.4, LOD 0 only) | ~300 |
+| r3d: per-face palette pointer, kinds p0/p1/p2 (flat palette, opaque palette, see-through palette), the 0x49c110 key rule | ~120 |
+| camera orbit 0x46dab0 + look-at already in r3d | ~40 |
+
+About 750 lines; the race adds lean/pitch/steering/suspension (already in the formulas
+above), the LOD models, lighting and the shadow.
+
+#### 4.15.7 Open points
+
+- The x87 order of each step was not reproduced in the reference tool (doubles rounded
+  at the main steps), yet 99.97–100 % of the pixels are exact. The port should still
+  compute as the code does: float32 per stored value, the table trig, the inline R(φ,0,0)
+  of the swing arm built from COS[0]/COS[0x3000].
+- 0x41fa10 after the wheel centring was not read (needed? the picture matches without it).
+- PKTKTM's wheel maps (rouearF/roueavF) are not handled by the tool's `menu` command.
+- The meaning of 0x4dc130 (lit wheel variant 0x48c6d0) and of the kinds 3/4/9/42 was not
+  followed (race).
+
+#### 4.15.8 In the port
+- `bike3d.c`: the family's bank pages (0 paletted with its liveries, `r3d_load_page_pal`;
+  1 in RGB for the dirt families only), the skeleton (`skl_load`, 0x462c60 with the
+  colour rules of §4.15.3.1, the bit-5 loss included), the pose staticPied (`rot_load`),
+  the wheels (`model_load_bike`: 0x420a50's kinds and one-texel faces), page 10's camera
+  (`bike3d_menu_camera`) and the drawer's menu part (`bike3d_draw`: §4.15.4.3 with
+  lean, pitch, steering, speed and suspension at 0). `bikes.c` keeps the family script's
+  names (`g_fam`).
+- `r3d.c`: `r3d_points` + `r3d_faces` (r3d_view's two halves; with a skin, 0x49c110: the
+  farthest corner alone as the depth, a paletted page's faces drawn through the palette:
+  kind 0 the palette's colour, 1 palette[texel], 2 the same put off till last and
+  skipping colour 0, as kind 0x26). The page seen through palette k is made once.
+- Page 10 frees the bike after the frame in which the page ended (the game draws that
+  frame's 3D list from the memory it has just freed).
+- Test switch `OMR_TURN=ANGLE`: the turntable held. **Checked** (`tools/shots.sh`
+  bike_dirt, bike_road): against orig_p10_bike_a (KTMCROSS, θ 1.302) 8 pixels at a boot's
+  edge differ, against orig_p10_champ_roadbike (SPEED, θ 2.4985) none; the pointer apart.
+- The angle-to-index constant is the game's double 2607.594587618272 (0x4d0300,
+  0x4d1bf8, 0x4d00d0), not 16384/2π computed (2607.5945876176133); corrected everywhere.
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and

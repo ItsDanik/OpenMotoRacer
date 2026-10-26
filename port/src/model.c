@@ -24,17 +24,14 @@ static float f32(const unsigned char *p)
     return f;
 }
 
-int model_load(Model *m, const char *base)
+static int load(Model *m, const char *f3df, const char *fmap, const char *base)
 {
-    char path[256];
     unsigned char *d, *mp;
     long len, mlen, p;
     int i, k, nf = 0;
     memset(m, 0, sizeof *m);
-    snprintf(path, sizeof path, "%s.3df", base);
-    d = dsi_load(path, &len);
-    snprintf(path, sizeof path, "%s.map", base);
-    mp = dsi_load(path, &mlen);
+    d = dsi_load(f3df, &len);
+    mp = dsi_load(fmap, &mlen);
     if (!d || !mp || len < 4 || u16(d) != 1 || mlen < 0x200 || !(mp[1] & 0x80))
         goto bad;
     m->nv = (int)u16(d + 2);
@@ -114,6 +111,54 @@ bad:
     free(mp);
     model_free(m);
     return 0;
+}
+
+int model_load(Model *m, const char *base)
+{
+    char f3df[256], fmap[256];
+    snprintf(f3df, sizeof f3df, "%s.3df", base);
+    snprintf(fmap, sizeof fmap, "%s.map", base);
+    return load(m, f3df, fmap, base);
+}
+
+/* 0x420a50(3df, map, -1, flag): a textured face is 0x10 (0x26 see-through) only when the
+   flag is set and its page is not 0, else 1 (2), the kinds 0x49c110 draws through a
+   palette; an untextured face's colour is the u16 at MAP +2 (0x423110). The face's page
+   must be loaded already. */
+int model_load_bike(Model *m, const char *f3df, const char *fmap, int flag)
+{
+    unsigned char *mp;
+    long mlen;
+    int i;
+    if (!load(m, f3df, fmap, f3df))
+        return 0;
+    if (!(mp = dsi_load(fmap, &mlen)) || mlen < 0x200 + 0x80L * m->nf) {
+        free(mp);
+        model_free(m);
+        return 0;
+    }
+    for (i = 0; i < m->nf; i++) {
+        const unsigned char *r = mp + 0x200 + 0x80 * i;
+        Face *f = &m->f[i];
+        const uint8_t *idx = r3d_page_index(f->page);
+        const uint16_t *rgb = f->page >= 0 && f->page < R3D_PAGES ? g_texpage[f->page] : 0;
+        if (u16(r) < 3) {
+            f->colour = (int)u16(r + 2);
+            continue;
+        }
+        if ((f->kind == 0x10 || f->kind == 0x26) && !(flag && f->page != 0))
+            f->kind = f->kind == 0x10 ? 1 : 2;
+        /* corners 0-2 on one texel: a face of that colour, a palette index on a paletted
+           page, else the texel itself */
+        if ((idx || rgb) && f->u[0] == f->u[1] && f->u[1] == f->u[2] && f->v[0] == f->v[1]
+            && f->v[1] == f->v[2]) {
+            int t = ((f->v[0] >> 13) << 8) + (f->u[0] >> 13);
+            f->kind = 0;
+            f->colour = idx ? idx[t & 0xffff] : rgb[t & 0xffff];
+        }
+    }
+    free(mp);
+    return 1;
 }
 
 void model_centre(Model *m)

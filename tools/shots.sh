@@ -30,9 +30,14 @@ OMR_TILE=98,8 run track_practice 5 260 "80:move:110,250 90:click 200:move:630,10
 OMR_TILE=86,20 run track_laps5 5 300 "80:move:110,250 90:click 200:move:630,10 210:plus 220:plus"
 OMR_TILE=83,113 run track_snow 5 330 "80:move:320,250 90:click 200:move:630,10 210:right"
 OMR_TILE=94,12 run track_champ 5 260 "80:move:530,250 90:click 200:move:630,10"
-# page 10 (2D; the bike is not drawn yet, the rest matches orig_p10_bike_a and _manual)
+# page 10 with its turning bike; the turntable held (OMR_TURN) where the original's captures
+# had it: orig_p10_bike_a (the dirt bike, 8 pixels at a boot's edge differ) and
+# orig_p10_champ_roadbike (the road bike, all equal), the pointer apart
 run bike_auto 5 420 "80:move:320,250 90:click 200:move:630,10 210:right 260:return 330:move:630,10"
 run bike_manual 5 560 "80:move:320,250 90:click 200:move:630,10 210:right 260:return 330:move:630,10 400:right 430:move:448,425 440:click 450:move:630,10"
+run bike_change 5 406 "80:move:320,250 90:click 200:move:630,10 210:right 260:return 330:move:630,10 400:right"
+OMR_TURN=1.302 run bike_dirt 5 420 "80:move:320,250 90:click 200:move:630,10 210:right 260:return 330:move:630,10"
+OMR_TURN=2.4985 run bike_road 5 480 "80:move:530,250 90:click 200:move:630,10 260:move:572,372 270:click 330:move:630,10"
 # page 9, from page 6's Top 5 (Snow Ride, 2 laps) and straight away in a championship
 # (Speed Bay, 4 laps): orig_p9_top5, orig_p9_top5_champ
 OMR_TILE=13,115 run top5_snow 5 450 "80:move:320,250 90:click 200:move:630,10 210:right 260:move:574,417 270:click 300:move:630,10"

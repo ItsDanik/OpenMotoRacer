@@ -1,8 +1,8 @@
 /* Page 10, CHOOSE BIKE (start 0x44e480, frame 0x44ed30, end 0x44ecf0; NOTES §4.12.4):
    the eight bikes of the track's family, their four bars, the gearbox, Start and Back.
    The bike itself turns on a turntable, the camera going round it once in 10.24 s; on a
-   change it whips off to one side and the next comes in from the other. Its drawing
-   comes with the 3D bike; the turntable's state is kept here already. */
+   change it whips off to one side and the next comes in from the other (bike3d.c). */
+#include "bike3d.h"
 #include "bikes.h"
 #include "choices.h"
 #include "clock.h"
@@ -12,6 +12,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define PIC(id) (&g_pics[id])
@@ -30,6 +31,8 @@ static float g_turn;            /* the camera's turn about the bike (camera +0x3
 static unsigned g_turn_last;    /* 0x4e9118 (not reset by the page) */
 static int g_voice_played;      /* 0x53f554 */
 static unsigned g_go_at;        /* 0x53f78c: Start waits until its sounds have been heard */
+static int g_free_after;        /* the page has ended: the bike goes after this frame */
+static int g_turn_held;         /* OMR_TURN: the turntable stopped at an angle (a test) */
 
 /* the four bars: what they show, from where to where they move */
 static int g_bar_from[4];       /* 0x53f4c4, 0x540af8, 0x540990, 0x5420d8 */
@@ -80,11 +83,19 @@ void page_bike_start(void)
     g_dir = 0;
     g_shown_offset = 0;
     bike = g_bike;
+    g_free_after = 0;
     if (!bikes_load(g_track))
         fprintf(stderr, "openmotoracer: the bikes of %s could not be read\n",
                 g_tracks[g_track].name);
     g_bike = bike;
+    if (!bike3d_load())
+        fprintf(stderr, "openmotoracer: the 3D bike of %s could not be read\n",
+                g_tracks[g_track].name);
     g_turn = 0.0f;              /* the camera's angles (0, 0, 0), 1500 away */
+    if (getenv("OMR_TURN")) {
+        g_turn = (float)atof(getenv("OMR_TURN"));
+        g_turn_held = 1;
+    }
 
     bitmap_place(PIC(P_TITLE), 0, -80, 0);
     bitmap_place(PIC(P_LEFT), -100, 148, 0);
@@ -123,9 +134,12 @@ void page_bike_start(void)
     make_buttons();
 }
 
-/* the page's end frees the bike's model and textures: nothing yet */
+/* 0x44ecf0: the bike's banks and skeleton freed. The page ends inside its own frame, whose
+   3D list (the bike in it) is drawn after; the game draws it from the freed memory, the
+   port frees once it is drawn. */
 void page_bike_end(void)
 {
+    g_free_after = 1;
 }
 
 static uint32_t bits(float f)
@@ -144,12 +158,14 @@ static void turntable(void)
     float a = (float)(250.0 * c), b = (float)(100.0 * c);
     int cpos = (int32_t)bits(c) > 0, cneg = bits(c) > 0x80000000u;
     float *t = &g_target[0], *z = &g_target[2];
+    bike3d_menu_camera(g_turn, g_target);
     if (g_dir == 0) {
         int dt = (int)(g_now - g_turn_last);
         if (dt > 1000)
             dt = 1000;
         g_turn_last = g_now;
-        g_turn = (float)(dt * 0.0006135923151542565 + g_turn);
+        if (!g_turn_held)
+            g_turn = (float)(dt * 0.0006135923151542565 + g_turn);
     } else if ((g_dir == -1 && cpos) || (g_dir == 1 && cneg)) {
         if (fabsf(a) > *t) {
             *t = (float)((double)*t + fabsf(b));
@@ -170,7 +186,7 @@ static void turntable(void)
         }
     }
     g_shown_bike = (g_bike + g_shown_offset) & 7;
-    /* (the bike is drawn here, 0x45f290) */
+    bike3d_draw(g_shown_bike, g_shown_bike);
     /* the change is over when the new bike has come back to the middle */
     if (g_shown_offset == 0
         && ((((g_dir == 1 && cpos) || (g_dir == -1 && cneg)) && (int32_t)bits(*t) <= 0)
@@ -267,6 +283,10 @@ void page_bike_frame(void)
     menu_draw_buttons();
     menu_transition();
     r3d_render();
+    if (g_free_after) {
+        bike3d_free();
+        g_free_after = 0;
+    }
     menu_end_frame();
     if (leaving)
         menu_capture();

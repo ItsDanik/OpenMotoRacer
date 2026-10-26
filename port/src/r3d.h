@@ -33,9 +33,16 @@ void r3d_init(void);
 uint16_t *r3d_page(int n);                      /* a page's texels, made if missing */
 int r3d_load_page(int n, const char *path);     /* 0x401160 */
 void r3d_free_page(int n);
+/* 0x401160 with flag 0 on a paletted RAW (the bikes' bank 0): the 8-bit texels kept and
+   the liveries' palettes, the RAW's own then "<name>.1" .. ".7" (8 at most) */
+int r3d_load_page_pal(int n, const char *path);
+const uint8_t *r3d_page_index(int n);           /* its 8-bit texels; 0: not paletted */
+const uint16_t *r3d_page_palette(int n, int k); /* its palette k (RGB565); 0: none */
 
 /* 0x4216a0 with the last argument 1: x96, the mirror and the corner order of §4.9.3.1 */
 int model_load(Model *m, const char *base);
+/* 0x420a50 as the bikes' wheels are loaded (flag: the family's rider is the dirt one) */
+int model_load_bike(Model *m, const char *f3df, const char *fmap, int flag);
 void model_centre(Model *m);                    /* 0x420250 */
 void model_scale(Model *m, float sx, float sy, float sz);   /* 0x4204b0 */
 void model_page_add(Model *m, int add);         /* 0x422250 */
@@ -54,8 +61,16 @@ void r3d_object(const Model *m, const float ang[3], const float pos[3]);
 /* 0x49b2c0 + 0x49b7f0 on points already in the view's frame: v x N + T */
 void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[3][3],
               const float t[3]);
+/* the two halves of r3d_view: 0x49b2c0 (the points; their first index is returned, -1 when
+   there is no room) and the faces on them, through 0x49b7f0 (skin < 0) or 0x49c110 (the
+   bikes': no 1024 farther, and faces on a paletted page drawn through the palette skin) */
+int r3d_points(int nv, const float (*v)[3], const float n[3][3], const float t[3]);
+void r3d_faces(int base, int nf, const Face *f, int skin);
 /* the same with a rotation of row vectors, M x C (0x403880's decor, the track's blocks) */
 void r3d_object_m(const Model *m, const float r[3][3], const float pos[3]);
+/* a placement (rotation of row vectors, position) seen through the camera: N = R C,
+   T = (pos - camera) C */
+void r3d_place(float n[3][3], float t[3], const float r[3][3], const float pos[3]);
 void r3d_set_camera(const float c[3][3], const float pos[3]);   /* the block's +0x68, +0x98 */
 void r3d_render(void);                          /* 0x49ad90 */
 /* 0x410e10: the race's near plane (64) and its kinds for a detail row (0..4); -1 the

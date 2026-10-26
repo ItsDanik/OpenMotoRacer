@@ -16,7 +16,7 @@
 #define H 480
 #define CX 320.0f               /* 0x60d3c4, 0x624f88: half the 640x480 view (0x499ba0) */
 #define CY 240.0f
-#define TO_INDEX 2607.5945876176133     /* 0x4d1bf8: 16384 / 2pi */
+#define TO_INDEX 2607.594587618272      /* 0x4d1bf8, 0x4d0300: 16384 / 2pi as the game stores it */
 
 #define VERTS 16384             /* transformed points (0x6d20d8, 0x1c bytes each) */
 #define BUCKETS 7999            /* 0x655d38: 4 units of depth each */
@@ -29,6 +29,10 @@
 
 float g_cos[16384];
 uint16_t *g_texpage[R3D_PAGES];
+static uint8_t *g_pageidx[R3D_PAGES];     /* a paletted page's 8-bit texels (page +0x330) */
+static uint16_t *g_pagepal[R3D_PAGES];    /* and its palettes, 256 colours each (page +0xc) */
+static int g_npal[R3D_PAGES];             /* how many (page +8) */
+static uint16_t *g_skintex[R3D_PAGES][8]; /* the texels through palette k, made when needed */
 
 typedef struct {                /* 0x49b2c0's output record */
     float x, y, z;              /* in the view, x and y times the focal length */
@@ -39,6 +43,7 @@ typedef struct {
     const Face *f;
     int base;                   /* its object's first point */
     int kind;                   /* the kind drawn (0x49c590's remap) */
+    int skin;                   /* 0x49ca70: the palette of a paletted page's face; -1 none */
     int next;
 } Entry;
 
@@ -103,9 +108,19 @@ uint16_t *r3d_page(int n)
 
 void r3d_free_page(int n)
 {
+    int k;
     if (n >= 0 && n < R3D_PAGES) {
         free(g_texpage[n]);
         g_texpage[n] = 0;
+        free(g_pageidx[n]);
+        g_pageidx[n] = 0;
+        free(g_pagepal[n]);
+        g_pagepal[n] = 0;
+        g_npal[n] = 0;
+        for (k = 0; k < 8; k++) {
+            free(g_skintex[n][k]);
+            g_skintex[n][k] = 0;
+        }
     }
 }
 
@@ -140,6 +155,82 @@ int r3d_load_page(int n, const char *path)
                                   : texel(d + 32 + 3 * ((long)y * w + x));
     free(d);
     return 1;
+}
+
+int r3d_load_page_pal(int n, const char *path)
+{
+    char name[256];
+    long len;
+    unsigned char *d = 0;
+    int w, h, npal, y, k;
+    char *dot;
+    if (n < 0 || n >= R3D_PAGES || !(d = dsi_load(path, &len)) || len < 32
+        || memcmp(d, "mhwanh", 6)) {
+        free(d);
+        return 0;
+    }
+    w = d[8] << 8 | d[9];
+    h = d[10] << 8 | d[11];
+    npal = d[12] << 8 | d[13];
+    if (npal == 0 || npal > 256) {              /* 24 bits: the usual page */
+        free(d);
+        return r3d_load_page(n, path);
+    }
+    r3d_free_page(n);
+    if (w < 256 || len < 32 + 3L * npal + (long)w * h
+        || !(g_pageidx[n] = calloc(65536, 1)) || !(g_pagepal[n] = calloc(8 * 256, 2))) {
+        free(d);
+        r3d_free_page(n);
+        return 0;
+    }
+    if (h > 256)
+        h = 256;
+    for (y = 0; y < h; y++)
+        memcpy(g_pageidx[n] + y * 256, d + 32 + 3 * npal + (long)y * w, 256);
+    for (k = 0; k < npal; k++)
+        g_pagepal[n][k] = texel(d + 32 + 3 * k);
+    free(d);
+    /* the others: whole RAW files of which only the 0x20-byte header is passed over */
+    snprintf(name, sizeof name, "%s", path);
+    if ((dot = strrchr(name, '.')) && !strpbrk(dot, "\\/"))
+        *dot = 0;
+    for (g_npal[n] = 1; g_npal[n] < 8; g_npal[n]++) {
+        char pal[300];
+        snprintf(pal, sizeof pal, "%s.%d", name, g_npal[n]);     /* 0x4db1e4 */
+        if (!(d = dsi_load(pal, &len)))
+            break;
+        if (len >= 32 + 768)
+            for (k = 0; k < 256; k++)
+                g_pagepal[n][256 * g_npal[n] + k] = texel(d + 32 + 3 * k);
+        free(d);
+    }
+    return 1;
+}
+
+const uint8_t *r3d_page_index(int n)
+{
+    return n >= 0 && n < R3D_PAGES ? g_pageidx[n] : 0;
+}
+
+const uint16_t *r3d_page_palette(int n, int k)
+{
+    if (n < 0 || n >= R3D_PAGES || !g_pageidx[n])
+        return 0;
+    return g_pagepal[n] + 256 * (k >= 0 && k < g_npal[n] ? k : 0);
+}
+
+/* a paletted page seen through palette k: what 0x4a7240 reads, palette[texel] */
+static const uint16_t *skin_texels(int n, int k)
+{
+    const uint16_t *pal = r3d_page_palette(n, k);
+    int i;
+    if (!pal)
+        return 0;
+    k = (int)(pal - g_pagepal[n]) / 256;
+    if (!g_skintex[n][k] && (g_skintex[n][k] = malloc(65536 * 2)))
+        for (i = 0; i < 65536; i++)
+            g_skintex[n][k][i] = pal[g_pageidx[n][i]];
+    return g_skintex[n][k];
 }
 
 /* ---------------------------------------------------------------- the camera, objects */
@@ -205,9 +296,9 @@ void r3d_object(const Model *m, const float ang[3], const float pos[3])
     r3d_object_m(m, (const float (*)[3])r, pos);
 }
 
-void r3d_object_m(const Model *m, const float r[3][3], const float pos[3])
+void r3d_place(float n[3][3], float t[3], const float r[3][3], const float pos[3])
 {
-    float n[3][3], d[3], t[3];
+    float d[3];
     int i, j;
     for (i = 0; i < 3; i++)
         for (j = 0; j < 3; j++)
@@ -218,6 +309,12 @@ void r3d_object_m(const Model *m, const float r[3][3], const float pos[3])
     for (j = 0; j < 3; j++)
         t[j] = (float)((double)d[0] * g_cam[0][j] + (double)d[1] * g_cam[1][j]
                        + (double)d[2] * g_cam[2][j]);
+}
+
+void r3d_object_m(const Model *m, const float r[3][3], const float pos[3])
+{
+    float n[3][3], t[3];
+    r3d_place(n, t, r, pos);
     r3d_view(m->nv, (const float (*)[3])m->v, m->nf, m->f, (const float (*)[3])n, t);
 }
 
@@ -348,8 +445,8 @@ static int remap(int kind, float key, int flags)
     return kind;
 }
 
-/* 0x49c590: into the bucket of its depth, the newest first */
-static void queue(const Face *f, int base, float key)
+/* 0x49c590 (skin < 0) and 0x49ca70: into the bucket of its depth, the newest first */
+static void queue(const Face *f, int base, float key, int skin)
 {
     int b = (int)(key * 0.25f);
     if (b < 0 || g_nentry >= ENTRIES)
@@ -358,18 +455,18 @@ static void queue(const Face *f, int base, float key)
         b = BUCKETS - 1;
     g_entry[g_nentry].f = f;
     g_entry[g_nentry].base = base;
-    g_entry[g_nentry].kind = remap(f->kind, key, f->flags);
+    g_entry[g_nentry].kind = skin < 0 ? remap(f->kind, key, f->flags) : f->kind;
+    g_entry[g_nentry].skin = skin;
     g_entry[g_nentry].next = g_head[b];
     g_head[b] = g_nentry++;
 }
 
-void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[3][3],
-              const float t[3])
+int r3d_points(int nv, const float (*v)[3], const float n[3][3], const float t[3])
 {
     float nx[4], ny[4], nz[4];
     int i, k, base = g_npt;
     if (g_npt + nv > VERTS)
-        return;
+        return -1;
     for (k = 0; k < 3; k++) {
         nx[k] = n[k][0] * g_focal;
         ny[k] = n[k][1] * g_focal;
@@ -389,12 +486,18 @@ void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[
             p->sy = (int)nearbyintf(CY - p->y * rz);
         }
     }
+    return base;
+}
+
+void r3d_faces(int base, int nf, const Face *f, int skin)
+{
+    int i, k;
     for (i = 0; i < nf; i++) {                          /* 0x49b7f0, last argument 1 */
         const Face *fc = &f[i];
         const Point *p[4], *far;
         double area;
         int near = 0;
-        if (fc->kind == 0xd)
+        if (skin < 0 ? fc->kind == 0xd : (fc->flags & 1) && fc->kind == 0xd)
             continue;
         for (k = 0; k < 4; k++)
             p[k] = &g_pt[base + fc->idx[k < fc->n ? k : 0]];
@@ -429,8 +532,19 @@ void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[
         }
         if (!(area > 1.0))
             continue;
-        queue(fc, base, far->z + (fc->flags & 2 ? 1024.0f : 0.0f));
+        if (skin < 0)
+            queue(fc, base, far->z + (fc->flags & 2 ? 1024.0f : 0.0f), -1);
+        else            /* 0x49c110: the farthest corner alone; a paletted page's own path */
+            queue(fc, base, far->z, r3d_page_index(fc->page) ? skin : -1);
     }
+}
+
+void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[3][3],
+              const float t[3])
+{
+    int base = r3d_points(nv, v, n, t);
+    if (base >= 0)
+        r3d_faces(base, nf, f, -1);
 }
 
 /* ---------------------------------------------------------------- drawing */
@@ -767,9 +881,9 @@ static void flat_triangle(Corner c0, Corner c1, Corner c2, uint16_t c)
 
 /* 0x4a3950: a fan of one colour (the 5:5:5 form: green loses its low bit), cut at the
    near plane as 0x49e510 cuts */
-static void flat_face(const Face *f, int base)
+static void flat_face(const Face *f, int base, int colour)
 {
-    uint16_t c = (uint16_t)(f->colour & 0xffdf);
+    uint16_t c = (uint16_t)(colour & 0xffdf);
     int k;
     for (k = 1; k < f->n - 1; k++) {
         int j[3] = { 0, k, k + 1 }, behind[3], nb = 0, i;
@@ -1142,24 +1256,44 @@ static void face6(const Face *f, int kind, int base, const uint16_t *tex)
 
 /* ---------------------------------------------------------------- 0x4aef20 */
 
-static void face(const Face *f, int kind, int base)
+static void face(const Entry *e)
 {
+    const Face *f = e->f;
     const uint16_t *tex;
-    int k;
-    if (kind == 0) {
-        flat_face(f, base);
-        return;
+    int k, kind = e->kind, base = e->base;
+    if (e->skin >= 0) {         /* 0x4aef20 by face +0x3a, with the face's palette */
+        const uint16_t *pal = r3d_page_palette(f->page, e->skin);
+        if (kind == 0) {                                /* 0x4a3cf0 */
+            flat_face(f, base, f->colour < 256 ? pal[f->colour] : f->colour);
+            return;
+        }
+        if (kind != 1 && kind != 2) {
+            static int told;
+            if (!told++)
+                fprintf(stderr, "openmotoracer: paletted face kind %d is not written yet\n",
+                        kind);
+            return;
+        }
+        /* 1: 0x4a7b70, palette[texel] opaque; 2: 0x4ab070, the same put off till last and
+           skipping a palette colour of 0, as the kind 0x26 */
+        tex = skin_texels(f->page, e->skin);
+        kind = kind == 1 ? 1 : 0x26;
+    } else {
+        if (kind == 0) {
+            flat_face(f, base, f->colour);
+            return;
+        }
+        if (kind == 5)                                  /* 0x4a4bc0: ret */
+            return;
+        if (!sub6(kind) && kind != 0x10 && kind != 0x15 && kind != 0x25 && kind != 0x26
+            && kind != 0x27) {
+            static int told;
+            if (!told++)
+                fprintf(stderr, "openmotoracer: 3D face kind %d is not written yet\n", kind);
+            return;
+        }
+        tex = f->page >= 0 && f->page < R3D_PAGES ? g_texpage[f->page] : 0;
     }
-    if (kind == 5)                                      /* 0x4a4bc0: ret */
-        return;
-    if (!sub6(kind) && kind != 0x10 && kind != 0x15 && kind != 0x25 && kind != 0x26
-        && kind != 0x27) {
-        static int told;
-        if (!told++)
-            fprintf(stderr, "openmotoracer: 3D face kind %d is not written yet\n", kind);
-        return;
-    }
-    tex = f->page >= 0 && f->page < R3D_PAGES ? g_texpage[f->page] : 0;
     if (!tex)
         return;
     if (sub6(kind)) {
@@ -1202,7 +1336,7 @@ void r3d_render(void)
     for (b = 0; b < BUCKETS; b++)                       /* nearest first */
         for (e = g_head[b]; e >= 0; e = g_entry[e].next)
             if (n++ <= FACES_MAX)
-                face(g_entry[e].f, g_entry[e].kind, g_entry[e].base);
+                face(&g_entry[e]);
     g_batch[g_nbatch].first = g_nspan;
     for (b = g_nbatch - 1; b >= 0; b--) {               /* 0x4af130: the last first */
         const Batch *t = &g_batch[b];

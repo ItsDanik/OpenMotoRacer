@@ -345,7 +345,7 @@ static void decor_matrix(float m[3][3], const float ang[3])
     float scsb, ccsb;
     int j;
     for (j = 0; j < 3; j++) {
-        int i = (int)(ang[j] * 2607.5945876176133);        /* 0x4d00d0 */
+        int i = (int)(ang[j] * 2607.594587618272);        /* 0x4d00d0 */
         c[j] = g_cos[i & 0x3fff];
         s[j] = g_cos[(i - 0x1000) & 0x3fff];
     }

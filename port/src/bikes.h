@@ -14,7 +14,20 @@ typedef struct {                /* 0x509278 + i * 0x124, filled by 0x42a580 */
     int perso;                  /* +0x120: PersoAnim, the rider: 0 road, 1 dirt */
 } Bike;
 
+enum { FM_REAR, FM_FRONT, FM_MEDIUM, FM_LOW, FM_VERYLOW, FM_HANDLEBAR, FM_COCKPIT, FM_COUNT };
+#define FAMILY_ROTS 48
+
+typedef struct {                /* the family script's names (0x429e20) */
+    char bank[2][64];           /* FileBnk0, FileBnk1 (0x518b20, 0x518b60) */
+    char skl[2][64];            /* FileSkl, FileSklHand (0x518ba0, 0x518be0) */
+    char model[FM_COUNT][2][64];/* each a .3df and its .map: the wheels (0x518c20..), the
+                                   three details, the handlebar and the cockpit */
+    char rot[FAMILY_ROTS][64];  /* PilotRot (0x5191e4 + k x 0x40) */
+    int nrot;                   /* 0x5191e0 */
+} Family;
+
 extern Bike g_bikes[BIKES];
+extern Family g_fam;
 extern int g_bike;              /* 0x584499: player 1's bike, 0..7 (-1 none chosen yet) */
 extern char g_family[2][64];    /* 0x51d068, 0x51d0a8: the family scripts, plain and Pocket */
 

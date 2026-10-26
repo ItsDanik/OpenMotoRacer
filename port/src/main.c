@@ -43,6 +43,7 @@ static void usage(void)
          "  OMR_CHOICES=MODE,TRACK,LAPS[,REVERSE,POCKET]  the race chosen (MODE 0 practice,\n"
          "                     1 single race, 2 championship), for OMR_PAGE=9 and on\n"
          "  OMR_TILE=SX,SY     the menu's chequered tile scrolled so far at the start\n"
+         "  OMR_TURN=ANGLE     page 10's turntable held at this angle (radians)\n"
          "  OMR_TEXT=\"FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT\"  a text object on the\n"
          "                     first page (FORE, BACK: the game's colour numbers, -1 for\n"
          "                     the font's own)\n"
