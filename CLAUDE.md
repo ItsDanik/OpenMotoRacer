@@ -104,6 +104,9 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   delayed voices, the music as GOG plays it (NN.wav, looping). `OMR_WAV=FILE` records it.
 - Text (NOTES §4.8): `script.c` reads BPT, `font.c` the 35 fonts (FONTS.BPT + .FNT),
   `text.c` the 48 text objects (blink, fades, see-through, drift).
+- The race's track (NOTES §4.13): `land.c` (Level.Spt, .trk, section walk, what a camera
+  sees), `horizon.c`, and `r3d_race()` (near 64, the detail remap, the sub-6 perspective
+  spans). `OMR_RACEVIEW=TRACK,FOCAL,X,Y,Z,C00..C22` draws a track from a still camera.
 - Test switches: `OMR_PAGE`, `OMR_CHOICES="MODE,TRACK,LAPS[,REV,POC]"`, `OMR_TILE=SX,SY` (the chequered tile's scroll, to match a capture;
   `tools/cmpshot.py` finds it), `OMR_INPUT="F:key F:move:X,Y F:click F:down F:up"` (input at frame F),
   `OMR_TEXT="FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT"` (one text object).
@@ -120,7 +123,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 | .BPT | the .Spt scripts as tokens, XOR with Park-Miller from 0x1a2b3c4d | `tools/bpt.py`, all |
 | .3DF .MAP | model (float vertices x96, faces) + per-face texture mapping | read from 0x4216a0, NOTES §4.5 |
 | .ROT .SKL .PIV | animations, skeletons | to do |
-| .trk | track (`TRK\0`, floats), `data/ileNN/` | to do |
+| .trk | track (`TRK\0`, v5: sections, road blocks, decor library and objects) | `tools/track.py`, all 10; NOTES §4.13 |
 | .WAV | effects and voices in SFX.BKF: RIFF, enciphered (byte − 4(i+8) per block), mono | `tools/sfx.py`, all 250; NOTES §4.10 |
 | .dem | demo list (text: track, time, picture) | read |
 | data.z | the CD's InstallShield 3 archive (files stored) | `tools/is3.py` |

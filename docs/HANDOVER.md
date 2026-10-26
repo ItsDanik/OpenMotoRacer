@@ -61,6 +61,11 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
 - Pages 20/21, championship Load/Save: equal to the original's captures; the original
   loads a save the port wrote. Saves go to ~/.config/openmotoracer for now (saves.c),
   read from there or else from the game's data/.
+- The race's track in the port (NOTES §4.13, the track notes folded in there): the .trk,
+  the level's pages, the section walk, what a camera sees, the race's perspective-correct
+  spans and see-through kinds, the horizon. `OMR_RACEVIEW` draws a track from a still
+  camera: the same to the pixel as tools/track.py on eight captures of the original;
+  only the bikes, riders, shadows and HUD differ from the original's screens.
 - The tracker shows Claude's messages at its bottom ("From Claude", the `messages` dataset)
   and Danik writes from it (comments sent to Claude): keep it watched.
 
@@ -75,7 +80,6 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
 1. Page 11 options (+12 controls, 13 info, 23 data disk); then the 3D bike
    on page 10 (the race's bike object, 0x45bf70 family, NOTES §4.12.10 7b).
 2. Sound: CONFIG.BPT's switches and volumes, pause on losing focus, the race's sounds.
-3. The track (.trk), the race loop, the race renderer (the same r3d with the race's
-   near plane 64 and its face kinds): build/notes/track.md, track_raster.md/.py,
-   track_horizon.md/.py and tools/track.py (a helper was stopped part-way).
+3. The race: the bike object (shared with page 10's 3D bike), the chase camera
+   (0x46f840), the race loop and its physics; billboards and AnimDecor on the track.
 4. The CD's `MOTO.EXE`: line it up with GOG's `game.EXE` (which tables the port reads).

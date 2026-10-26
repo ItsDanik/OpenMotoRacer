@@ -11,6 +11,8 @@
 #include "rand.h"
 #include "sound.h"
 #include "config.h"
+#include "land.h"
+#include "horizon.h"
 #include "saves.h"
 #include "video.h"
 #include <SDL.h>
@@ -45,7 +47,10 @@ static void usage(void)
          "                     first page (FORE, BACK: the game's colour numbers, -1 for\n"
          "                     the font's own)\n"
          "  OMR_WAV=FILE       the sound into FILE instead of the speakers, 1/60 s a frame\n"
-         "                     (with --shot: what the run would have sounded like)");
+         "                     (with --shot: what the run would have sounded like)\n"
+         "  OMR_RACEVIEW=\"TRACK,FOCAL,X,Y,Z,C00,C01,...,C22\"  no menu: the track (its number\n"
+         "                     in the list) seen from a camera at X,Y,Z with the matrix C\n"
+         "                     (the camera block's +0x68), FOCAL 394 as the race's");
 }
 
 static void fail(const char *msg, int headless)
@@ -84,6 +89,55 @@ static void test_text(const char *spec)
     }
     if (!text_add(&a))
         fprintf(stderr, "openmotoracer: OMR_TEXT: the text was not added\n");
+}
+
+/* OMR_RACEVIEW: a track from a still camera, nothing else yet */
+static float g_view_c[3][3], g_view_pos[3], g_view_focal;
+static int g_view_sec = -1;
+
+static int race_view_start(const char *spec, char *err, int errsize)
+{
+    float v[14];
+    int track, n = 0, k;
+    const char *s = spec;
+    if (sscanf(s, "%d%n", &track, &n) != 1)
+        n = -1;
+    for (k = 0; k < 13 && n >= 0; k++) {
+        int m = 0;
+        s += n;
+        if (sscanf(s, " ,%f%n", &v[k], &m) != 1)
+            n = -1;
+        else
+            n = m;
+    }
+    if (n < 0) {
+        snprintf(err, (size_t)errsize, "OMR_RACEVIEW wants TRACK,FOCAL,X,Y,Z and nine numbers.");
+        return 0;
+    }
+    if (!land_load(track, err, errsize))
+        return 0;
+    g_view_focal = v[0];
+    for (k = 0; k < 3; k++)
+        g_view_pos[k] = v[1 + k];
+    for (k = 0; k < 9; k++)
+        g_view_c[k / 3][k % 3] = v[4 + k];
+    g_view_sec = land_section(g_view_pos, -1);
+    fprintf(stderr, "openmotoracer: section %d\n", g_view_sec);
+    return 1;
+}
+
+static void race_view_frame(void)
+{
+    int y;
+    static const float t[3] = { 0, 0, 0 };
+    for (y = 0; y < g_scr_h; y++)
+        memset(g_screen + y * g_pitch, 0, sizeof(uint16_t) * (size_t)g_scr_w);
+    horizon_draw((const float (*)[3])g_view_c, t, g_view_pos[1], g_land.horizon_offset,
+                 g_land.horizon_scale, g_view_focal);
+    r3d_race(g_detail);
+    r3d_focal(g_view_focal);
+    land_draw(g_view_sec, (const float (*)[3])g_view_c, g_view_pos);
+    r3d_render();
 }
 
 /* SDL's keys as the Windows key codes the game compares against */
@@ -217,8 +271,10 @@ int main(int argc, char **argv)
         sound_init(getenv("OMR_WAV"));
 
     clock_start(!shot);
-    /* the front end, from its first page: the Delphine logo (25) */
-    if (!menu_start(page, err, sizeof err))
+    if ((env = getenv("OMR_RACEVIEW"))) {
+        if (!race_view_start(env, err, sizeof err))
+            fail(err, shot != 0);
+    } else if (!menu_start(page, err, sizeof err))  /* from the logo (25) */
         fail(err, shot != 0);
     if ((env = getenv("OMR_TEXT")))
         test_text(env);
@@ -262,7 +318,10 @@ int main(int argc, char **argv)
             }
         }
         scripted_input(script, frame);
-        menu_frame();
+        if (g_view_sec >= 0)
+            race_view_frame();
+        else
+            menu_frame();
         if (shot && frame + 1 >= shot_frames) {
             if (!video_shot(shot))
                 fail(SDL_GetError(), 1);

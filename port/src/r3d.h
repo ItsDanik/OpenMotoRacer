@@ -16,6 +16,8 @@ typedef struct {                /* 0x40 bytes in the game */
     int n;                      /* 3 or 4 corners */
     int idx[4];                 /* +0x2c */
     int u[4], v[4];             /* +0x04: texels x 8192 (u/256 x 2^21, 0x49e510) */
+    float ut[4], vt[4];         /* the same in texels, as the race's sub 6 takes them
+                                   (u/256 x 256.0, 0x4a0f90) */
 } Face;
 
 typedef struct {
@@ -52,7 +54,13 @@ void r3d_object(const Model *m, const float ang[3], const float pos[3]);
 /* 0x49b2c0 + 0x49b7f0 on points already in the view's frame: v x N + T */
 void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[3][3],
               const float t[3]);
+/* the same with a rotation of row vectors, M x C (0x403880's decor, the track's blocks) */
+void r3d_object_m(const Model *m, const float r[3][3], const float pos[3]);
+void r3d_set_camera(const float c[3][3], const float pos[3]);   /* the block's +0x68, +0x98 */
 void r3d_render(void);                          /* 0x49ad90 */
+/* 0x410e10: the race's near plane (64) and its kinds for a detail row (0..4); -1 the
+   menus' (near 256, kinds as they are) */
+void r3d_race(int detail);
 void r3d_focal(float f);                        /* 0x49a0e0 + 0x49a100 */
 
 /* the menu's 3D objects (0x479eb0) and their camera (0x47af50, the object 0x504bc8) */

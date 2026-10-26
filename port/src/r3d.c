@@ -1,6 +1,9 @@
-/* The software 3D renderer (NOTES §4.9.3), as the menus set it up: focal length 1911,
-   centre (320, 240), near plane 256. Every step of the transform is a float, as the game
-   runs it with the x87 at 24-bit precision (0x49b2c0). */
+/* The software 3D renderer (NOTES §4.9.3): the menus' (focal length 1911, near plane 256)
+   and the race's (0x410e10: focal 394, near 64, the kinds remapped by the detail level and
+   the near road drawn with perspective-correct spans, build/notes/track_raster.md).
+   Centre (320, 240). Every step of the transform is a float, as the game runs it with the
+   x87 at 24-bit precision (0x49b2c0); the drawing runs at 53 bits, its stored values
+   floats. */
 #include "r3d.h"
 #include "files.h"
 #include "video.h"
@@ -13,7 +16,6 @@
 #define H 480
 #define CX 320.0f               /* 0x60d3c4, 0x624f88: half the 640x480 view (0x499ba0) */
 #define CY 240.0f
-#define NEAR 256.0f             /* 0x625774, the menu's */
 #define TO_INDEX 2607.5945876176133     /* 0x4d1bf8: 16384 / 2pi */
 
 #define VERTS 16384             /* transformed points (0x6d20d8, 0x1c bytes each) */
@@ -22,6 +24,8 @@
 #define FREE_MAX 256            /* free pieces a screen row can hold */
 #define SPANS 0x2800            /* see-through pieces put off till last (0x68b040) */
 #define BATCHES 1000            /* their triangles (0x625790) */
+#define FACES_MAX 2000          /* 0x62e438: faces drawn a frame, the 2001st on dropped */
+#define HALF 0x7bef             /* 0x50270c: each channel without its low bit, halved */
 
 float g_cos[16384];
 uint16_t *g_texpage[R3D_PAGES];
@@ -34,15 +38,23 @@ typedef struct {                /* 0x49b2c0's output record */
 typedef struct {
     const Face *f;
     int base;                   /* its object's first point */
+    int kind;                   /* the kind drawn (0x49c590's remap) */
     int next;
 } Entry;
 
-typedef struct {
+typedef struct {                /* a see-through piece put off till last */
     int16_t y, x0, x1;
-    uint8_t kind;
-    int u, v, du, dv;
-    const uint16_t *tex;
+    int u, v, du, dv;           /* the affine kinds: 13-bit fixed texels */
+    float e[3];                 /* sub 6: u/z, v/z, 1/z at x0 */
 } Span;
+
+typedef struct {                /* 0x625790: what its pieces share */
+    int first;
+    int kind;
+    uint16_t colour;
+    const uint16_t *tex;
+    float g16[3];               /* sub 6: the steps over 16 pixels */
+} Batch;
 
 static Point g_pt[VERTS];
 static int g_npt;
@@ -53,10 +65,19 @@ static int16_t g_free[H][2 * FREE_MAX];   /* 0x623bd8: [start, end) pieces a row
 static int g_nfree[H];
 static Span g_span[SPANS];
 static int g_nspan;
-static int g_batch[BATCHES + 1];          /* each batch's first span */
+static Batch g_batch[BATCHES + 1];
 static int g_nbatch;
+static int g_room;                        /* 0x6d20c0: 0 once the pieces or batches ran out */
 static float g_cam[3][3], g_campos[3];    /* the camera block 0x5161c0 */
 static float g_focal = 1911.0f;           /* 0x49a0e0/0x49a100: the menu's 1911 (0x40a003) */
+static float g_near = 256.0f;             /* 0x625774: the menu's 256, the race's 64 */
+static int g_detail = -1;                 /* the race's detail row; -1 the menus' (0x4dc0c4) */
+
+void r3d_race(int detail)
+{
+    g_detail = detail;
+    g_near = detail < 0 ? 256.0f : 64.0f;
+}
 
 void r3d_focal(float f)
 {
@@ -171,11 +192,23 @@ void r3d_rotation(float m[3][3], const float ang[3], double k)
     m[2][2] = (float)(c[1] * c[0]);
 }
 
+void r3d_set_camera(const float c[3][3], const float pos[3])
+{
+    memcpy(g_cam, c, sizeof g_cam);
+    memcpy(g_campos, pos, sizeof g_campos);
+}
+
 void r3d_object(const Model *m, const float ang[3], const float pos[3])
 {
-    float r[3][3], n[3][3], d[3], t[3];
-    int i, j;
+    float r[3][3];
     r3d_rotation(r, ang, TO_INDEX);
+    r3d_object_m(m, (const float (*)[3])r, pos);
+}
+
+void r3d_object_m(const Model *m, const float r[3][3], const float pos[3])
+{
+    float n[3][3], d[3], t[3];
+    int i, j;
     for (i = 0; i < 3; i++)
         for (j = 0; j < 3; j++)
             n[i][j] = (float)((double)r[i][0] * g_cam[0][j] + (double)r[i][1] * g_cam[1][j]
@@ -262,7 +295,7 @@ int r3d_menu_project(const float v[3], int *sx, int *sy)
     y = v[0] * (n[0][1] * g_focal) + v[1] * (n[1][1] * g_focal) + v[2] * (n[2][1] * g_focal)
         + t[1] * g_focal;
     z = v[0] * n[0][2] + v[1] * n[1][2] + v[2] * n[2][2] + t[2];
-    if (!(z >= NEAR))
+    if (!(z >= g_near))
         return 0;
     rz = 1.0f / z;
     *sx = (int)nearbyintf(x * rz + CX);
@@ -279,6 +312,7 @@ void r3d_begin(void)
     g_nentry = 0;
     g_nspan = 0;
     g_nbatch = 0;
+    g_room = 1;
     for (y = 0; y < BUCKETS; y++)
         g_head[y] = -1;
     for (y = 0; y < H; y++) {
@@ -286,6 +320,32 @@ void r3d_begin(void)
         g_free[y][1] = W;
         g_nfree[y] = 1;
     }
+}
+
+/* 0x49c590's remap in the race (*0x4dc0c4 == 0), by the detail row (CurrentDetail): at 3
+   and 4 the near faces take the perspective-correct twins (16 -> 31, 21 -> 32, 38 -> 53,
+   39 -> 54), below 2 the textures go (16, 21 -> 0 flat; 38, 39 -> 37 the stencil) but at 2
+   for faces with flag 8 */
+static int remap(int kind, float key, int flags)
+{
+    static const int twin[4][2] = { { 16, 31 }, { 21, 32 }, { 38, 53 }, { 39, 54 } };
+    int i;
+    if (g_detail < 0)
+        return kind;
+    if (g_detail >= 3) {
+        if (key < (g_detail >= 4 ? 6144.0f : 3072.0f))
+            for (i = 0; i < 4; i++)
+                if (kind == twin[i][0])
+                    return twin[i][1];
+        return kind;
+    }
+    if (g_detail == 2 && flags & 8)
+        return kind;
+    if (kind == 16 || kind == 21 || kind == 31 || kind == 32)
+        return 0;
+    if (kind == 38 || kind == 39)
+        return 37;
+    return kind;
 }
 
 /* 0x49c590: into the bucket of its depth, the newest first */
@@ -298,6 +358,7 @@ static void queue(const Face *f, int base, float key)
         b = BUCKETS - 1;
     g_entry[g_nentry].f = f;
     g_entry[g_nentry].base = base;
+    g_entry[g_nentry].kind = remap(f->kind, key, f->flags);
     g_entry[g_nentry].next = g_head[b];
     g_head[b] = g_nentry++;
 }
@@ -322,7 +383,7 @@ void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[
         p->x = v[i][0] * nx[0] + v[i][1] * nx[1] + v[i][2] * nx[2] + nx[3];
         p->y = v[i][0] * ny[0] + v[i][1] * ny[1] + v[i][2] * ny[2] + ny[3];
         p->z = v[i][0] * nz[0] + v[i][1] * nz[1] + v[i][2] * nz[2] + nz[3];
-        if (p->z >= NEAR) {
+        if (p->z >= g_near) {
             float rz = 1.0f / p->z;
             p->sx = (int)nearbyintf(p->x * rz + CX);
             p->sy = (int)nearbyintf(CY - p->y * rz);
@@ -341,10 +402,10 @@ void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[
         for (k = 1; k < 4; k++)
             if (far->z < p[k]->z)
                 far = p[k];
-        if (!(far->z > NEAR))
+        if (!(far->z > g_near))
             continue;
         for (k = 0; k < 4; k++)
-            if (p[k]->z <= NEAR)
+            if (p[k]->z <= g_near)
                 near = 1;
         if (near) {             /* the back-face test in the view's space */
             const Point *a = p[1], *b = p[2], *c = p[0];
@@ -379,8 +440,49 @@ static int cdiv(int a, int b)   /* C's division, as the game's idiv */
     return a / b;
 }
 
+static int wrap(long long v)    /* a 32-bit register's sum or product */
+{
+    return (int)(uint32_t)v;
+}
+
+static int ftol(double x)       /* 0x4b3048: truncation; out of range the x87's 0x80000000 */
+{
+    return x > -2147483649.0 && x < 2147483648.0 ? (int)x : INT32_MIN;
+}
+
+static int see_through(int kind)
+{
+    return kind == 37 || kind == 38 || kind == 39 || kind == 50 || kind == 51 || kind == 53
+           || kind == 54 || kind == 62;
+}
+
+static int sub6(int kind)       /* kind table 0x4f1a70: sub 6, the perspective-correct ones */
+{
+    return kind == 28 || kind == 31 || kind == 32 || kind == 50 || kind == 51 || kind == 53
+           || kind == 54 || kind == 62;
+}
+
+/* a batch closed: its pieces are g_span[first..] */
+static void batch_end(int first, int kind, const uint16_t *tex, uint16_t colour,
+                      const float g16[3])
+{
+    Batch *b;
+    if (g_nspan == first)
+        return;
+    if (g_nbatch >= BATCHES) {
+        g_nspan = first;
+        return;
+    }
+    b = &g_batch[g_nbatch++];
+    b->first = first, b->kind = kind, b->tex = tex, b->colour = colour;
+    b->g16[0] = g16 ? g16[0] : 0.0f, b->g16[1] = g16 ? g16[1] : 0.0f;
+    b->g16[2] = g16 ? g16[2] : 0.0f;
+    if (g_nbatch == BATCHES)
+        g_room = 0;
+}
+
 static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
-                 const uint16_t *tex)
+                 const uint16_t *tex, uint16_t colour)
 {
     uint16_t *o = g_screen + y * g_pitch;
     int x;
@@ -391,10 +493,15 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
             continue;
         }
         c = tex[((v >> 13) * 256 + (u >> 13)) & 0xffff];  /* 0x4a5e10, 0x4a5330, 0x4a5580 */
+        if (kind == 0x25) {                             /* 0x4a50c0: the face's colour */
+            if (c)
+                o[x] = colour;
+            continue;
+        }
         if ((kind == 0x26 || kind == 0x27) && c == 0)
             continue;
         if (kind == 0x15 || kind == 0x27)
-            c = (c >> 1) & 0x7bef;
+            c = (c >> 1) & HALF;
         o[x] = (uint16_t)c;
     }
 }
@@ -405,7 +512,7 @@ static void row(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
                 const uint16_t *tex)
 {
     int16_t out[2 * FREE_MAX];
-    int i, n = 0, deferred = kind == 0x26 || kind == 0x27;
+    int i, n = 0, deferred = see_through(kind);
     for (i = 0; i < g_nfree[y]; i++) {
         int a = g_free[y][2 * i], b = g_free[y][2 * i + 1];
         int s = a > x0 ? a : x0, e = b < x1 ? b : x1;
@@ -415,12 +522,10 @@ static void row(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
                 if (g_nspan < SPANS) {
                     Span *p = &g_span[g_nspan++];
                     p->y = (int16_t)y, p->x0 = (int16_t)s, p->x1 = (int16_t)e;
-                    p->kind = (uint8_t)kind;
                     p->u = us, p->v = vs, p->du = du, p->dv = dv;
-                    p->tex = tex;
                 }
             } else {
-                span(y, s, e, us, vs, du, dv, kind, tex);
+                span(y, s, e, us, vs, du, dv, kind, tex, 0);
                 if (n + 2 <= FREE_MAX) {
                     if (a < s)
                         out[2 * n] = (int16_t)a, out[2 * n + 1] = (int16_t)s, n++;
@@ -442,10 +547,11 @@ typedef struct {
 } Corner;
 
 /* 0x49dde0: an affine triangle, 13-bit fixed point, one du/dx and dv/dx */
-static void triangle(Corner c0, Corner c1, Corner c2, int kind, const uint16_t *tex)
+static void triangle(Corner c0, Corner c1, Corner c2, int kind, const uint16_t *tex,
+                     uint16_t colour)
 {
     int x0, y0, u0, v0, x1, y1, u1, v1, x2, y2, u2, v2, A, B, D, du, dv, r, nrow = 0;
-    int deferred = kind == 0x26 || kind == 0x27, first = g_nspan;
+    int first = g_nspan;
     struct { int y, cnt, xl, sl, xr, sr, ul, dul, vl, dvl; } rows[2];
     while (c1.sy < c0.sy || c2.sy < c0.sy) {            /* the top corner first */
         Corner t = c0;
@@ -524,19 +630,19 @@ static void triangle(Corner c0, Corner c1, Corner c2, int kind, const uint16_t *
             xl += rows[r].sl, xr += rows[r].sr, ul += rows[r].dul, vl += rows[r].dvl;
         }
     }
-    if (deferred && g_nspan > first && g_nbatch < BATCHES)
-        g_batch[g_nbatch++] = first;
+    if (see_through(kind))
+        batch_end(first, kind, tex, colour, 0);
 }
 
-/* 0x49d8f0 + 0x49e510: where the edge from B (behind) to F (in front) meets z = NEAR */
+/* 0x49d8f0 + 0x49e510: where the edge from B (behind) to F (in front) meets z = near */
 static Corner clip(const Point *b, int ub, int vb, const Point *f, int uf, int vf)
 {
     Corner c;
-    float x = (NEAR - b->z) * ((f->x - b->x) / (f->z - b->z)) + b->x;
-    float y = (NEAR - b->z) * ((f->y - b->y) / (f->z - b->z)) + b->y;
-    int dz = (int)(f->z - b->z), t = (int)(NEAR - b->z);
-    c.sx = (int)CX + (int)(x / NEAR);
-    c.sy = (int)CY - (int)(y / NEAR);
+    float x = (g_near - b->z) * ((f->x - b->x) / (f->z - b->z)) + b->x;
+    float y = (g_near - b->z) * ((f->y - b->y) / (f->z - b->z)) + b->y;
+    int dz = (int)(f->z - b->z), t = (int)(g_near - b->z);
+    c.sx = (int)CX + (int)(x / g_near);
+    c.sy = (int)CY - (int)(y / g_near);
     c.u = ub + t * (dz ? cdiv(uf - ub, dz) : uf - ub);
     c.v = vb + t * (dz ? cdiv(vf - vb, dz) : vf - vb);
     return c;
@@ -590,7 +696,6 @@ static void flat_row(int y, int xl, int xr, uint16_t c)
     }
     for (; i < nf; i++)
         KEEP(g_free[y][2 * i], g_free[y][2 * i + 1]);
-#undef KEEP
     memcpy(g_free[y], out, sizeof(int16_t) * 2 * n);
     g_nfree[y] = n;
 }
@@ -673,7 +778,7 @@ static void flat_face(const Face *f, int base)
         for (i = 0; i < 3; i++) {
             p[i] = &g_pt[base + f->idx[j[i]]];
             q[i].sx = p[i]->sx, q[i].sy = p[i]->sy, q[i].u = q[i].v = 0;
-            behind[i] = p[i]->z < NEAR;
+            behind[i] = p[i]->z < g_near;
             nb += behind[i];
         }
         if (nb == 0)
@@ -690,62 +795,425 @@ static void flat_face(const Face *f, int base)
     }
 }
 
-/* 0x49e510: a fan of triangles, each cut at the near plane */
-static void face(const Face *f, int base)
+/* ---------------------------------------------------------------- sub 6: perspective */
+
+typedef struct {
+    int sx, sy;
+    float rz, uz, vz;           /* 1/z, u/z, v/z (vertex +0x18 and the polygon's) */
+} Corner6;
+
+typedef struct {                /* what one triangle's rows share */
+    int kind;
+    const uint16_t *tex;
+    uint16_t colour;
+    float g[3], g16[3];         /* d(u/z, v/z, 1/z)/dx and 16 times it */
+} Tri6;
+
+/* 0x4a5c40 and its twins: (u, v) = 8192 (u/z, v/z) / (1/z) exactly every 16 pixels,
+   stepped linearly in between; u and v run on from block to block */
+static void span6(int y, int x0, int x1, const float e[3], const float g16[3], int kind,
+                  const uint16_t *tex, uint16_t colour)
+{
+    uint16_t *o = g_screen + y * g_pitch + x0;
+    int n = x1 - x0, k;
+    float uz = e[0], vz = e[1], rz = e[2];
+    double z, rze;
+    uint32_t u, v, du, dv;
+    if (n <= 0 || kind == 28 || kind == 50)             /* 0x4a5090, 0x4a50b0: ret */
+        return;
+    z = 8192.0 / rz;                                    /* 0x4f1a24 */
+    u = (uint32_t)ftol(uz * z);
+    v = (uint32_t)ftol(vz * z);
+    while (n) {
+        if (n >= 16) {
+            uz = (float)((double)g16[0] + uz);
+            vz = (float)((double)vz + g16[1]);
+            rze = (double)g16[2] + rz;
+            rz = (float)rze;
+            z = 8192.0 / rze;
+            du = (uint32_t)((int)((uint32_t)ftol(uz * z) - u) >> 4);
+            dv = (uint32_t)((int)((uint32_t)ftol(vz * z) - v) >> 4);
+            k = 16;
+        } else {
+            double m = 0.0625 * n;                      /* 0x4d1fb8 */
+            k = n;
+            uz = (float)(uz + g16[0] * m);
+            vz = (float)(vz + g16[1] * m);
+            rze = rz + g16[2] * m;
+            rz = (float)rze;
+            z = 8192.0 / rze;
+            du = (uint32_t)ftol((uz * z - (int)u) * (1.0 / k));   /* 0x4d1fc0 */
+            dv = (uint32_t)ftol((vz * z - (int)v) * (1.0 / k));
+        }
+        n -= k;
+        for (; k > 0; k--, o++, u += du, v += dv) {
+            unsigned c = tex[((v >> 13) * 256 + (u >> 13)) & 0xffff];
+            switch (kind) {
+            case 31: *o = (uint16_t)c; break;                       /* 0x4a5c40 */
+            case 32: *o = (uint16_t)((c >> 1) & HALF); break;       /* 0x4a5e90 */
+            case 53: if (c) *o = (uint16_t)c; break;                /* 0x4a53b0 */
+            case 54: if (c) *o = (uint16_t)((c >> 1) & HALF); break;   /* 0x4a5610 */
+            case 51: if (c) *o = colour; break;                     /* 0x4a5150 */
+            case 62:                                                /* 0x4a5890 */
+                if (c)
+                    *o = (uint16_t)(((*o >> 1) & HALF) + ((c >> 1) & HALF));
+                break;
+            }
+        }
+    }
+}
+
+/* 0x4a0260: the opaque edge, the row's free pieces walked as the game walks them */
+static void row6(int y, int xl, int xr, const float e[3], const Tri6 *t)
+{
+    int16_t out[2 * FREE_MAX];
+    int i = 0, n = 0, nf = g_nfree[y];
+    float es[3];
+#define KEEP(a, b) do { if (n < FREE_MAX) out[2 * n] = (int16_t)(a), out[2 * n + 1] = (int16_t)(b), n++; } while (0)
+    while (i < nf) {
+        int a = g_free[y][2 * i], b = g_free[y][2 * i + 1], d;
+        if (a < xl) {
+            if (b < xl) {
+                KEEP(a, b);
+                i++;
+                continue;
+            }
+            if (b < xr) {
+                span6(y, xl, b, e, t->g16, t->kind, t->tex, t->colour);
+                KEEP(a, xl);
+                i++;
+                continue;
+            }
+            span6(y, xl, xr, e, t->g16, t->kind, t->tex, t->colour);
+            KEEP(a, xl);
+            if (b > xr)
+                KEEP(xr, b);
+            i++;
+            break;
+        }
+        if (a > xr)
+            break;
+        d = a - xl;
+        es[0] = (float)(e[0] + d * (double)t->g[0]);
+        es[1] = (float)(e[1] + d * (double)t->g[1]);
+        es[2] = (float)(e[2] + d * (double)t->g[2]);
+        if (b > xr) {
+            span6(y, a, xr, es, t->g16, t->kind, t->tex, t->colour);
+            KEEP(xr, b);
+            i++;
+            break;
+        }
+        span6(y, a, b, es, t->g16, t->kind, t->tex, t->colour);    /* the piece used up */
+        i++;
+        if (b == xr)
+            break;
+    }
+    for (; i < nf; i++)
+        KEEP(g_free[y][2 * i], g_free[y][2 * i + 1]);
+#undef KEEP
+    memcpy(g_free[y], out, sizeof(int16_t) * 2 * n);
+    g_nfree[y] = n;
+}
+
+/* 0x4a04d0: the see-through edge, the free pieces under the row kept for the end */
+static void row6s(int y, int xl, int xr, const float e[3], const Tri6 *t)
+{
+    int i;
+    if (g_nspan == SPANS) {
+        g_room = 0;
+        return;
+    }
+    for (i = 0; i < g_nfree[y]; i++) {
+        int a = g_free[y][2 * i], b = g_free[y][2 * i + 1], s;
+        Span *p;
+        if (a < xl) {
+            if (b < xl)
+                continue;
+            s = xl;
+            p = &g_span[g_nspan];
+            memcpy(p->e, e, sizeof p->e);
+        } else {
+            if (xr < a)
+                return;
+            s = a;
+            p = &g_span[g_nspan];
+            p->e[0] = (float)(e[0] + (a - xl) * (double)t->g[0]);
+            p->e[1] = (float)(e[1] + (a - xl) * (double)t->g[1]);
+            p->e[2] = (float)(e[2] + (a - xl) * (double)t->g[2]);
+        }
+        g_nspan++;
+        p->y = (int16_t)y, p->x0 = (int16_t)s, p->x1 = (int16_t)(xr <= b ? xr : b);
+        if (xr <= b || g_nspan == SPANS)
+            return;
+    }
+}
+
+/* the row loop of 0x4a0700 (0x4a0ce9): rows of one part; a see-through part's pieces
+   make one batch */
+static void rows6(int y, int cnt, int *xl, int sl, int *xr, int sr, float e[3],
+                  const float de[3], const Tri6 *t)
+{
+    int see = see_through(t->kind), first = g_nspan, k;
+    if (see && !g_room)
+        return;
+    for (; cnt > 0; cnt--, y++) {
+        if (g_nfree[y]) {
+            if (see)
+                row6s(y, *xl >> 13, *xr >> 13, e, t);
+            else
+                row6(y, *xl >> 13, *xr >> 13, e, t);
+        }
+        for (k = 0; k < 3; k++)
+            e[k] = (float)((double)e[k] + de[k]);
+        *xl = wrap((long long)*xl + sl);
+        *xr = wrap((long long)*xr + sr);
+    }
+    if (see)
+        batch_end(first, t->kind, t->tex, t->colour, t->g16);
+}
+
+static void steps6(float de[3], const float *a, const float *b, int h)
+{
+    int k;
+    for (k = 0; k < 3; k++)
+        de[k] = (float)(((double)b[k] - a[k]) / h);
+}
+
+/* rows above the screen skipped: the values at row 0 */
+static void back6(float e[3], const float *from, const float de[3], int y)
+{
+    int k;
+    for (k = 0; k < 3; k++)
+        e[k] = (float)(from[k] - (double)de[k] * y);
+}
+
+static int bottom6(int cnt, int ylast)  /* rows past the last (0x625784) dropped */
+{
+    return H < ylast ? cnt + (H - ylast) : cnt;
+}
+
+/* 0x4a0700: a triangle with u/z, v/z and 1/z stepped along its left edge and across */
+static void tri6(Corner6 c0, Corner6 c1, Corner6 c2, Tri6 *t)
+{
+    int x0, y0, x1, y1, x2, y2, A, C, sl = 0, sr, xl = 0, xr, h, y, k;
+    float e0[3], e1[3], e2[3], e[3], de[3];
+    long long D;
+    while (c1.sy < c0.sy || c0.sy > c2.sy) {
+        Corner6 s = c0;
+        c0 = c1, c1 = c2, c2 = s;
+    }
+    x0 = c0.sx, y0 = c0.sy, x1 = c1.sx, y1 = c1.sy, x2 = c2.sx, y2 = c2.sy;
+    e0[0] = c0.uz, e0[1] = c0.vz, e0[2] = c0.rz;
+    e1[0] = c1.uz, e1[1] = c1.vz, e1[2] = c1.rz;
+    e2[0] = c2.uz, e2[1] = c2.vz, e2[2] = c2.rz;
+    D = (long long)(x0 - x2) * (y1 - y2) - (long long)(x1 - x2) * (y0 - y2);
+    if (D < 1)
+        return;
+    A = y1 - y2, C = y2 - y0;
+    for (k = 0; k < 3; k++) {       /* 0x655d1c, 0x655d18, 0x65e1c0; 16x: 0x68b020 ... */
+        t->g[k] = (float)((((double)e0[k] - e2[k]) * A + ((double)e1[k] - e2[k]) * C) / D);
+        t->g16[k] = 16.0f * t->g[k];
+    }
+    if (y1 <= y2) {                                     /* the long edge 0-2 on the left */
+        if (y0 >= y2 || y2 < 0)
+            return;
+        sl = cdiv(wrap((long long)(x2 - x0) << 13), C);
+        steps6(de, e0, e2, C);
+        xl = wrap((long long)x0 << 13);
+        memcpy(e, e0, sizeof e);
+        h = y1 - y0;
+        if (h > 0 && y1 >= 0) {
+            xr = wrap((long long)x0 << 13);
+            sr = cdiv(wrap((long long)(x1 - x0) << 13), h);
+            y = y0;
+            if (y0 < 0) {
+                xl = wrap(xl - (long long)y0 * sl);
+                back6(e, e0, de, y0);
+                xr = wrap(xr - (long long)y0 * sr);
+                h += y0, y = 0;
+            }
+            rows6(y, bottom6(h, y1), &xl, sl, &xr, sr, e, de, t);
+        }
+        h = y2 - y1;
+        if (h <= 0)
+            return;
+        sr = cdiv(wrap((long long)(x2 - x1) << 13), h);
+        xr = wrap((long long)x1 << 13);
+        y = y1;
+        if (y1 < 0) {
+            xl = wrap(((long long)x0 << 13) - (long long)y0 * sl);
+            back6(e, e, de, y0);
+            xr = wrap(xr - (long long)y1 * sr);
+            h += y1, y = 0;
+        }
+        rows6(y, bottom6(h, y2), &xl, sl, &xr, sr, e, de, t);
+    } else {                                            /* the long edge 0-1 on the right */
+        if (y1 <= y0 || y1 < 0)
+            return;
+        sr = cdiv(wrap((long long)(x1 - x0) << 13), y1 - y0);
+        xr = wrap((long long)x0 << 13);
+        h = C;
+        if (h > 0 && y2 >= 0) {
+            steps6(de, e0, e2, C);
+            sl = cdiv(wrap((long long)(x2 - x0) << 13), C);
+            xl = wrap((long long)x0 << 13);
+            memcpy(e, e0, sizeof e);
+            y = y0;
+            if (y0 < 0) {
+                xl = wrap(xl - (long long)y0 * sl);
+                back6(e, e0, de, y0);
+                xr = wrap(xr - (long long)y0 * sr);
+                h += y0, y = 0;
+            }
+            rows6(y, bottom6(h, y2), &xl, sl, &xr, sr, e, de, t);
+        }
+        h = y1 - y2;
+        if (h <= 0)
+            return;
+        sl = cdiv(wrap((long long)(x1 - x2) << 13), h);
+        steps6(de, e2, e1, h);
+        xl = wrap((long long)x2 << 13);
+        memcpy(e, e2, sizeof e);
+        y = y2;
+        if (y2 < 0) {
+            xl = wrap(xl - (long long)y2 * sl);
+            back6(e, e2, de, y2);
+            xr = wrap(((long long)x0 << 13) - (long long)y0 * sr);
+            h += y2, y = 0;
+        }
+        rows6(y, bottom6(h, y1), &xl, sl, &xr, sr, e, de, t);
+    }
+}
+
+/* 0x49d8f0 for the point, and the texture point in float: u = (uF - uB) / (zF - zB)
+   (near - zB) + uB, stored over near. spill: the values 0x4a1535 keeps in float
+   temporaries for the first point when one corner is in front */
+static Corner6 clip6(const Point *b, const Corner6 *cb, const Point *f, const Corner6 *cf,
+                     int spill)
+{
+    Corner c = clip(b, 0, 0, f, 0, 0);
+    Corner6 o;
+    double dz = (double)f->z - b->z, t = (double)g_near - b->z;
+    double ub = (double)cb->uz / cb->rz, vb = (double)cb->vz / cb->rz;
+    double uf = (double)cf->uz / cf->rz, vf = (double)cf->vz / cf->rz;
+    if (spill)
+        ub = (float)ub, vb = (float)vb, dz = (float)dz, t = (float)t;
+    o.sx = c.sx, o.sy = c.sy;
+    o.rz = (float)(1.0 / g_near);
+    o.uz = (float)(((uf - ub) / dz * t + ub) / g_near);
+    o.vz = (float)(((vf - vb) / dz * t + vb) / g_near);
+    return o;
+}
+
+/* 0x4a0f90: a fan, each triangle cut at the near plane */
+static void face6(const Face *f, int kind, int base, const uint16_t *tex)
+{
+    Tri6 t;
+    int k;
+    t.kind = kind, t.tex = tex, t.colour = (uint16_t)(f->colour & 0xffdf);
+    for (k = 1; k < f->n - 1; k++) {
+        int j[3] = { 0, k, k + 1 }, behind[3], nb = 0, i;
+        const Point *p[3];
+        Corner6 c[3];
+        for (i = 0; i < 3; i++) {
+            p[i] = &g_pt[base + f->idx[j[i]]];
+            c[i].sx = p[i]->sx, c[i].sy = p[i]->sy;
+            c[i].rz = (float)(1.0 / p[i]->z);
+            c[i].uz = (float)((double)f->ut[j[i]] * c[i].rz);
+            c[i].vz = (float)((double)f->vt[j[i]] * c[i].rz);
+            behind[i] = p[i]->z < g_near;
+            nb += behind[i];
+        }
+        if (nb == 0)
+            tri6(c[0], c[1], c[2], &t);
+        else if (nb == 1) {                             /* two in front */
+            int r = behind[0] ? 0 : behind[1] ? 1 : 2, a = (r + 1) % 3, b = (r + 2) % 3;
+            Corner6 p1 = clip6(p[r], &c[r], p[a], &c[a], 0);
+            Corner6 p2 = clip6(p[r], &c[r], p[b], &c[b], 0);
+            tri6(c[a], c[b], p1, &t);
+            tri6(c[b], p2, p1, &t);
+        } else if (nb == 2) {                           /* one in front */
+            int r = !behind[0] ? 0 : !behind[1] ? 1 : 2, a = (r + 1) % 3, b = (r + 2) % 3;
+            tri6(c[r], clip6(p[a], &c[a], p[r], &c[r], 1), clip6(p[b], &c[b], p[r], &c[r], 0),
+                 &t);
+        }
+    }
+}
+
+/* ---------------------------------------------------------------- 0x4aef20 */
+
+static void face(const Face *f, int kind, int base)
 {
     const uint16_t *tex;
     int k;
-    if (f->kind == 0) {
+    if (kind == 0) {
         flat_face(f, base);
         return;
     }
-    if (f->kind != 0x10 && f->kind != 0x15 && f->kind != 0x26 && f->kind != 0x27) {
+    if (kind == 5)                                      /* 0x4a4bc0: ret */
+        return;
+    if (!sub6(kind) && kind != 0x10 && kind != 0x15 && kind != 0x25 && kind != 0x26
+        && kind != 0x27) {
         static int told;
         if (!told++)
-            fprintf(stderr, "openmotoracer: 3D face kind %d is not written yet\n", f->kind);
+            fprintf(stderr, "openmotoracer: 3D face kind %d is not written yet\n", kind);
         return;
     }
     tex = f->page >= 0 && f->page < R3D_PAGES ? g_texpage[f->page] : 0;
     if (!tex)
         return;
+    if (sub6(kind)) {
+        face6(f, kind, base, tex);
+        return;
+    }
+    if (see_through(kind) && !g_room)
+        return;
     for (k = 1; k < f->n - 1; k++) {
         int j[3] = { 0, k, k + 1 }, behind[3], nb = 0, i;
         const Point *p[3];
         Corner c[3];
+        uint16_t colour = (uint16_t)(f->colour & 0xffdf);
         for (i = 0; i < 3; i++) {
             p[i] = &g_pt[base + f->idx[j[i]]];
             c[i].sx = p[i]->sx, c[i].sy = p[i]->sy;
             c[i].u = f->u[j[i]], c[i].v = f->v[j[i]];
-            behind[i] = p[i]->z < NEAR;
+            behind[i] = p[i]->z < g_near;
             nb += behind[i];
         }
         if (nb == 0)
-            triangle(c[0], c[1], c[2], f->kind, tex);
+            triangle(c[0], c[1], c[2], kind, tex, colour);
         else if (nb == 2) {                             /* one corner in front */
             int r = !behind[0] ? 0 : !behind[1] ? 1 : 2, a = (r + 1) % 3, b = (r + 2) % 3;
             triangle(c[r], clip(p[a], c[a].u, c[a].v, p[r], c[r].u, c[r].v),
-                     clip(p[b], c[b].u, c[b].v, p[r], c[r].u, c[r].v), f->kind, tex);
+                     clip(p[b], c[b].u, c[b].v, p[r], c[r].u, c[r].v), kind, tex, colour);
         } else if (nb == 1) {                           /* two in front */
             int r = behind[0] ? 0 : behind[1] ? 1 : 2, a = (r + 1) % 3, b = (r + 2) % 3;
             Corner p1 = clip(p[r], c[r].u, c[r].v, p[a], c[a].u, c[a].v);
             Corner p2 = clip(p[r], c[r].u, c[r].v, p[b], c[b].u, c[b].v);
-            triangle(c[a], c[b], p1, f->kind, tex);
-            triangle(c[b], p2, p1, f->kind, tex);
+            triangle(c[a], c[b], p1, kind, tex, colour);
+            triangle(c[b], p2, p1, kind, tex, colour);
         }
     }
 }
 
 void r3d_render(void)
 {
-    int b, e, i;
+    int b, e, i, n = 0;
     for (b = 0; b < BUCKETS; b++)                       /* nearest first */
         for (e = g_head[b]; e >= 0; e = g_entry[e].next)
-            face(g_entry[e].f, g_entry[e].base);
-    g_batch[g_nbatch] = g_nspan;
-    for (b = g_nbatch - 1; b >= 0; b--)                 /* 0x4af130: the last first */
-        for (i = g_batch[b + 1] - 1; i >= g_batch[b]; i--) {
+            if (n++ <= FACES_MAX)
+                face(g_entry[e].f, g_entry[e].kind, g_entry[e].base);
+    g_batch[g_nbatch].first = g_nspan;
+    for (b = g_nbatch - 1; b >= 0; b--) {               /* 0x4af130: the last first */
+        const Batch *t = &g_batch[b];
+        for (i = g_batch[b + 1].first - 1; i >= t->first; i--) {
             const Span *p = &g_span[i];
-            span(p->y, p->x0, p->x1, p->u, p->v, p->du, p->dv, p->kind, p->tex);
+            if (sub6(t->kind))
+                span6(p->y, p->x0, p->x1, p->e, t->g16, t->kind, t->tex, t->colour);
+            else
+                span(p->y, p->x0, p->x1, p->u, p->v, p->du, p->dv, t->kind, t->tex,
+                     t->colour);
         }
+    }
     r3d_begin();
 }

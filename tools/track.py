@@ -5,7 +5,7 @@
     python3 -I tools/track.py top   TRK out.png         top view (road blocks, centre line)
     python3 -I tools/track.py tops  DATA OUTDIR         top view of every data/ile*/ *.trk
 
-The reader follows the game's loader 0x40d650 (build/notes/track.md has the addresses).
+The reader follows the game's loader 0x40d650 (docs/NOTES.md §4.13 has the addresses).
 File layout, all little-endian, version v (every shipped track is v = 5):
 
     "TRK\\0", i32 v, i32 nsec
@@ -344,10 +344,9 @@ def race_view(trk, bkf, campos, C, focal=394.0, out=None, sec=None, detail=4, de
     394 x zoom at 640x480)."""
     sys.path.insert(0, str(Path(__file__).parent))
     import model
-    R = fallback_renderer(model)
-    if os.environ.get("OMR_RASTER"):         # the sub-6 / kind-0 reference, when written
-        sys.path.insert(0, os.environ["OMR_RASTER"])
-        from track_raster import RaceRenderer as R
+    from track_raster import RaceRenderer as R
+    if os.environ.get("OMR_AFFINE"):         # the first attempt: the menu's spans alone
+        R = fallback_renderer(model)
     model.FOCAL, model.NEAR = f32(focal), 64.0
     t = read_track(trk) if isinstance(trk, (str, Path)) else trk
     pages, _ = bank_pages(bkf)

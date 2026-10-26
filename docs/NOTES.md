@@ -3480,6 +3480,647 @@ build/orig and the prefix, own Weston socket) avoided it.
   tile picture (paralax1/2, CHFOND...).
 
 
+### 4.13 The race's track: files, the .trk, how the race draws it (mapped 2026-10-26)
+
+Marks: **[asm]** read instruction by instruction, **[decomp]** from Ghidra's C, **[test]**
+checked by running/rendering (the original under wine, frozen, its memory dumped),
+**[guess]**. Tools: `tools/track.py` (read, summarise, top views, a race view),
+`tools/track_raster.py` (the race's span kinds as `tools/model.py`'s renderer extended),
+`tools/track_horizon.py` (the far background); captures in the private
+`build/trackcap/` (`orig_track.sh`, `dump.sh`, `loop.sh`).
+
+#### 4.13.1 Files, the .trk format, which pieces are drawn
+
+Confidence marks: **[asm]** read instruction by instruction in `build/mr.asm`, **[decomp]**
+from Ghidra's C (fine for control flow, not for x87 numbers), **[test]** checked by
+running/rendering (the original under wine, frozen and its memory dumped), **[guess]**.
+
+Tools (mine): `tools/track.py` (read, summarise, top views, a race view through the
+renderer of `tools/model.py`), `tools/track_horizon.py` (the far background,
+written by a helper), `tools/track_raster.py` (the race's span kinds, written by
+a helper), `build/trackcap/` (captures of the original's race with memory dumps, private
+runner `orig_track.sh`, `dump.sh`, `loop.sh`).
+
+```
+python3 -I tools/track.py info  "Moto Racer/data/ile01/ile01.trk"
+python3 -I tools/track.py tops  "Moto Racer/data" build/png/tracks
+python3 -I tools/track.py view  TRK BKF out.png  x y z  tx ty tz  [focal]
+```
+
+---
+
+##### 4.13.1.1 What a race loads, in order
+
+Menu page 1 (the loading page) `0x40b3f0` [asm/decomp]:
+1. `"%sload.lez"` (the loading picture, Bitmap_Load), sets `*0x4dc0c4 = 0` (race kind
+   remap, §5.4).
+2. `"%sLevel.Spt"` read by the script reader `0x427e80` (fields in §3).
+3. The race object's vtable +4 = `0x47b420(track index 0x4dc08c, mode)`:
+
+| # | routine | what it reads / does |
+|---|---|---|
+| 1 | `0x4191a0(0x52c0d8)` | player list / bikes chosen (menu state) [decomp] |
+| 1b | `0x4136a0` | time-attack ghost, only if `0x4dc148` [decomp] |
+| 2 | `0x4191a0(0x52c0f0)` | second list [decomp] |
+| 3 | `0x4100f0` | resets [decomp] |
+| 4 | `0x410120` | cameras 0..3: `0x46da40` sets offset (0, 191, −484) (+0x50..+0x58), +0x114/+0x118 = MediumZone/HightZone of the detail row (§3) [asm] |
+| 5 | `0x410270` | Level.Spt again through `0x427e80` [asm] |
+| 6 | `0x410450` | the bike script: `FileMoto` 0x51d068 or `FilePkt` 0x51d0a8 through `0x429e20` (FileBnk0/1, FileMotoMed/Low/VeryLow, wheels, Skl…), then the 8 bike entries at 0x519de4 through `0x42a580` (Materials…) [decomp] |
+| 7 | `0x410590` | **texture pages**: counter reset `0x401f90`; page 0 = bike bank 0x518b20, page 1 = 0x518b60, **pages 2..19 = the level's `bank\bnk00_02.raw` … `bnk00_19.raw`** (entries at 0x51bfe8 + k·0x40) through `0x401d90` → `0x401160` [asm] |
+| 8 | `0x40d650(0x51cee8)` | **the track `.trk`** (`FileLand`), into the track object 0x52c108 (§2) [asm] |
+| 9 | — | counts the checkpoints → 0x4e9844 [decomp] |
+| 10 | `0x410350` | the horizon: HorizHi/HorizMed/HorizLow.raw, only the one for ScreenMode 0x4dc0c8 is kept (§4.13.3 §1) [asm] |
+| 11 | `0x410a10` | `0x45b340` per entry of 0x5191e0 (reads files; not followed) |
+| 12 | `0x410a50` | bikes: `0x45bf70`, start positions `0x45c7c0` from StartPosition 0x51bfd8.. [decomp] |
+| 13 | `0x410d70` | the WAV samples (sound helper's topic) |
+| 14 | `0x47b600` | podium pictures `FINAL\1rst`, `2nd`, `3rd`, `Laureat` (`0x420a50`, `0x420250` recentres) [decomp] |
+| 15 | `0x410e10` | renderer set-up: near 0x625774 = **64.0**, far 0x625788 = 10000, 0x62e438 = 2000 max faces, 0x62e444 = 1 (s-buffer on), 0x6d1f70 = FlatZ[detail]; `0x4592a0` screen: **fx = W·394/640, fy = H·394/480** (0x49a0e0/0x49a100), centre W/2, H/2 (0x499ba0) [asm] |
+| 16 | `0x40faf0`, `0x4020b0` | checksums of data [decomp] |
+| 17 | `0x410ee0`, `0x4100a0` | final resets [decomp] |
+
+**Dead file names** [asm, grep of every reference]: `FileFrame3d` 0x51cf28, `FileDecor`
+0x51cf68, `DecorInv` 0x51cfa8, `FileNet` 0x51cfe8, `FileMap` 0x51d028, `FileBalise`
+0x51d0e8, `FileSmallMap` 0x51d128 are only written by the script reader, never read; the
+files are not shipped either. The minimap is a model inside the track object (+0x28,
+`0x40ed10`). Paths: every file is tried with the HD prefix 0x4e8380 then the CD prefix
+0x4e8480.
+
+So, for one track, from `data/ileNN/`: `load.lez`, `Level.Spt` (BPT), the bike scripts
+and banks (shared), `bank\bnk00_02..19.raw` (from the level's BKF), the `.trk`,
+`bank\HorizHi.raw` (or Med/Low), samples, `FINAL\*` pictures.
+
+##### 4.13.1.2 The .trk format (loader 0x40d650) [asm, test: all 10 tracks parse to the last byte]
+
+All little-endian. Every shipped track is version 5. In-memory offsets in brackets.
+
+```
+"TRK\0"  i32 version  i32 nsec
+nsec sections (0xfc bytes in memory, array at track+0):
+  3f   pos                       [+0x00]
+  9f   axes rows X (across), Y (up), Z (along the road)   [+0x0c]
+  3f   offset (always 0)         [+0x30]
+  u32  block (road model index)  [+0x3c]   = i/4 almost everywhere (4 sections per block)
+  4x4f planes (n, d)             [+0x40 +0x50 +0x60 +0x70]  rebuilt at load by 0x40e5c0
+  f    racing line, lateral offset from pos along X   [+0xb0] (AI, 0x46b120 [decomp])
+  v>0: i32 n, n x u16 decor indices  [+0xb4, count +0xd4, at most 16]
+  v>3: f left edge, f right edge     [+0xf0, +0xf4]
+i32 nblock, nblock road models (0x70 bytes each in memory, array track+8, count +0x10):
+  model (0x422a20, faces on): i32 nv, nv x (3f pos, u32 dropped),
+        i32 nf, nf faces (0x423240, version < 6 form):
+        u16 kind [+0], u16 flags [+0x38], u16 colour RGB565 [+2], u16 texture page [+0x36],
+        5 u16 corners [+0x2c] (5th = 0xffff: triangle; else quad, 5th unused),
+        5 x (f u, f v) in texels [+4]
+v>0: i32 nlib, nlib library entries (0x79 bytes; three arrays 0x4dc0d8/dc/e0, count 0x509b9c):
+        i32 len, name, 3 models: near / medium / far   (name at +0x70)
+     i32 ndecor, ndecor decor objects (array 0x4dc0e4, count 0x4dc0ec):
+        i32 len, name, 3f pos, 3f angles (a, b, c), i32 lib, v>4: i32 animation
+v>1: i32 n2, n2 records for sections 0..n2-1 (n2 = nsec on every track):
+        i16 checkpoint number (-1 none) [+0xd8], u16 time [+0xda] (replaced by
+        TimeCheckPoint from Level.Spt), u16 ? [+0xde],
+        v>3: i32 event [+0xec], i32 ground off road [+0xe8], i32 ground on road [+0xe4],
+             i32 flag 0/1 [+0xe0]
+v>2: i32 horizon offset -> 0x4db2b0, f32 horizon scale -> 0x4db2b4 (§4.13.3 §8)
+     "AnimDecor\0" block (0x48b7e0): i32 version, i32 n, n records of 0x20 (or 0x40)
+        bytes: word0 = decor | type<<16 | sub<<24; type 7 with version > 2 adds i32 nframes,
+        i32 npoints, frames of 3f (paths) [asm for the reader, semantics not followed]
+```
+
+Section fields as the game uses them:
+- **Section walk** `0x40c7e0(hint)`: from the hint, step forward while the point is on the
+  positive side of the next section's start plane (+0x40), backward while negative of its
+  own [asm]. `0x40c740` = nearest section by distance (no hint) [asm].
+- **Planes** (+0x40..+0xa0, 7 of them): rebuilt from pos and axes with ±2048 offsets
+  (0xc5000000/0x45000000) by `0x40e5c0` [asm].
+- **Road or not** `0x40ec60`: lateral = X·(p − pos); within [+0xf0, +0xf4] → ground
+  material +0xe4, else +0xe8 [asm].
+- **Events** `0x486240`: code +0xec 0..5 (16..21 when racing in reverse, 0x4dc140 = −1)
+  set flags 0x5d2edc.. with 75.0 [asm] — the turn-warning signs on the HUD [guess];
+  6..12 toggle bits of the zone mask +0xf8 [asm].
+- +0xde: no reader found; looks like leftovers [guess].
+
+Numbers per track (`track.py info`): 435 to 1048 sections, 110 to 262 blocks, 8 000 to
+16 800 road faces, 41 to 257 decor objects. Road face kinds used: 0 (flat colour), 16 and
+21 (textured), 38 and 39 (textured, see-through/other; §5.4). Texture pages 2..19 only.
+
+**Top views** `build/png/tracks/ile01..ile11.png` and `sheet.png` [test]: every track is a
+**closed circuit**: the last section ends 271–922 units from the first (sections are
+about 500 units long). Road faces filled with their colour field, white road edges from
+X × (+0xf0, +0xf4), red centre line, blue racing line, yellow decor, green checkpoints.
+No track is point-to-point.
+
+##### 4.13.1.3 Level.Spt fields the race uses (0x427e80) [asm]
+
+NewMotorEngine 0x52c234, the file names (above), the bank list (entries: name, D3D twin or
+NULL, int flags → 0x51d168 + 4k), StepGlobal 0x4dbfe0, YScaleLevel 0x516aa8,
+StartPositionX/Y/Z 0x51bfd8.. (ints made floats), ComputeLandOptimise 0x5d2eac, AI tuning
+0x5427b8.., NbComputer 0x4dbfcc, ComputerSpeed, TimeSkill, NbCheckPoint 0x4dbfd0,
+TimeCheckPoint 0x509228.. (overwrites section +0xda), FactorPocket 0x4dbfd8, AudioTrack
+0x4db67c, and **the detail table**: 5 rows × 9 floats at 0x51d1b8 (row stride 0x24), the
+row = CurrentDetail 0x4dc098 from CONFIG (4 in the GOG install):
+
+| col | name | ILE01 rows 0..4 |
+|---|---|---|
+| 0 | LenRLPlane (side planes) | 3500 … |
+| 1 | LenBPlane (far plane) | 18000 … |
+| 2 | FlatZ → 0x6d1f70 | 4000 3000 4000 4000 8000 |
+| 3 | HorizFlatZ | |
+| 4 | MediumZone (int) → cam +0x114 | 5500 … |
+| 5 | HightZone (int) → cam +0x118 | 3500 … |
+| 6 | gouraudTexturedZ | 0 0 0 4000 32000 |
+| 7 | texturedZ | 0 0 8000 12000 48000 |
+| 8 | gouraudZ | 0 4000 12000 22000 52000 |
+
+Columns 6..8 are copied every frame by `0x47ff90` into 0x6d20c8 / 0x62435c / 0x6d20d0,
+and FlatZ into 0x6d1f70, but **no reader of those four globals was found** by address
+[asm grep]; they may be read through a pointer, or be dead (the software path's choice of
+span is the kind remap, §5.4). Open.
+
+##### 4.13.1.4 Camera [asm/decomp, test]
+
+Camera blocks at 0x5161c0 + i·0x238 (i = 0..3):
+`+0` bike pointer, `+4` bike index, `+8` mode (7 chase `0x46f840`, 3 TV/look-at, 6, 1),
+`+0x50..+0x58` offset behind the bike (0, **191**, **−484**), `+0x68` **C** (3×3, camera
+coordinates = (world − pos) · C, forward = column 2) [test], `+0x8c` T (0 in every dump),
+`+0x98` position, `+0xa4` target, `+0xc0` angle (billboards use it), `+0xd4..+0x110`
+frustum planes (`0x46e320`: far = LenBPlane, sides from 0.6·0x6d1f74), `+0x114/+0x118`
+MediumZone/HightZone, `+0x1dc` 64.0 ×8, `+0x224..` chase extra distances (0, 128, 256,
+512). Chase lerp constants 0x4d1404 = 0.2, 0x4d1408 = 0.5, 0x4d140c = 1/3 [decomp].
+Replay/TV cameras `0x46e9f0` zoom through `0x49a120` (a dump had ×3: fx 1182); `0x4583e0`
+resets zoom to 1.
+
+Projection (the same as NOTES §4.9): **fx = fy = 394 at 640×480** (0x6d20c4), centre
+(320, 240), **near 64**, far 10000 (clip), 2000 faces at most.
+
+##### 4.13.1.5 How the race draws the track
+
+###### 5.1 The frame `0x47ff90` [asm/decomp]
+`0x459130`; the zone globals (§3); `0x4816c0`; **`0x402960` the horizon** (software: before
+the lock `0x49a160` — it is blitted straight onto the back surface, the 3D is drawn over
+it); **`0x40c7e0` current section** with the player's section as hint (`0x40c740` nearest
+when there is none); **`0x46e320` frustum planes**; **`0x40ce60` road blocks + decor**;
+`0x458b80` (if DrawLand 0x4e9900) per visible section — the bikes/shadows [guess];
+`0x4575c0`/`0x4573e0`; with param & 8: `0x484810`, `0x40f2d0`, `0x486310`, `0x47b7a0`;
+**`0x49ad90` render** (buckets → s-buffer → spans, NOTES §4.9); HUD; `0x49b0e0` flip.
+
+There is **no sky model and no fog**: the sky is the horizon picture plus two colour fills
+(§4.13.3); everything else is road blocks and decor models.
+
+###### 5.2 Which blocks are drawn: `0x40ce60` [asm, test]
+From the camera's section s and its block b0 = s.block, with forward f = C column 2 and
+the section's start-plane normal n:
+- f·n ≥ 0.25 (looking along the road): **10 blocks ahead, 1 behind**;
+- −0.25 < f·n < 0.25 (sideways): 5 and 5;
+- else (looking back): 1 ahead, 10 behind.
+(10 = track +0x24, set by the constructor `0x40c560`.)
+Blocks drawn: b0, b0+1 … b0+ahead, b0−1 … b0−behind (wrapping). Each block model is
+drawn with the identity rotation at its own world coordinates. The decor list: the decor
+indices (+0xb4) of sections s … s+4·ahead+4, then s−1 … s−(4·behind+4); each decor object
+drawn once. **Decor only when the detail level ≠ 0.** Library entries named `CAMERA…`
+are skipped (`0x473240`) [asm].
+
+###### 5.3 Decor objects (class vtable 0x4d0110) [asm]
+- init `0x4022a0`: pos +0x20, angles +0x14, model A +0x4c, visible +0x2c.
+- vtable 0x4d0110: +0 0x402230 (destructor), +4 0x4022a0 init, +8 0x403190, **+0xc
+  0x4022f0 = what `0x40ce60` calls**, +0x10 0x403180 [asm, pefile].
+- `0x4022f0` (the race's draw) **always draws the near model +0x4c**: matrix `0x403880`,
+  `0x49b2c0(.., model+4, model+0x30, 0x1f)` then `0x49b7f0(.., faces model+0 + model+0x68·64,
+  count model+0x2c − model+0x68, 1)` [asm]. My render does the same and matches [test].
+- `0x403190` (vtable +8, the same draw with LOD; caller not found): distance d (ftol of
+  the length) < cam+0x118 (HightZone) → +0x4c; else < cam+0x114 (MediumZone) → +0x54;
+  else d < 0x1400 → +0x58; else nothing (a missing model falls through to the next)
+  [asm]. Probably the D3D or an older path [guess].
+- matrix `0x403880` from angles (a, b, c), with s/c of each:
+  R0 = (cc·cb + sc·sb·sa, sc·ca, sc·sa·cb − cc·sb),
+  R1 = (cc·sb·sa − sc·cb, cc·ca, cc·sa·cb + sc·sb),
+  R2 = (sb·ca, −sa, ca·cb).
+- billboards: if model +0x5c == 1, angle b = cam +0xc0 (faces the camera).
+- animated objects (+0x30) go through `0x49b490` with the AnimDecor paths (not done).
+
+###### 5.4 Kinds in the race: `0x49c590` remap [asm]
+`*0x4dc0c4 == 0` in the race (1 in the menus). With the property table 0x6d1f88 and the
+reverse map 0x624b58 (built in `0x4995a0`):
+- detail 4: a face whose sort key < 6144 gets props | 0x20 → **16→31, 21→32, 38→53,
+  39→54**: the near road is drawn with **perspective-correct spans** (span sub-type 6,
+  divide every 16 pixels: `0x4a5c40`, `0x4a5e90`, `0x4a53b0`, `0x4a5610`; polygon
+  `0x4a0f90`, edges `0x4a0260`/`0x4a04d0`);
+- detail 3: the same below key 3072;
+- detail 0..2: textures dropped (16/21 → 0 flat colour, 38/39 → 37) unless detail 2 and
+  face flags & 8.
+Sort key = the face's farthest Z, +1024 when flags & 2; bucket = key / 4 (as the menu's).
+The sub-6 spans, clip and edge rules in full: `§4.13.2`  [asm].
+
+###### 5.5 Gouraud? No [asm, §4.13.2 §3]
+The light values (0x68b00c, 0x6d1f80, 0x655d30) are read only by polygon routines to fill a
+batch field and by span kinds the tracks do not use; **no span of kinds 0, 16, 21, 28, 31,
+32, 37, 38, 39, 50, 51, 53, 54, 62 reads them**. No gouraud, no fog on the tracks. The
+gouraud*Z globals written per frame are therefore without effect in the software race.
+Flat colour (kind 0 and the stencil kinds 37/51) = face colour & 0xFFDF.
+
+##### 4.13.1.6 Rendering a track in the tool, and the check against the original [test]
+
+`track.race_view()` takes a camera (pos, C, focal), finds the section like the game,
+picks the blocks and decor like `0x40ce60`, transforms with the menu renderer of
+`tools/model.py` set to the race constants (focal 394, near 64), remaps kinds like
+`0x49c590`, draws the horizon (`track_horizon.draw_horizon`, offset/scale from the .trk),
+textures = the level's BKF pages 2..19.
+
+Captures: the original run privately (`build/trackcap/orig_track.sh`, its own Weston
+socket and wine prefix), frozen with SIGSTOP every 3 s and its memory dumped
+(`dump.sh`: camera blocks 0x5161c0, track 0x52c108, visible list 0x5dabc8, globals,
+screen 0x6d1040/0x624f80/0x625770/0x6d1f70/0x6d20c0). The tool renders with the dumped
+camera; `*_cmp.png` = original | tool:
+
+| capture | track, camera | section game / tool | pixels off by > 24 |
+|---|---|---|---|
+| p2 | West Way, TV (×1) | 594 / 594 | 17 944 |
+| p3h | Snow Ride, chase, horizon | 51 / 51 | 28 249 |
+| p7h | Snow Ride | 129 / 129 | 39 825 |
+| q14h | West Way, chase | 5 / 5 | 33 121 |
+| q15h | West Way, TV ×3 (fx 1182) | 12 / 12 | 36 839 |
+| q17h, q19h, q20h, q22h | West Way | 131/130, 170/169, 254/253 | 29 440 … 53 864 |
+
+(of 307 200), with the menu's affine spans for every kind. **With the race rasterizer**
+(`track_raster.RaceRenderer`: sub-6 perspective spans for
+31/32/53/54, kind 0 flat, 37 stencil) the same captures, `*r_cmp.png`:
+
+| capture | pixels off by > 24 |
+|---|---|
+| q14r (West Way start, chase) | 18 201 |
+| q15r (TV ×3) | 15 537 |
+| q17r / q19r / q20r / q22r | 15 079 / 18 985 / 21 333 / 12 862 |
+| p3r / p7r (Snow Ride) | 14 059 / 17 280 |
+
+What is left is almost all the bikes, riders, shadows and HUD (not drawn by the tool):
+the road's lane marks, the canyon walls, the buildings and the horizon line up with the
+original by eye. The text below describes the first, affine, attempt. The land, decor, horizon picture, its height and the fill colours line up
+with the original; what differs is the bikes/riders/shadows/HUD (not drawn by the tool)
+and the near road: the tool's fallback draws kinds 31/32/53/54 with affine spans, so the
+road's lane markings zig-zag where the original's are straight, and a canyon wall face
+crossing the near plane (q20, ILE02 block 42 faces 34..37, kind 16 → 31) comes out as a
+dark wedge at the top right where the original shows the lit wall. The game's decor list
+in the q20 dump (0x5dabd8, 53 entries: sections 170..214 then 169..162) is exactly the
+§5.2 rule for section 170 [test]. The section is the game's
+or one less (the game walks from the previous frame's section with the bike's position;
+the tool starts from the camera — expected, not a bug).
+
+##### 4.13.1.7 Open questions
+
+- AnimDecor: types and sub-types, how `0x49b490` moves the objects (boats, gulls, people).
+- Event codes (+0xec) and the HUD signs: which sprite each code shows.
+- `0x458b80` (per visible section; bikes and shadows?).
+- The chase camera's exact motion (`0x46f840`): lerps 0.2/0.5/(1/3), extra distances.
+- FlatZ 0x6d1f70 and the gouraud zone globals: written, no reader found (no gouraud
+  span is used on tracks, §5.5) — probably D3D-only.
+- Kinds 28 and 50 (spans that draw nothing): invisible occluders? Not seen in the
+  shipped road faces (kinds 0/16/21/38/39 only).
+- +0xde in the second section table.
+- Who calls the decor LOD method (vtable +8, 0x403190); in the race frame only +0xc is
+  called, so the medium/far library models look unused in the software race.
+
+##### 4.13.1.8 What the port needs, in order
+
+Done (§4.13.4): the .trk, pages 2..19, the section walk, block/decor visibility, the race's
+renderer set-up and kinds, the horizon, the decor matrix, a still test camera.
+Left: billboards (+0x5c), the chase camera `0x46f840` behind the player's bike (needs the
+bike: physics, models), AnimDecor, event signs, the minimap model (+0x28).
+
+#### 4.13.2 The race's rasterizer (sub 6 perspective, kind 0 flat, kinds 37/51/62)
+
+Read from `build/mr.asm` (decomp only as a guide). Marks: [asm] read instruction by
+instruction, [skim] read the shape only, [guess] not proven. Python reference:
+`tools/track_raster.py` (`RaceRenderer`, a `tools/model.py` Renderer subclass; used by
+`tools/track.py`). Tested on ile01 at detail 4 and 2: no
+errors, the road now has perspective-correct texture, kind 37 palms are leaf shapes.
+
+##### 4.13.2.1 Dispatch (0x4aef20) [asm]
+
+Bucket entry +0x10 == 0 and 0x6d20a0 == 0 → entry = 0x4f1a70 + face(+0x3a kind)·16
+{id, sub, flag, span}; id < 0 → skip. `sub == 0` → the span field is the *polygon* routine,
+called (vertices, face) directly (kind 0 → 0x4a3950). Else 0x68b010 = flag, 0x624358 = id,
+0x655d08 = span, 0x6d20bc = sub.edge (sub.edge_seethrough if flag), call sub.polygon.
+
+| kind | sub | flag | span | what it draws |
+|---|---|---|---|---|
+| 0 | 0 | 0 | 0x4a3950 (polygon) | flat colour |
+| 28 | 6 | 0 | 0x4a5090 `ret` | nothing, but closes the s-buffer |
+| 31 | 6 | 0 | 0x4a5c40 | texel |
+| 32 | 6 | 0 | 0x4a5e90 | texel halved |
+| 37 | 4 | 1 | 0x4a50c0 | face colour where texel != 0 (affine) |
+| 50 | 6 | 1 | 0x4a50b0 `ret` | nothing (segments still recorded) |
+| 51 | 6 | 1 | 0x4a5150 | face colour where texel != 0 |
+| 53 | 6 | 1 | 0x4a53b0 | texel, 0 = hole |
+| 54 | 6 | 1 | 0x4a5610 | texel halved, 0 = hole |
+| 62 | 6 | 1 | 0x4a5890 | ((screen>>1)&m) + ((texel>>1)&m), 0 = hole |
+
+Sub 6: polygon 0x4a0f90, edge 0x4a0260 (opaque) / 0x4a04d0 (see-through) [asm].
+Kind 5 → 0x4a4bc0 (`ret`).
+
+##### 4.13.2.2 Colour (all of 0, 37, 51) [asm]
+
+0x49e510, 0x4a0f90 and 0x4a3950 all do: c = face+0x02; c555 = ((c & 0xffc1) >> 1) | (c & 0x1f);
+0x402020 turns 5:5:5 back into the screen format → **net colour = face.colour & 0xFFDF**
+(green's lowest bit cleared) → 0x624364 (low word).
+
+##### 4.13.2.3 Light / gouraud (question 3) [asm]
+
+Readers of 0x68b00c (avg light of 3 corners, int /3) and 0x6d1f80 / 0x655d30: only the
+polygon routines (to fill batch +0x20), sub 5 (0x49ed50–0x49fa10), 0x4a17d3–0x4a25c4,
+0x4a6100+, 0x4ac0cb–0x4ae6d4 and 0x4adc1f. **No span used by kinds 0, 16, 21, 28, 31, 32, 37,
+38, 39, 50, 51, 53, 54, 62 reads them**, nor does kind 0's edge 0x4a2f10. No gouraud on
+tracks. (The vertex +0x0c from 0x49b2c0's last argument is only averaged and stored.)
+
+##### 4.13.2.4 Kind 0 (0x4a3950 → 0x4a34f0 → 0x4a2f10) [asm]
+
+Already in `tools/model.py` (`face_flat`, `flat_triangle`, `flat_row`) and right for the race
+too (it reads `model.NEAR`, set to 64 by track.py): fan (0,1,2) then (0,2,3) if face +0x34
+!= 0xffff; near cut per triangle like 0x49e510; no area test; 13-bit edges with C division;
+s-buffer row fill [xl, xr). The MMX twin 0x4a31d0 (if 0x4dbcf4) is the same fill.
+Screen outcode pretests only drop "all x < 0" / "all y < 0" triangles: no pixel effect.
+
+##### 4.13.2.5 Sub 6 polygon 0x4a0f90 [asm]
+
+Per fan triangle (0,1,2), then (0,2,3) if face +0x34 != 0xffff (the 5th index):
+- corner uv: face (+4 + 8k) floats × 256.0 (0x4d1fb0) = texels (= track.py's `uv`), then
+  `uz = f32(u · rz)`, `vz = f32(v · rz)` with rz = vertex +0x18 = f32(1/Z), which 0x49b2c0
+  stores for **every** vertex (fld1 / fdiv Z), in front or not.
+- Z < near (0x625774; race 64) per corner. Rotations exactly as 0x49e510 (`model.face`):
+  none behind → tri(c0,c1,c2); one behind B with F1 = (r+1), F2 = (r+2) → tri(F1,F2,P1),
+  tri(F2,P2,P1), P1 = clip(B,F1), P2 = clip(B,F2); two behind, F = r, B1 = r+1, B2 = r+2 →
+  tri(F, clip(B1,F), clip(B2,F)).
+- clip point: geometry = 0x49d8f0 (model.clip: X, Y on the line, Z = near, sx = 320 +
+  ftol(X/near), sy = 240 − ftol(Y/near), +0x18 = f32(1.0/near)). **Texture in float**, unlike
+  sub 4's integer slope: uB = uzB / rzB, uF = uzF / rzF,
+  `u = (uF − uB) / (zF − zB) · (near − zB) + uB` (divide first, then × t), stored
+  `f32(u / near)`; v likewise. In the one-in-front block (0x4a1535) the call is
+  tri(F, P(esi), P(ebp)) = tri(F, clip(B1,F), clip(B2,F)) in model.py's naming, and for
+  clip(B1,F) the values uB, vB, zF − zB, near − zB are spilled to float temporaries
+  (0x4a15b4, 0x4a15e5, 0x4a1600, 0x4a160a) before use [asm].
+- outcode pretest on clipped triangles: rejects all-left / all-above only (no pixel effect).
+- counter 0x625730++ a face.
+
+##### 4.13.2.6 Perspective triangle 0x4a0700(rz0..2, x0,y0, x1,y1, x2,y2, tex, uz0,vz0 .. uz2,vz2) [asm]
+
+```
+rotate (x,y,rz,uz,vz) until y1 >= y0 and y0 <= y2
+D = ftol((x0-x2)(y1-y2) - (x1-x2)(y0-y2)); if D < 1.0: return      (ints, float compare)
+A = y1-y2, C = y2-y0
+dudx = f32(((uz0-uz2)A + (uz1-uz2)C) / D)   -> 0x655d1c   (same for vz -> 0x655d18,
+drdx = f32(((rz0-rz2)A + (rz1-rz2)C) / D)   -> 0x65e1c0    rz)
+16x copies: 0x68b020 = 16 dudx, 0x68b02c = 16 dvdx, 0x625734 = 16 drdx (0x4d1fac = 16.0)
+x edges: 13-bit fixed, slope = ((xb-xa) << 13) / h  (C idiv), no subpixel prestep
+the left edge (0x624b0c) carries uz/vz/rz (0x624b00/08/10), steps f32((Eb - Ea)/h)
+case A (y1 <= y2): skip if y0 >= y2 or y2 < 0
+   part 1 rows y0..y1 (if y1-y0 > 0 and y1 >= 0): left 0->2, right 0->1
+   part 2 rows y1..y2 (if y2-y1 > 0): left continues 0->2, right 1->2;
+          if y1 < 0: xl = (x0<<13) - y0*sl, E = E - dE*y0, xr -= y1*sr
+case B (y1 > y2): skip if y1 <= y0 or y1 < 0; right 0->1 for both parts
+   part 1 rows y0..y2 (if C > 0 and y2 >= 0): left 0->2 from E0
+   part 2 rows y2..y1 (if y1-y2 > 0): left 2->1 from E2, step (E1-E2)/h;
+          if y2 < 0: xl -= y2*sl, E = E2 - dE*y2, xr = (x0<<13) - y0*sr
+first part row < 0: x -= y*slope, E = f32(E - dE*y) (y as float), count += y, row = 0
+last row: count += (H - ylast) if H < ylast        (H = 0x625784 + 1)
+per row: if the row's free list is not empty: edge routine (0x6d20bc);
+         E = f32(E + dE); xl += sl; xr += sr
+```
+Rows: free list 0x623bd8[row] (0x62ebe8 walks it), screen row 0x6d1064, texture 0x625758.
+See-through kinds: if 0x6d20c0 == 0 the part is skipped; after each **part** with segments
+a batch record (0x24 bytes at 0x625790 + 0x24·0x6d1f78): +0 id, +4 count, +8 tex,
++0xc colour, +0x14 16du, +0x18 16dv, +0x1c 16drz, +0x20 light; at 1000 batches 0x6d20c0 = 0.
+
+##### 4.13.2.7 Edge routines [asm]
+
+Inputs: xl = 0x624b0c sar 13, xr = 0x624b44 sar 13; outputs to the span: 0x6d20b4 start,
+0x6d1f7c end, 0x6d1054 uz, 0x6d1f84 vz, 0x6d20ac rz.
+At start x s: `E_s = f32(E_row + (s - xl) · dEdx)` (fild n × gradient + value).
+
+**0x4a0260 opaque**, per node [a, b) of the row (i16 start, i16 end, next):
+```
+a < xl:  b < xl → next.  span [xl, min) with E_row unadvanced;
+         b < xr → span to b, node.end = xl, next
+         else   → span to xr, node.end = xl, if b > xr insert node [xr, b) (pool 0x60d3d0,
+                  counter 0x65e1d4) after it; stop
+a >= xl: a > xr → stop.  E advanced by a - xl
+         b > xr → span [a, xr), node.start = xr, stop
+         else   → unlink node, span [a, b); stop if b == xr else next
+```
+(xl > xr: a reversed span draws nothing but rewrites the node, as 0x4a2f10.)
+No s-buffer (0x62e444 == 0): clip xl to 0 (E advanced by −xl) and xr to 0x62e448 + 1.
+
+**0x4a04d0 see-through**: same walk, no list change, records a segment per overlap
+(0x1c bytes at 0x68b040 + 0x1c·0x6d1048: +4 row pointer, +8 i16 start, +0xa i16 end,
++0xc uz, +0x10 vz, +0x14 rz). On entry, count == 0x2800 → 0x6d20c0 = 0, return; after a
+record that reaches 0x2800 it returns.
+
+**Replay 0x4af130** (after all buckets): batches popped last first; per batch the switch
+0x4af338/0x4af2f4 loads globals by id (53/54/50/62 → 16du/16dv/16drz/tex/colour/light;
+51 → also 0x65e1cc; 37/38/39 → colour, tex, du, dv), then its segments popped last first
+(0x4af3ac/0x4af37c: sub-6 ids reload uz/vz/rz from the segment; 37/38/39 load u, v) and
+the span = kind table +0xc is called. Segments of all see-through kinds share one stack, so
+`model.Renderer.deferred` (reversed batches, reversed segments) already has the order.
+
+##### 4.13.2.8 Perspective span 0x4a5c40 (31) and twins [asm]
+
+```
+n = end - start; if n <= 0: return
+z = 8192.0 (0x4f1a24) / rz;  u = ftol(uz·z);  v = ftol(vz·z)       (13-bit fixed texels)
+while n:
+  if n >= 16:  uz = f32(uz + 16du); vz = f32(vz + 16dv); rz' = rz + 16drz; rz = f32(rz')
+               z = 8192/rz'   (rz' unrounded: fst keeps the stack value)
+               du = (ftol(uz·z) - u) sar 4;  dv = (ftol(vz·z) - v) sar 4;  k = 16
+  else:        k = n; m = 0.0625 (double 0x4d1fb8) · k
+               uz = f32(uz + 16du·m); vz = f32(vz + 16dv·m); rz' = rz + 16drz·m
+               z = 8192/rz';  du = ftol((uz·z - u) · (1.0/k)) (double 0x4d1fc0);  dv same
+  n -= k; k pixels:  texel = page[((v>>13)·256 + (u>>13)) & 0xFFFF]   (u wraps into v)
+                     ... write ...;  u += du; v += dv
+```
+u, v run on from the previous block (only the step is recomputed), so errors self-correct.
+Texel offset as the game forms it: `(((u & ~0x1000) sar 12) + ((v & 0xffffe01f) sar 4)) &
+0x1fffe` bytes = the index above × 2.
+Pixel rules (only the write differs between the twins, by `diff` of the routines):
+31 c; 32 `(c >> 1) & 0x7BEF` (0x50270c = (channel masks without low bit) >> 1, set at
+0x402010); 53 skip if c == 0; 54 skip if c == 0 (the raw texel) else halved; 51 the face
+colour if c != 0; 62 `((screen>>1)&m) + ((c>>1)&m)` if c != 0.
+Kind 37 (0x4a50c0, affine, sub 4): the face colour where page[((v>>13)·256 + (u>>13)) &
+0xFFFF] != 0, u/v from 0x6d20b0/0x6d20b8 + 0x655d20/0x655d24 a pixel.
+
+##### 4.13.2.9 Precision [asm + guess]
+
+0x49b2c0 alone sets the x87 to 24-bit (and #4 masks) and restores the old control word; the
+renderer runs at the program default, which I take as MSVC's 53-bit [guess: no global fldcw
+found besides the CRT's]. So: doubles for stack values, f32 wherever a DWORD is stored
+(gradients, row values, span uz/vz/rz). ftol 0x4b3048 = truncation toward zero.
+Overflow of `x << 13` and `ftol` (0x80000000) are 32-bit in the game; the Python wraps the
+edge integers with i32, not the texel coordinates (only their low 16 bits after sar 13 are
+used, which unbounded ints give the same).
+
+##### 4.13.2.10 Not done / open
+- 0x49dde0's handling of 0x6d20c0 for sub-4 see-through (38/39/37) not read; the Python
+  counts their segments/batches toward the shared caps but does not skip them when full.
+- Kind 62's exact use, 28/50's purpose (invisible occluders?) not looked at in the data.
+
+
+#### 4.13.3 The far background (the horizon picture)
+
+Draw: `0x402960(camera)`, called from the race draw 0x47ff90 with camera block
+0x5161c0 + i*0x238 (software path: before 0x49a160). Load: `0x410350(track)`.
+Python model: `tools/track_horizon.py` (`draw_horizon(...)`; run it as a script
+to render a test PNG). Confidence: [asm] read instruction by instruction, [decomp] from
+Ghidra's C, [guess], [test] checked by rendering.
+
+##### 4.13.3.1 Loading [asm]
+
+`0x410350`: sprintf `"%sBank\HorizHi.raw"`, `...HorizMed.raw`, `...HorizLow.raw` into three
+sprite banks with 0x4776b0 (strncpy 0x100 to bank +0x48), frees all three with 0x477b00,
+then loads only one with 0x477b30, chosen by ScreenMode 0x4dc0c8:
+
+| mode | bank | file | sprites (handle global → rect x1,y1,x2,y2 inclusive) |
+|---|---|---|---|
+| 2 (640x480) | 0x5d41d6 (bank 6) | HorizHi.raw 256x256 | 0x4eaa3c (0,0)-(255,127) "Horizon 1 HiRes"; 0x4eaa40 (0,128)-(255,255) "Horizon 2 HiRes" |
+| 1 (512x384) | 0x5d408d (bank 5) | HorizMed.raw | 0x4eaa44 (0,0)-(203,101); 0x4eaa48 (0,102)-(203,203) |
+| 0 (320x240) | 0x5d3f44 (bank 4) | HorizLow.raw | 0x4eaa4c (0,0)-(255,63), used for both tiles |
+
+Banks: array 0x5d3a20, stride 0x149. +0x48 file name, +0x30 surface, +0x34 surface id
+(-1 = software), +0x38 sprite count, +0x3c sprite array. Sprites defined by 0x480930.
+
+**The second picture is not a mirror**: the RAW holds a 512-pixel-wide panorama cut in two
+256x128 halves stacked (A on top, B below) [test: the halves join seamlessly when drawn
+B,A,B,A...].
+
+##### 4.13.3.2 Sprite record (0x4e bytes, 0x477790) [asm]
+
++0x00 frame count (1); +0x04..+0x18 offsets (0); **+0x1c x1, +0x20 y1, +0x24 x2, +0x28 y2
+(inclusive)**; +0x2c handle (counter 0x4eea18; 0x477270 finds a sprite by it); +0x30 bank;
++0x34/+0x37 colour-key low/high (3 bytes each, from 0x4f0dd8 = black); +0x3a colour-key
+enable = 0 (tiles are opaque); +0x42 CString name; **+0x46 top fill colour, +0x48 bottom
+fill colour** (u16 RGB565); +0x4a default.
+
+##### 4.13.3.3 RAW → 16-bit (0x477b30) [asm]
+
+Header 32 bytes, big-endian: width +8, height +0xa, palette count +0xc.
+- palette count 0: 24-bit rows of bytes R,G,B.
+- else palette + 8-bit pixels; index 0 → pixel 0; a palette entry with R<8, G<4, B<8 gets
+  R = 8 (keeps it off the black key).
+Conversion uses the pixel-format globals filled at 0x473c3c..0x473d7a from the DirectDraw
+masks: masks 0x4ee9d0/d4/d8 = 0xf800/0x7e0/0x1f, positions 0x4ee9c4/c8/cc = 11/5/0, bit
+counts 0x4ee9ac/b0/b4 = 5/6/5, shifts 0x4ee9b8/bc/c0 = 3/2/3. So
+`p = (R>>3)<<11 | (G>>2)<<5 | B>>3` — **6-bit green** (unlike the texture pages).
+
+##### 4.13.3.4 Fill colours +0x46 / +0x48 (0x4782e0..0x4785af) [asm]
+
+Per sprite, after loading. Channel bytes of a pixel: `((p & mask) >> pos) << shift`.
+- n1 = clamp(x2 - x1, 1, 10); sum n1 pixels of **row y1 from x1 rightwards**; divide
+  (unsigned) by n1 → top colour, repacked `((c & 0xff) >> shift) << pos` → **+0x46**.
+- The sums are **not reset**: n2 = clamp(y2 - y1, 1, 10); add n2 pixels of **row y2 from
+  x2 leftwards** onto the top average; divide by n2; `& 0xff` (can wrap: e.g. a white top
+  plus a bright bottom gives a dark colour) → **+0x48**.
+Only sprite A's colours are used for the fills (2. picture's are ignored).
+So: above the picture = mean of the top-left 10 pixels; below = (top mean + sum of the
+bottom-right 10 pixels) / 10, i.e. the bottom mean plus a tenth of the top mean — a game
+quirk, then & 0xff per channel.
+
+##### 4.13.3.5 The heading (yaw) [asm 0x402990..]
+
+Camera C[r][c] at cam+0x68+4*(3r+c), T at +0x8c..+0x94.
+1. v = C row 2 + T (each stored f32). L = sqrt(vy²+vz²+vx²). If L≠0:
+   `yaw = atan2(vz/L/L, vx/L/L)` (fpatan; the double division by L is in the code and does
+   not change the angle); else 0.
+2. If yaw < 0 (bits > 0x80000000): add 100π (double 0x4d00d8 = 314.1592653589793) until
+   ≥ 0.0 (float 0x4d00c4). `ym = fmod(yaw, 2π)` (0x4b30ca = CRT `_CIfmod`, table name
+   "fmod" at 0x4f2ce0; 2π = double 0x4d00e0), kept as a double.
+
+##### 4.13.3.6 The pitch [asm]
+
+1. t = ym - π/2 (double 0x4d00e8); n = trunc(t·2607.594587618272) (double 0x4d00d0 =
+   16384/2π); c = COS[n&0x3fff], s = COS[(n-0x1000)&0x3fff] (table 0x5fcb80, COS[k] =
+   cos(k·2π/16384) f32); Q = COS[0x3000] (0x608b80, ≈ -4.4e-8).
+   w = (s, -(Q·c), c·1.0) — the level world direction of that heading.
+2. p = w·C + T (px = C00·s + C10·a + C20·b + T0, etc., stored f32).
+3. sinφ = py / |p|; φ = asin(sinφ) (0x4b3092 = CRT `_CIasin`, name "asin" at 0x4f32f0);
+   φ = 0 when |p| = 0.
+**Roll is ignored**: the picture is never tilted, only shifted [asm].
+
+##### 4.13.3.7 x position [asm]
+
+k = (0x62e448 · 6) / 640, integer (0x62e448 = screen width − 1: 639 → 5, 511 → 4, 319 → 2).
+P = 2π/k; Wt = x2−x1+1 (256), Ht = y2−y1+1 (128) of sprite A.
+q = trunc(ym/P); r = ym − q·P; m = trunc(2Wt · r/P); **x = −(2Wt + m)**.
+So one full turn scrolls k·2Wt pixels (2560 at 640x480): the 512-pixel panorama repeats
+5 times around the circle.
+
+##### 4.13.3.8 y position [asm]
+
+i = trunc(φ·2607.59…); cφ = COS[i], sφ = COS[i−0x1000]; camY = cam+0x9c;
+A1 = cφ − (sφ·Q)·Q; B1 = (cφ·Q)·Q + sφ (Q terms ≈ 0);
+Y' = camY·A1 − sφ·50000; Z' = camY·B1 + 50000·cφ (float 0x4d00f0 = 50000.0);
+v = trunc(fx / Z' · Y' · scale); **ytop = v − Ht − offset + vtop + cy**.
+- fx = 0x6d20c4 (394.0 at 640x480, 0x4592a0: W·394/640).
+- vtop = 0x6d1040 (0), cy = 0x624f88 (240), vbottom = 0x625784 (479): 0x49a010, no
+  letterbox.
+- offset = int 0x4db2b0, scale = float 0x4db2b4, both from the track's .trk (read by the
+  TRK loader): ile01 (5, 0.25), ile02 (5, 1.0), ile03 (−10, 1.0), ile04 (0, 0.0),
+  ile05 (−15, 0.0), ile06 (0, 0.0), ile08 (−25, 1.0), ile09 (3, 1.0), ile10 (0, 1.0),
+  ile11 (0, 1.0). With scale 0 the picture sits at a fixed height (bottom edge at
+  cy − offset) whatever the pitch.
+In words: the picture's bottom edge is where a point 50000 units ahead on the ground
+(camY below the eye) projects, turned by the pitch only.
+
+##### 4.13.3.9 Tiling [asm]
+
+cnt = 0; while x + Wt < 0: x += Wt, cnt++.
+first = A if cnt is odd else B; second = the other.
+while x ≤ 639: blit(first, x, ytop); x += Wt; blit(second, x, ytop); x += Wt.
+0x5f1310 = 1 during the loop, 0 after [asm; purpose not looked at].
+Blit 0x477400 → 0x4788b0 → 0x478990: opaque copy, clipped to x 0..0x62e448, y 0..479;
+skipped if the clipped rect has left ≥ right or top ≥ bottom (inclusive coords) [asm].
+
+##### 4.13.3.10 Fills [asm]
+
+Software path: 0x45ab60 = IDirectDrawSurface::Blt (vtable +0x14) with IsLost/Restore;
+flags 0x4ee960 | 0x400 (DDBLT_COLORFILL), DDBLTFX (size 100) fill colour; RECT right and
+bottom exclusive. (D3D path: 0x485e50, out of scope.)
+- Below: colour A.+0x48, rect (0, max(ytop+Ht, vtop), 640, 479) → rows to 478.
+- Above: colour A.+0x46, rect (0, vtop, 640, min(ytop, 479)) → rows up to ytop−1.
+- An empty/inverted rect draws nothing. **Row 479 is never filled** by this function
+  [asm; the 3D drawn after covers it in practice — guess].
+
+##### 4.13.3.11 Check [test]
+
+`python3 tools/track_horizon.py build/bkf/ILE02/BANK/HORIZHI.RAW out.png YAW`
+(level camera at height 300, offset 5, scale 1) gives the desert buttes on a seamless
+strip, dark-blue fill above, orange fill below, and the strip moves with the yaw.
+
+##### 4.13.3.12 Open points
+
+- x87 precision control in 0x402960 not checked: the model computes in doubles and rounds
+  only the values the code stores as DWORDs [guess: matches to the pixel].
+- Not compared with a screenshot of the original race (the original was not run).
+
+
+#### 4.13.4 In the port (2026-10-26)
+
+- `r3d.c` is the race's renderer too: `r3d_race(detail)` sets the near plane (64) and the
+  kind remap of 0x49c590 for the detail row (`CurrentDetail`, `config.c`; -1 = the menus:
+  near 256, kinds as they are). Faces carry their texels as floats too (`ut`, `vt`) for
+  the sub-6 kinds: `face6`/`clip6`/`tri6`/`row6`/`row6s`/`span6` are §4.13.2 §5–§8. Kind
+  37 is the affine stencil. The see-through pieces of every kind share one table and one
+  list of batches (kind, page, colour, the 16-pixel steps), replayed last first; a full
+  table stops the see-through kinds (0x6d20c0). At most 2001 faces are drawn a frame
+  (0x62e438: the count compared `<=` 2000.0).
+- `land.c`: Level.Spt (FileLand, the 20 banks: pages 2..19 from the level's folder), the
+  .trk (§4.13.1 §2; AnimDecor not read), the section walk, `land_draw` (0x40ce60: blocks
+  ahead/behind by the camera's forward against the section's start plane, the decor of the
+  sections around, each object once, cameras hidden, the decor matrix 0x403880 with its
+  two float temporaries).
+- `horizon.c`: §4.13.3 for 640x480 (HorizHi.raw only so far).
+- Test switch `OMR_RACEVIEW=TRACK,FOCAL,X,Y,Z,C00..C22`: no menu, one track from a still
+  camera. Three runs in `tools/shots.sh` (race_westway, race_snow, race_tv). **Checked:**
+  the port's picture is the same to the pixel as `tools/track.py`'s (RaceRenderer +
+  track_horizon) for the eight captures q14, q15, q17, q19, q20, q22, p3, p7 (camera from
+  each dump's block). Against the original's screens, the rest is the bikes, riders,
+  shadows, tyre marks and the HUD.
+- Not yet: billboards (+0x5c), AnimDecor, the 512x384 and 320x240 horizons, the bikes'
+  pages 0 and 1.
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and
