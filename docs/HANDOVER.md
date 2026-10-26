@@ -34,18 +34,18 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
 - A progress tracker for Danik: https://claude.ai/artifact/CCupuhZmsCRgz7FA5eFMxz (its
   numbers are a JSON file uploaded to it; update it after each step).
 
+- The 3D renderer and pages 25 (logo) and 14 (title) with the breaking-glass transition
+  between them (NOTES §4.9): the logo within ~1100 px of the original, the glass matching
+  its captures, the settled title equal to the original. The port now starts on 25.
+
 ## Waiting for Danik
 - Nothing. (He allowed the original on his screen, `ORIG_DISPLAY=:1`, and installed xdotool.)
 
 ## Next, in order
-1. The 3D renderer the menus need (the title's logo pieces, the Delphine logo, the name
-   entry's letters, the glass transition): build/notes/title3d.md when its helper is done.
-   Then pages 25 → 14 → 15 → 3 in order, the port starting on 25; reference pictures of
-   each from the original (`tools/orig.sh key`).
-2. A model viewer (`tools/model.py`: 3DF + MAP + texture page; which palette the texture
-   pages use: they have none of their own).
-3. The port's skeleton (C, SDL2, a 16-bit framebuffer at 640x480/320x240) and its first
-   picture: the loading screen and the menu backgrounds from the LEZ files; then the font
-   (FNT) and the menu pages in their order (25 → 14 → ...).
-4. The track (.trk), the race loop, the renderer.
+1. Page 15, the name entry (0x487bb0: 3D letters, `data\menu\font3d`, NOTES §4.8.5),
+   then the 15 -> 3 transition; the title's 30 s demo time-out (Menu_Frame 0x409c00).
+2. The remaining menu pages (5 solo, 6 track choice, 11 options, ...).
+3. Sound: effects (SFX.BKF) and the music (02.wav-13.wav), page 25's track 13, the title's 3.
+4. The track (.trk), the race loop, the race renderer (the same r3d with the race's
+   near plane 64 and its face kinds).
 5. The CD's `MOTO.EXE`: line it up with GOG's `game.EXE` (which tables the port reads).

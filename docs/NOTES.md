@@ -331,7 +331,12 @@ The shards (0x504c70, a 0x94-byte object, created in 0x40a9a0 from
   screen cut into triangles.
 - For each triangle: centre `(cx, cy) = (sum of the 3 x, sum of the 3 y) × 1/3`, z = 0
   → obj+0x8c (12 bytes a piece); the vertices become relative to the centre (z = 0).
-  Spin speeds (obj+0x90, 3 floats) from three `Rand_Next(1)` draws r1, r2, r3 (0x458cd0):
+  Spin speeds (obj+0x90, 3 floats) from three `Rand_Next(1)` draws r1, r2, r3 (0x458cd0;
+  stream 1, seeded from the program's table 0x4f2590 = 0x89696798, **0xbadebeaf**,
+  0x39859835, 0x33243094, 0x1a3d5e7f, 0x45f8a6c1, 0x12345678, 0x73616c43; before these the
+  mesh loader 0x420590 has drawn one number per face (99, at 0x42089f) and nothing else
+  draws from stream 1 before the first transition; the port with that sequence matches the
+  original's captures of 25 -> 14, the pieces each turning their own way):
   `spin[2] = (r1 − 32767) × (1/32767) × 5.340707511` (1.7π),
   `spin[1] = (r2 − 32767) × (1/32767) × 4.712388980` (1.5π),
   `spin[0] = (r3 − 32767) × (1/32767) × 5.654866776` (1.8π) [asm 0x479931..0x479985].
@@ -349,8 +354,12 @@ The shards (0x504c70, a 0x94-byte object, created in 0x40a9a0 from
   (into the same z-sorted list as the page's 3D objects). With the focal length 1911 a
   piece at z = 1911 covers exactly its screen pixels; over 1.2 s the pieces come towards
   the viewer (z 1911 → 61) while tumbling. ftol = truncation towards zero.
-- Not checked: whether 0x49b2c0 multiplies by rows or columns (so the matrix might be
-  the transpose); visually it is a random tumble either way.
+- The matrix goes straight to 0x49b2c0 with no camera (the pieces are in the view's frame)
+  and is the same as 0x48c030's rotation, here with the constant 2607.594587618272
+  (0x4d1878); translation (cx, cy, 1911 - 1850 t). The faces (0x422f80): kind 16 (opaque),
+  page 2, corners (0,1,2) and (0,2,1). The loader does not x96 nor mirror. [asm, px:
+  captures of the original fitted to the port's frames, 3-13 % of pixels differ, all
+  sub-frame timing of pieces moving fast]
 
 #### 4.4.3 Buttons
 
@@ -1271,9 +1280,12 @@ Six animation slots i = 0..5. Floats.
      a = c = 0. So each letter spirals in from 2500 further out, turning four times, and lands
      on its end position shifted 800 towards the camera.
    - **i = 4 (DsInt)**: position = start + (end - start)*t (from z 60000 to -600).
-   - **i = 5**: position lerp written into the camera block +0x98..+0xa0 (0x516258..60) -
-     but the camera is not re-looked-at in this page, so it has no visible effect. [asm; the
-     px comparison agrees with a fixed camera]
+   - **i = 5**: position lerp written into the camera block +0x98..+0xa0 (0x516258..60).
+     The camera is not looked again (its matrix stays diag(-1,1,-1)) but 0x48c030 uses the
+     position, so the whole logo recedes from z 4500-ish: (50,80,-1000) -> (50,0,7000) over
+     20 s. **Visible** (correction: the port without it differed from the original by a
+     third of the screen). Slot 5 comes last in the loop, so each frame's objects use the
+     position of the frame before. [asm, px: port vs original 1108 px at the end]
 4. Objects 0..4 drawn by 0x48c030 (section 3). 0x53f788 = max(0x53f788, n).
 5. 0x49ad90 renders the collected faces (software path when 0x504e74 == 0 and
    (0x4dc06c == 0 or 0x4dc070 != 0)). Then 0x40c1f0 (menu buttons), 0x418790 / 0x417840 /
@@ -1340,10 +1352,16 @@ MOTO comes in from the right and RACER from the left. [px]
 1. dt from 0x53f4e0 exactly as page 25 (>500 -> 100). 0x46e140(cam, (0,0,0)) re-looks at
    the origin every frame (no change, the camera is fixed). 0x49b1c0; 0x49a160 (**no clear**:
    the background picture covers the screen).
-2. If 0x5409bc > 2 (everything arrived): draw picture `title4` (0xbf; GP 0xc3) as the whole
-   screen. Frame counter 0x4e90e0: above 10 the text "FULL D3D VERSION" is added through
-   0x417d20; above 20 it resets to 0 -> the text blinks, 10 frames on, 10 off (frames, not
-   time). [asm, px: the blinking text is visible]
+2. If 0x5409bc > 2 (everything arrived): 0x409bf0 (menu +0x30 = +0x34 = 1), draw picture
+   `title4` (0xbf; GP 0xc3) as the whole screen. Frame counter 0x4e90e0: ++, above 10 font
+   31 gets yellow/black and "FULL D3D VERSION" is **added** through 0x417d20 (lifetime 0 =
+   for ever, Blink with period 500 ms, centred at y 60); above 20 it resets to 0. 0x417d20
+   creates the object even when it overlaps a live one (with dodge steps 0 and no
+   re-centre every path reaches the creation, asm 0x417e00..0x417f9b), so copies pile up,
+   ten every 21 frames, until the 48 slots are full; each blinks 500/500 ms from its own
+   start. What is seen depends on the frame rate: under wine (very fast frames) the
+   original shows about 600 ms on, 360 ms off (40 captures, build/ref/blink/); at a steady
+   60 frames a second the copies' phases cover each other and the text stays on. [asm, px]
 3. Otherwise draw the background by 0x5409bc: 0 -> 0xbc `title` (GP 0xc0), 1 -> 0xbd
    `title2`, 2 -> 0xbe `title3`. Each later picture has the arrived objects painted into it,
    so an object stops being drawn in 3D once it has arrived.
@@ -1549,6 +1567,14 @@ Flags used by these models: camera 0x200001 / 0x1 (page 1; kinds 21 / 16); D, S,
 b = +-pi/2 yaw).
 
 ---------------------------------------------------------------------------------------------
+
+#### 4.9.4b In the port (`r3d.c`, `model.c`, `page_intro.c`, `rand.c`)
+
+Written from 4.9 and the asm, every step a float as the game's (x87 at 24 bits; built with
+`-ffp-contract=off`). Checked: the logo against the original 1108 px (end) and 3798 px
+(14.6 s) at the best 60 Hz frame; against tools/model.py (given the same camera lag) 306 px
+at 14.6 s; the glass as above; the settled title page equal to the original apart from
+the pointer (with the pointer on Start, which the original's capture had selected).
 
 #### 4.9.5 What the port needs, in order
 

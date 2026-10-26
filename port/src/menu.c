@@ -3,9 +3,13 @@
 #include "menu.h"
 #include "clock.h"
 #include "pages.h"
+#include "files.h"
+#include "r3d.h"
+#include "rand.h"
 #include "text.h"
 #include "video.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 Menu g_menu;
@@ -21,7 +25,6 @@ static int g_navigated;         /* 0x504e78: Tab or the arrows were used on this
 static int g_changing;          /* 0x504e74: a page change is under way */
 static int g_capture_pending;   /* 0x4dbd00: do the glass transition at the next start */
 static int g_blink;             /* 0x4dbd08 */
-static uint16_t g_capture[256 * 192];   /* texture slot 2: the old page, for the glass */
 
 /* the page table 0x4dbb38: frame, start and end routines (0 = none); pages the port has
    not written yet have none and end the program when reached */
@@ -31,6 +34,8 @@ static const struct {
 } pages[MENU_PAGES] = {
     [3] = { page_main_frame, page_main_start, 0, "main menu" },
     [4] = { page_quit_frame, 0, 0, "quit" },
+    [14] = { page_title_frame, page_title_start, page_title_end, "title" },
+    [25] = { page_logo_frame, page_logo_start, page_logo_end, "Delphine logo" },
 };
 
 /* the game has routines for every page but 0 */
@@ -48,10 +53,124 @@ int sound_play(int id, int flags)
     return -1;                  /* no sound yet: as the original with the effects off */
 }
 
+/* the pane of glass (0x504c70, NOTES §4.4.2.4): vitre.3df's 99 triangles, each turned
+   into a piece of its own about its centre (0x479630) */
+typedef struct {
+    float v[3][3];              /* the corners, from the centre */
+    float c[3];                 /* +0x8c: the centre */
+    float spin[3];              /* +0x90: radians over the whole transition */
+    Face f[2];                  /* both windings */
+} Shard;
+
+static Shard *g_glass;
+static int g_nglass;
+
+/* 0x458cd0: the menu's random numbers */
+static int rand_stream1(void)
+{
+    return rand_next(1);
+}
+
+static float le_float(const unsigned char *p)
+{
+    uint32_t u = (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16
+                 | (uint32_t)p[3] << 24;
+    float f;
+    memcpy(&f, &u, 4);
+    return f;
+}
+
+static void load_glass(void)
+{
+    long len, p;
+    unsigned char *d = dsi_load("data\\menu\\meshes\\vitre.3df", &len);
+    int nv, n = 0, i, k;
+    if (!d || len < 4 || (d[0] | d[1] << 8) != 1)
+        goto bad;
+    nv = d[2] | d[3] << 8;
+    for (p = 4 + 12L * nv; p + 2 <= len && (d[p] | d[p + 1] << 8); p += 4 + 2L * (d[p] | d[p + 1] << 8))
+        n++;
+    for (i = 0; i < n; i++)    /* the loader (0x420590) draws a colour for each face */
+        rand_stream1();
+    free(g_glass);
+    if (!(g_glass = calloc(n ? n : 1, sizeof *g_glass)))
+        goto bad;
+    g_nglass = 0;
+    for (p = 4 + 12L * nv; p + 2 <= len && (d[p] | d[p + 1] << 8); p += 4 + 2L * (d[p] | d[p + 1] << 8)) {
+        Shard *s = &g_glass[g_nglass];
+        float sx = 0, sy = 0;
+        int u[3], v[3];
+        if ((d[p] | d[p + 1] << 8) != 3 || p + 10 > len)
+            continue;
+        for (k = 0; k < 3; k++) {
+            int ix = d[p + 4 + 2 * k] | d[p + 5 + 2 * k] << 8;
+            if (ix >= nv)
+                goto bad;
+            for (i = 0; i < 3; i++)                     /* (no x96 in this loader) */
+                s->v[k][i] = le_float(d + 4 + 12 * ix + 4 * i);
+            sx += s->v[k][0];
+            sy += s->v[k][1];
+        }
+        s->c[0] = sx * 0.333333343f;
+        s->c[1] = sy * 0.333333343f;
+        s->c[2] = 0.0f;
+        /* the spins: (r - 32767) / 32767 times 1.8pi, 1.5pi, 1.7pi */
+        s->spin[2] = (float)((rand_stream1() - 32767.0f) * 3.05185094e-05f * 5.340707511102648);
+        s->spin[1] = (float)((rand_stream1() - 32767.0f) * 3.05185094e-05f * 4.71238898038469);
+        s->spin[0] = (float)((rand_stream1() - 32767.0f) * 3.05185094e-05f * 5.654866776461628);
+        for (k = 0; k < 3; k++) {       /* the old screen's 256x192 picture across it */
+            u[k] = (int)((s->v[k][0] + 320.0f) * 256.0f * 0.0015625f);
+            v[k] = (int)((s->v[k][1] + 240.0f) * 192.0f * -0.00208333344f + 192.0f);
+            s->v[k][0] -= s->c[0];
+            s->v[k][1] -= s->c[1];
+            s->v[k][2] = 0.0f;
+        }
+        for (i = 0; i < 2; i++) {
+            static const int order[2][3] = { { 0, 1, 2 }, { 0, 2, 1 } };
+            Face *f = &s->f[i];
+            f->kind = 0x10;
+            f->page = 2;
+            f->flags = 4;
+            f->n = 3;
+            for (k = 0; k < 3; k++) {
+                f->idx[k] = order[i][k];
+                f->u[k] = u[order[i][k]] * 8192;
+                f->v[k] = v[order[i][k]] * 8192;
+            }
+        }
+        g_nglass++;
+    }
+    free(d);
+    return;
+bad:
+    fprintf(stderr, "openmotoracer: the glass (vitre.3df) could not be read\n");
+    free(d);
+    g_nglass = 0;
+}
+
+/* 0x479c10: each piece tumbles about its centre and comes at the viewer, z 1911 to 61 */
+static void queue_glass(float t)
+{
+    int i;
+    for (i = 0; i < g_nglass; i++) {
+        const Shard *s = &g_glass[i];
+        float ang[3], m[3][3], pos[3];
+        ang[0] = t * s->spin[0];
+        ang[1] = t * s->spin[1];
+        ang[2] = t * s->spin[2];
+        r3d_rotation(m, ang, 2607.594587618272);        /* 0x4d1878 */
+        pos[0] = s->c[0];
+        pos[1] = s->c[1];
+        pos[2] = (float)((double)t * -1850.0 + 1911.0 + s->c[2]);
+        r3d_view(3, (const float (*)[3])s->v, 2, s->f, (const float (*)[3])m, pos);
+    }
+}
+
 /* 0x40a9a0: the menu's resources, loaded at the first entry */
 static int load_resources(char *err, int errsize)
 {
     int id;
+    load_glass();
     for (id = 0; id < MENU_PICS; id++)
         if (!g_pics[id].pix && !bitmap_load_id(&g_pics[id], id)) {
             snprintf(err, errsize, "The menu picture %d could not be read.", id);
@@ -108,11 +227,14 @@ int menu_start(int page, char *err, int errsize)
    5 (0, 2, 5, 7, 10, ...) */
 static void capture_screen(void)
 {
+    uint16_t *tex = r3d_page(2);
     int x, y;
+    if (!tex)
+        return;
     for (y = 0; y < 192; y++) {
         const uint16_t *row = g_screen + ((y >> 1) * 5 + (y & 1) * 2) * g_pitch;
         for (x = 0; x < 256; x++)
-            g_capture[y * 256 + x] = row[(x >> 1) * 5 + (x & 1) * 2];
+            tex[y * 256 + x] = row[(x >> 1) * 5 + (x & 1) * 2];
     }
 }
 
@@ -271,7 +393,7 @@ void menu_transition(void)
         return;
     if (g_now < g_menu.tr_end) {
         g_menu.tr_t = (float)((double)(g_now - g_menu.tr_start) * 0.000833333354f);
-        /* (0x479c10 queues the 99 pieces of glass here: with the 3D renderer) */
+        queue_glass(g_menu.tr_t);
     } else
         g_menu.tr_running = 0;
 }
@@ -290,6 +412,7 @@ void menu_press_done(void)
 /* 0x49a160's part for the menu: 0x4099a0, the button under the pointer */
 void menu_begin_frame(void)
 {
+    r3d_begin();
     int sel = menu_hit();
     g_menu.sel = sel;
     if (sel != g_menu.prev_sel) {

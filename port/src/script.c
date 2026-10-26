@@ -4,6 +4,7 @@
    with 0x1a2b3c4d when the file opens (0x4b1140). Lengths do not advance the key. */
 #include "script.h"
 #include "files.h"
+#include "rand.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,14 +12,10 @@
 
 static unsigned key_byte(Script *s)
 {
-    int32_t x = (int32_t)s->seed, u, v;
-    u = (int32_t)((uint32_t)(x >> 16) * 16807u);
-    v = (int32_t)(((uint32_t)(u & 0x7fff) << 16) + (uint32_t)(x & 0xffff) * 16807u
-                  + (uint32_t)(u >> 15));
-    if (v < 0)
-        v = (int32_t)((uint32_t)v - 0x7fffffffu);
-    s->seed = (unsigned)v;
-    return (unsigned)(v > 0x7fff ? v % 0x7fff : v) & 0xff;
+    uint32_t x = s->seed;
+    unsigned b = (unsigned)rand_step(&x) & 0xff;
+    s->seed = x;
+    return b;
 }
 
 int script_open(Script *s, const char *spt)

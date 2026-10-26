@@ -6,6 +6,8 @@
 #include "menu.h"
 #include "font.h"
 #include "text.h"
+#include "r3d.h"
+#include "rand.h"
 #include "video.h"
 #include <SDL.h>
 #include <ctype.h>
@@ -23,7 +25,7 @@ static void usage(void)
          "  --shot FILE N      no window: run N frames, save the screen as a BMP, quit\n"
          "                     (OMR_SHOT=\"FILE N\")\n"
          "test switches (environment):\n"
-         "  OMR_PAGE=N         start on the menu page N (the game's numbers)\n"
+         "  OMR_PAGE=N         start on the menu page N (the game's numbers; 25 the logo)\n"
          "  OMR_INPUT=\"F:WHAT ...\"  at frame F: a key (return, escape, space, tab,\n"
          "                     backspace, left, right, up, down, shift, a letter),\n"
          "                     move:X,Y (the mouse), click (left button down and up)\n"
@@ -142,7 +144,7 @@ int main(int argc, char **argv)
 {
     const char *data = getenv("OMR_DATA"), *shot = 0, *env, *script = getenv("OMR_INPUT");
     char err[512], shotbuf[512];
-    int shot_frames = 0, frame, i, page = 3;
+    int shot_frames = 0, frame, i, page = 25;
 
     if ((env = getenv("OMR_LANG")))
         g_lang = atoi(env);
@@ -166,7 +168,7 @@ int main(int argc, char **argv)
     if (g_lang < 0 || g_lang > 5)
         g_lang = 0;
     if (page < 0 || page >= MENU_PAGES)
-        page = 3;
+        page = 25;
     if (shot)
         SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0)
@@ -181,12 +183,13 @@ int main(int argc, char **argv)
         fail(err, shot != 0);
     if (!font_init(err, sizeof err))
         fail(err, shot != 0);
+    r3d_init();
+    rand_init();
     if (!video_init(shot != 0, err, sizeof err))
         fail(err, shot != 0);
     SDL_ShowCursor(SDL_DISABLE);        /* the game draws its own pointer */
 
-    /* the front end; its first page will be the Delphine logo (25) once the pages
-       before the main menu are written */
+    /* the front end, from its first page: the Delphine logo (25) */
     if (!menu_start(page, err, sizeof err))
         fail(err, shot != 0);
     if ((env = getenv("OMR_TEXT")))

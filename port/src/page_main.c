@@ -5,6 +5,7 @@
 #include "clock.h"
 #include "menu.h"
 #include "pages.h"
+#include "r3d.h"
 
 #define PIC(id) (&g_pics[id])
 enum {
@@ -100,6 +101,7 @@ void page_main_frame(void)
             draw_switch(g_reverse, 250, 330, 363);
     }
     menu_transition();
+    r3d_render();
     menu_end_frame();
 
     /* Solo and Link say their name first and go on when it has been said (1 s); with no

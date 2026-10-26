@@ -9,7 +9,7 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-add_compile_options(-Wall -Wextra -O2 -fwrapv)
+add_compile_options(-Wall -Wextra -O2 -fwrapv -ffp-contract=off)
 
 # SDL2, linked dynamically
 find_package(PkgConfig REQUIRED)
@@ -24,6 +24,10 @@ set(OMR_SOURCES
   src/clock.c
   src/menu.c
   src/page_main.c
+  src/page_intro.c
+  src/r3d.c
+  src/model.c
+  src/rand.c
   src/script.c
   src/font.c
   src/text.c
