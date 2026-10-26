@@ -55,7 +55,13 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   the original, or a user folder?
 
 ## Next, in order
-1. Page 15, the name entry (0x487bb0: 3D letters, `data\menu\font3d`, NOTES §4.8.5),
+1. (In hand when the session stopped, no code written yet.) Page 15 from
+   build/notes/name15.md (model.py matches the original to 0 px): r3d needs a settable focal
+   (1024 here), flat faces (kind 0, colour MAP+2 & 0xFFDF, 0x4a34f0/0x4a2f10 as model.py's
+   flat_triangle/flat_row), the menu loader (0x420a50 last arg 0, mirror with the cos-table
+   constants), fit/scale, the menu object (0x47a3d0 modes 0/1/2) and its matrix/camera.
+   The track helper was stopped part-way: see build/notes/track.md and tools/track.py.
+   Page 15, the name entry (0x487bb0: 3D letters, `data\menu\font3d`, NOTES §4.8.5),
    then the 15 -> 3 transition; the title's 30 s demo time-out (Menu_Frame 0x409c00).
 2. The Solo pages from build/notes/solo_pages.md (5, 6, 10, 9, then 1), then 11 options.
 3. Sound: CONFIG.BPT's switches and volumes, pause on losing focus, the race's sounds.
