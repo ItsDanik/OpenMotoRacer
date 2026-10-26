@@ -12,7 +12,7 @@ for line in open(sys.argv[1]):
     p = line.split()
     ea = int(p[0], 16)
     calls = line.split("calls [")[1].rstrip().rstrip("]")
-    idx[ea] = (int(p[1]), [int(c, 16) for c in calls.split(", ") if c])
+    idx[ea] = (int(p[1]), [int(c, 16) for c in calls.split(", ") if c and not c.startswith("EXTERNAL")])
 root = int(sys.argv[2], 16)
 depth = int(sys.argv[3]) if len(sys.argv) > 3 else 3
 names = {}
