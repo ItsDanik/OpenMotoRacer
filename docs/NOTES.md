@@ -1184,6 +1184,403 @@ by build/ref/orig_p15_name.png the typed name ("DSI") is made of the same 3D let
 - Not compared against a capture of the original yet: the AntiAlias8Transp blend and the
   ramp are from the asm; a capture of a Messages text over a picture would confirm.
 
+### 4.9 The 3D intro pages (25 logo, 14 title) and the software 3D path (mapped 2026-10-26)
+
+Inside 4.9, "section 3.1", "(2.2)" and the like mean 4.9.3.1, 4.9.2.2.
+Everything here is from `game.EXE` 1998 (SHA-1 164b4175...), addresses in the program at 0x400000.
+Confidence marks: **[asm]** read in the disassembly (build/mr.asm), **[px]** confirmed by
+pixel comparison with the running original (tools/orig.sh), **[decomp]** read only in the
+Ghidra output, **[guess]** inferred.
+
+The reference renderer is `tools/model.py` (modes `dsi`, `title`, `model`). It follows every
+rule below and reproduces the original's frames to within a few dozen pixels (4.9.6).
+
+---------------------------------------------------------------------------------------------
+
+#### 4.9.1 Page 25: the Delphine Software International logo
+
+Page table entry (0x4dbb38 + 25*16): start 0x4537d0, frame 0x453c50, end 0x453bf0.
+
+##### 4.9.1.1 What the start routine 0x4537d0 loads
+
+- **Texture pages** through 0x401160 (thiscall on a texture page object; the objects are an
+  array at 0x4f92f8 with stride 0x338):
+  - page 0 (object 0x4f92f8) = `data\pages\titleDsi\bnk00_00.raw`
+  - page 1 (object 0x4f9630) = `data\pages\titleDsi\bnk00_01.raw`
+  - The success flag goes to 0x54098c. Afterwards the u16 at page +0x254 is set to 0x180
+    (bit 3 clear, so no half-texel UV tweak in software, see 3.6). +0x150 keeps a copy of the
+    path (used only by the Direct3D reload path 0x41b0f0/0x41aee0 when 0x4dc06c is set). [asm]
+- **Models** through 0x4216a0(model, name.3df, name.map, -1, 1) into 0x70-byte model
+  structures (section 3.1):
+  - 0x542150 `camera` (the camera body), 0x5421c0 `D`, 0x542230 `S`, 0x5422a0 `I`,
+    0x542310 `DsInt` (the "Delphine Software International" banner). All from
+    `data\pages\titleDsi\`. [asm]
+  - Each is then recentred on its bounding-box centre by 0x420250 (centre = (min+max)*0.5,
+    constant 0x4d0680 = 0.5; normals recomputed by 0x41f920) and scaled by 0x4204b0 with
+    per-axis factors:
+    camera (0.055, 0.055, 0.06); D, S, I and DsInt each (0.04, 0.04, 0.04). [asm]
+- **A picture** 0xb2 `logodsi.lez` is loaded into a fresh 0x74-byte picture object
+  (pointer 0x5409c0) but is **never drawn** by page 25; the end routine frees it. [asm]
+- **Objects**: an array of 5 object structures of 0x184 bytes at 0x53f850 (built by static
+  initialiser 0x4535b0 through ctor 0x48bbc0, which sets +0x14c = -1). Each is initialised by
+  0x48bce0(obj, position, angles, model): +0x00..+0x08 angles a,b,c (floats, radians),
+  +0x0c..+0x14 position x,y,z, +0x34 model pointer, +0x94 = 1.0. [asm]
+  - object 0 = camera model, position (-30, 0, -900), angles (0, -1.701696 [bits 0xbfd9d12d], 0)
+  - objects 1..3 = D, S, I; object 4 = DsInt; all position 0, angles (0, -pi/2, 0);
+    then object 3 (I, +4 at 0x53fce0) and object 4 (DsInt, +4 at 0x53fe64) get b = +pi/2.
+- **Camera** (the view, not the model): camera block = 0x5161c0 + index*0x238 where index
+  = 0x4dc0f8. 0x46da40(cam, (0,0,0), (0,0,1500)) sets +0x38 and +0x50; the camera position
+  (+0x98..+0xa0) ends at (0, 0, 4500); 0x46e140(cam, target (0,0,0)) builds the look-at
+  matrix, which for this position is C = diag(-1, 1, -1) (see 3.3). 0x49a120(1.0) sets the
+  screen scale factors to 1. [asm]
+- **Tables** filled by 0x453610 (section 1.2). Music: 0x404990(13, 0) = CD/WAV track 13.
+- **Button**: 0x40bd40 resets the menu buttons; picture 0x5049b4 (`continue.lez`) placed at
+  (-300,-300) i.e. off screen; 0x40bef0 binds key 0x1b (Escape) to it. So Escape skips. [asm]
+- 0x5409a8 = timeGetTime() at start (the frame's time base). [asm]
+
+##### 4.9.1.2 Tables (0x453610) [asm]
+
+Six animation slots i = 0..5. Floats.
+
+| table | meaning | values |
+|---|---|---|
+| 0x540188[6] | progress (sum of dt/duration) | all 0 |
+| 0x540ae0[6] | duration in seconds | 15, 14.5, 14, 13.5, 16, 20 |
+| 0x5401d0 (stride 0xc) | start position | i0 (50,80,-1000) unused; i1-3 (0,0,20000) unused; i4 (20,0,60000); i5 (50,80,-1000) |
+| 0x542100 (stride 0xc) | end position | i0 (50,0,7000) unused; D (200,0,200); S (-50,0,200); I (-250,0,200); DsInt (20,-400,-600); i5 (50,0,7000) |
+
+0x53f788 (count of finished slots, kept as a maximum) = 0.
+
+##### 4.9.1.3 Frame 0x453c50 [asm, px]
+
+1. dt = timeGetTime() - 0x5409a8, as unsigned to float (ms); 0x5409a8 = now. If dt > 500
+   (0x4d0bf4) then dt = 100. (So a stall advances only 100 ms.)
+2. 0x49b1c0 (begin frame); 0x45a2e0(0,0,0) sets the clear colour black; 0x499ff0 ->
+   0x476680 clears the back buffer with a DirectDraw COLORFILL; 0x49a160(0,0) locks and
+   resets the 3D lists (section 3).
+3. For i = 0..5: progress[i] += dt / (duration[i] * 1000) (constant 0x4d0bfc = 1000);
+   t = progress clamped to [0,1] (the clamp is done on the float's integer bits);
+   n = number of slots with progress > 1.0.
+   - **i = 0 (camera model, object 0)**: angles
+     a = 0, b = (1 - t)*pi/2 - 1.701696021 (0x4d0d28), c = (1 - t*t)*pi/2. Position fixed.
+   - **i = 1..3 (D, S, I)**: e = end position, L = |e|,
+     R = L + 2500 - 2500*t*t (0x4d0d40/0x4d0d44 = 2500), p' = e * R / L;
+     theta = -2*pi*t (0x4d0d30), evaluated through the cosine table (section 3.2);
+     position = ( p'x*cos(theta) + p'z*sin(theta),  p'y,  -p'x*sin(theta) + p'z*cos(theta) - 800 )
+     (0x4d0d48 = 800). Yaw b = (1 - |t|)*8*pi (0x4d0d38) - pi/2 for D and S, + pi/2 for I;
+     a = c = 0. So each letter spirals in from 2500 further out, turning four times, and lands
+     on its end position shifted 800 towards the camera.
+   - **i = 4 (DsInt)**: position = start + (end - start)*t (from z 60000 to -600).
+   - **i = 5**: position lerp written into the camera block +0x98..+0xa0 (0x516258..60) -
+     but the camera is not re-looked-at in this page, so it has no visible effect. [asm; the
+     px comparison agrees with a fixed camera]
+4. Objects 0..4 drawn by 0x48c030 (section 3). 0x53f788 = max(0x53f788, n).
+5. 0x49ad90 renders the collected faces (software path when 0x504e74 == 0 and
+   (0x4dc06c == 0 or 0x4dc070 != 0)). Then 0x40c1f0 (menu buttons), 0x418790 / 0x417840 /
+   0x418860 (effect list 0x53b8e8), 0x40c500 (page-transition timer), mouse cursor if
+   0x4dbff0 && 0x53c524, 0x49b0e0 (unlock, flip).
+6. **Leaving**: r = 0x40c1b0() (returns -1 while a transition runs (menu+0xd48) or
+   0x504e84, else the activated button index). r == 0 (Escape) -> 0x40c1e0, then page 14.
+   Else if 0x53f788 == 6 (every slot past 1.0, i.e. after the longest, 20 s) -> page 14 via
+   0x409eb0(menu, 14), then 0x40c4a0 which sets 0x4dbd00 = 1. [asm, px: the original moves on
+   at about 20 s]
+7. 0x4dbd00 = 1 makes the next page start with the **1.2 s screen-tile transition**: the
+   menu frame sets menu+0xd48, menu+0x20 = now + 1200 (0x4b0), camera 0x504c70 at z 1911;
+   0x40c500 advances progress = (now - start)*0.000833333 (0x4d02b4 = 1/1200); the old
+   screen (captured by 0x479260) is cut into tiles that fly apart, drawn by 0x479c10 through
+   the same 3D path (0x49b2c0 / 0x49b7f0). The new page animates underneath at the same
+   time. [asm, px: the shards are visible in captures]
+
+End routine 0x453bf0: 0x4049e0 stops the music, 0x401ab0 frees the texture pages,
+0x41f7d0 frees the models, the logodsi picture is freed. [asm]
+
+---------------------------------------------------------------------------------------------
+
+#### 4.9.2 Page 14: the Moto Racer title
+
+Page entry: start 0x4465f0, frame 0x446b80, end 0x446b40.
+
+##### 4.9.2.1 Start 0x4465f0 [asm]
+
+- 0x4dc1c4 = GP edition flag (selects `titleGP` and the GP tables/pictures).
+- Texture page 3 (object 0x4f9ca0) = `data\pages\titleMr\bnk00_00.raw` (GP: `titleGP`);
+  result flag 0x53f66c.
+- Models (0x4216a0 with last argument 1): 0x540338 `ellipse`, 0x5403a8 `moto`,
+  0x540418 `racer`. 0x422250(model, 3) adds 3 to every face's page (+0x36), so their page-0
+  textures come from page 3. **No recentre** (unlike page 25).
+- Scales (0x4204b0):
+  - MR: ellipse (0.04, 0.03875, 0.04), moto (0.04, 0.036, 0.0375), racer (0.04, 0.033, 0.0395)
+  - GP: ellipse (0.04, 0.0325, 0.0455), moto (0.04, 0.053, 0.04825), racer (0.04, 0.0315, 0.0315)
+- Objects at 0x540500 / 0x540684 / 0x540808 (static init 0x446400), angles (0, pi/2, 0),
+  position 0.
+- Camera: same as page 25 (position (0,0,4500), looking at the origin, C = diag(-1,1,-1));
+  0x49a120(1.0).
+- Tables by 0x446460 (2.2). Start button: picture 0x5049b0 (`start.lez`) at (0, 430), key
+  0x0d (Return).
+- 0x53f4e0 = timeGetTime(). The title pictures 0xbf, 0xbe, 0xbd, 0xbc (GP 0xc3..0xc0) are
+  drawn once (pre-load), 0x49b0e0, then 0x404990(3, 2) = music track 3, 0x4049f0(0x2d, 0)
+  a sound effect.
+
+##### 4.9.2.2 Tables (0x446460) [asm]
+
+| table | meaning | MR | GP |
+|---|---|---|---|
+| 0x5420e8[3] | progress | 0 | 0 |
+| 0x540220[3] | duration (s) | 1.0, 1.2, 1.4 | same |
+| 0x53fff8 (stride 0xc) | start | ellipse (60,42,-40000), moto (-12000,44,-798), racer (12000,25,-798) | (69,26,-40000), (-12000,-90,-798), (12000,40,-798) |
+| 0x5401a0 (stride 0xc) | end | (60,42,-800), (42,44,-798), (40,25,-798) | (69,26,-800), (252,-90,-798), (-265,40,-798) |
+
+0x5409bc (number of objects that have arrived, kept as maximum) = 0; 0x542148 = 0.
+
+Note the camera matrix flips x: world x = -12000 appears at the **right** of the screen, so
+MOTO comes in from the right and RACER from the left. [px]
+
+##### 4.9.2.3 Frame 0x446b80 [asm, px]
+
+1. dt from 0x53f4e0 exactly as page 25 (>500 -> 100). 0x46e140(cam, (0,0,0)) re-looks at
+   the origin every frame (no change, the camera is fixed). 0x49b1c0; 0x49a160 (**no clear**:
+   the background picture covers the screen).
+2. If 0x5409bc > 2 (everything arrived): draw picture `title4` (0xbf; GP 0xc3) as the whole
+   screen. Frame counter 0x4e90e0: above 10 the text "FULL D3D VERSION" is added through
+   0x417d20; above 20 it resets to 0 -> the text blinks, 10 frames on, 10 off (frames, not
+   time). [asm, px: the blinking text is visible]
+3. Otherwise draw the background by 0x5409bc: 0 -> 0xbc `title` (GP 0xc0), 1 -> 0xbd
+   `title2`, 2 -> 0xbe `title3`. Each later picture has the arrived objects painted into it,
+   so an object stops being drawn in 3D once it has arrived.
+   Then for each object k = 0..2: progress += dt/(duration*1000); t clamped to [0,1];
+   - k = 0 (ellipse) angles: t < 0.5 -> (a, b, c) = (2*pi*t (0x4d0c08/0x4d0c10), -pi/2, pi);
+     t >= 0.5 -> (0, 2*pi*t + pi/2, 0). (Two half-turns about different axes; it ends
+     facing the camera.)
+   - moto and racer keep angles (0, pi/2, 0).
+   - position: progress <= 1 -> lerp start -> end by t; else end, and the arrived count
+     increments.
+   - the object is drawn (0x48c030) only while 0x5409bc < k + 1.
+   0x5409bc = max(0x5409bc, count). 0x4e90e4 accumulates dt.
+4. 0x40c1f0, 0x40c500 (the tile transition from page 25 runs over this), 0x49ad90 render,
+   effects, cursor, 0x49b0e0.
+5. **Leaving**: 0x40c1b0() == 0 (Return / the Start button) -> page 15 (0xf, the name entry).
+   No timeout in this routine; the attract mode lives in the menu frame 0x409c00: on page 14,
+   when 0x53e5f2 is set and more than 30000 ms passed since menu+0x24 (last input), or when
+   0x4dbf80 is set, 0x409a30 starts a demo. [asm; the demo start was not exercised here]
+
+---------------------------------------------------------------------------------------------
+
+#### 4.9.3 The software 3D path
+
+##### 4.9.3.1 Model loader 0x4216a0 and the model structure [asm]
+
+Model structure (0x70 bytes): +0x00 faces (0x40 each), +0x04 vertices (3 floats each),
++0x08 face normals, +0x0c plane d per face, +0x2c face count, +0x30 vertex count,
++0x48.. half extents, +0x58 radius.
+
+**3DF**: u16 version (1), u16 vertex count, vertices as 3 floats each, multiplied by 96.0
+(0x4d0690); then faces: u16 n (0 ends the list), u16 colour/attribute (equals n in these
+files), n u16 vertex indices.
+
+**MAP**: a 0x200-byte header (bit 7 of byte 1 is a flag), then 0x80 bytes per face:
+kind at +0 (< 3 = untextured; 3 or 4 must equal the face's corner count), u values at
++0x22.. and v values at +0x32.. (integers, texels), flags (u32) at +0x48, colour at +0x4e.
+Another set of coordinates at +0x0a..+0x1e is not used. An `ANI!` block of 0x80 bytes may
+follow (not used by these pages).
+
+Face structure (0x40 bytes): +0x00 draw kind (u16), +0x02 colour RGB565, +0x04..+0x2b five
+(u, v) float pairs, +0x2c..+0x34 five u16 vertex indices (+0x34 != 0xffff means a quad),
++0x36 texture page, +0x38 flag bits, +0x3a copy of the draw kind, +0x3c colour 8:8:8
+(0x423110).
+
+Corner order (this is the easy thing to get wrong): the builder 0x422c80/0x422be0 stores
+the indices reversed, 0x423170 reverses them back and closes the polygon (slot n = slot 0);
+the MAP builder 0x422d20/0x422ed0 pairs MAP corner k with **file index k**; then 0x422070
+mirrors every vertex x -> -x and 0x423170 reverses every face again (so the winding stays
+front-facing after the mirror). Net effect: x negated, corner order reversed, each corner
+keeps its own MAP (u,v). [asm, px]
+
+0x4232e0 multiplies u, v by 1/256 (0.00390625). Half-texel adjustments only when page +0x254
+bit 3 or Direct3D - never in these pages. [asm]
+
+##### 4.9.3.2 Angles and the cosine table [asm]
+
+0x5fcb80: 16384 floats, COS[k] = cos(k*2*pi/16384), filled by 0x4901e0. Angle to index:
+trunc(angle * 2607.594588) & 0x3fff (double constants 0x4d1bf8 / 0x4d0ca8 / 0x4d0ed0;
+2607.59 = 16384/(2*pi)); sin(x) = COS[(n - 0x1000) & 0x3fff]. Truncation, not rounding
+(_ftol 0x4b3048). The port must use the table to be exact (COS[0x3000] is ~0, not 0).
+
+##### 4.9.3.3 Camera and object transform: 0x46e140 and 0x48c030 [asm, px]
+
+- Camera block (0x238 bytes, 0x5161c0 + 0x4dc0f8*0x238): look-at matrix C at +0x68..+0x88
+  (3x3), translation +0x8c..+0x94, position +0x98..+0xa0. 0x46e140(cam, target) builds C
+  from the direction position->target; for (0,0,4500) -> (0,0,0) it gives diag(-1, 1, -1).
+- 0x48c030(obj, renderer *0x4dc0c0, camera): row-vector rotation
+  M = Rz(c)*Ry(b)*Rx(a), entries (cX = cos, sX = sin of the angle, from the table):
+  M0 = cc*cb, M1 = sc*ca + cc*sb*sa, M2 = sc*sa - cc*sb*ca,
+  M3 = -sc*cb, M4 = cc*ca - sc*sb*sa, M5 = cc*sa + sc*sb*ca,
+  M6 = sb, M7 = -cb*sa, M8 = cb*ca.
+  View matrix N = M * C; translation T = (pos - campos) * C + cam(+0x8c..0x94).
+  0x4039c0 copies; then 0x49b2c0(matrix, vertices, count, 0x1f) transforms.
+- The object scale field +0x94 = 1.0 is not used in these pages (scale was baked in by
+  0x4204b0).
+
+##### 4.9.3.4 Vertex transform and projection 0x49b2c0 [asm, px]
+
+Sets the x87 precision to 24 bits (PC=single) with round-to-nearest; the port must compute
+in float32 for exact pixels. Output records of 0x1c bytes at 0x6d20d8:
++0x00 X*fx, +0x04 Y*fy, +0x08 Z, +0x0c light (0x1f << 13), +0x10 sx, +0x14 sy, +0x18 1/Z.
+A vertex is projected only if Z >= near:
+sx = round(cx + X*fx/Z), sy = round(cy - Y*fy/Z) (round to nearest through fistp).
+
+Constants for the menu (set by the menu at 0x40a003 via 0x49a0e0/0x49a100, and 0x40a01d,
+0x40a037):
+- fx = fy = 1911.0 (bits 0x44eee000). (The generic setup 0x4995a0 would use 307200/W and
+  230400/H; the menu overrides it.)
+- centre cx = 320, cy = 240 (0x60d3c4, 0x624f88, from 0x499ba0(0,0,640,480)).
+- near = 256 (0x625774; races use 64). far = 40000 (0x6d1f70).
+- 0x62e444 = 1: s-buffer mode.
+
+##### 4.9.3.5 Face setup and sorting 0x49b7f0 / 0x49c590 [asm, px]
+
+0x48c030 calls 0x49b7f0(vertices, faces, count, 1) because object +0x14c == -1 (otherwise
+0x49c110). Per face:
+- kind 0xd is skipped.
+- key = Z of the farthest of the four corners. Skip if that farthest Z <= near.
+- if any corner has Z <= near: 3D back-face test (triple product of the corners in view
+  space); else 2D: trivial reject if all corners are left of 0, right of 639, above 0 or
+  below 479, and the screen area (y2-y1)(x1-x0) + (y0-y1)(x2-x1) must be > 1.0 (so only
+  clockwise-on-screen faces survive).
+- 0x49c590(face, key (+1024 if flag bit 1, constant 0x4d1f94), vertices, flags, 0):
+  bucket = trunc(key * 0.25) (0x4d1f9c); < 0 dropped; >= 7999 clamped to 7998. Buckets are
+  LIFO lists (heads 0x655d38, entries 0x18 bytes at 0x65f0e0, at most 7499). The menu skips
+  the detail-level kind table.
+
+0x49a160 at frame start resets: vertex counter 0x68b014, face count 0x655d14, every screen
+row's free list to one interval [0, 640), 0x6d20c0 = 1, deferred counters 0x6d1048 /
+0x6d1f78 = 0.
+
+##### 4.9.3.6 Rendering 0x49ad90 (software, s-buffer) [asm, px]
+
+Front to back: buckets ascending (nearest first); within a bucket from the list head (last
+inserted first); at most 2000 faces (0x62e438). Each face goes through 0x4aef20, which looks
+up the draw kind in the kind table 0x4f1a70 (16-byte entries {id, sub, flag, span routine},
+re-indexed by id at startup by 0x4a2ea0 / 0x4a2e00) and the sub table 0x4f1ee0 ({id,
+polygon routine, edge routine, edge routine when flag}).
+
+For the kinds used here (16, 21, 38, 39) sub = 4: polygon routine 0x49e510, edge routine
+0x49d9e0 (opaque, flag 0) or 0x49dbf0 (see-through, flag 1).
+
+- **0x49e510 polygon**: fan (0,1,2), (0,2,3). Texture coordinates become integers
+  ftol(u * 2^21) (0x4d1fa8; u is texels/256, so this is texels * 8192, 13 fraction bits).
+  Near clipping per triangle at Z < near: one corner in front -> one triangle (F, P1, P2);
+  two in front -> (F1, F2, P1) and (F2, P2, P1). A clip point P is projected by 0x49d8f0 as
+  sx = cx + trunc(X/near), sy = cy - trunc(Y/near) (X, Y already carry fx, fy), and its uv =
+  uB + trunc(near - zB) * ((uF - uB) / trunc(zF - zB)).
+- **0x49dde0 triangle** (x0,y0,x1,y1,x2,y2, page, u0,v0,u1,v1,u2,v2): rotate the corners so
+  corner 0 is topmost; D = (x0-x2)(y1-y2) - (x1-x2)(y0-y2) truncated to int, must be >= 1
+  (back faces and slivers dropped). Constant gradients (affine, **no perspective
+  correction**): du/dx = trunc((u0-u2)/D*(y1-y2) - (u1-u2)/D*(y0-y2)) (0x655d20), dv/dx the
+  same (0x655d24). Edges in 13-bit fixed point (x << 13, slope = (dx << 13)/dy as C integer
+  division, no sub-pixel prestep); u and v interpolated down the edge 0 -> 2 (0x624b0c,
+  0x68b018 / 0x68b01c, per-row steps (u2-u0)/h as integers); the other side at 0x624b44.
+  Rows above 0 are skipped (advancing the edges), rows beyond 479 cut. Per row, if the row's
+  free list is not empty, the span [xl >> 13, xr >> 13) is passed to the edge routine.
+- **0x49d9e0 (opaque, s-buffer)**: draws the parts of the span that are still free (u,v
+  advanced by (a - start)*du for each piece) and removes them from the row's free list (new
+  list nodes from 0x60d3d0). Nearer faces were drawn first, so this is a z-buffer-free hidden
+  surface removal.
+- **0x49dbf0 (see-through)**: records the visible pieces (0x68b040, 0x1c-byte records, at
+  most 0x2800) without covering them; 0x49dde0 also records the triangle batch (0x625790,
+  0x24 bytes, at most 1000). 0x4af130 replays the batches **last first** after all buckets.
+- **Span routines** (kind table): 16 -> 0x4a5ab0 opaque (self-modifying code, texel at
+  [v & 255][u & 255]); 21 -> 0x4a5e10 opaque, colour (c >> 1) & 0x7bef (mask at 0x50270c,
+  set by 0x401fc0; i.e. half brightness); 38 -> 0x4a5330 skips texel value 0 (see-through);
+  39 -> 0x4a5580 skips 0 and halves. For 21/38/39 the texel index is
+  ((v >> 13)*256 + (u >> 13)) & 0xffff. No lighting: the light value in the vertex is not
+  used by these span routines.
+- 0x49b0e0 fills the spans still free with the colour 0x65f0d8 only when 0x625748 is set
+  (not in these pages; page 25 clears with COLORFILL, page 14 draws its background first).
+
+An equivalent painter's algorithm (what tools/model.py does): buckets from far to near,
+within a bucket in insertion order; opaque spans overwrite, see-through spans skip 0; see-
+through batches are drawn in the same order as recorded but only over pixels no opaque
+face covered. Pixel-exact results need the float32 transform, the cosine table, the
+truncations above and the s-buffer span boundaries.
+
+##### 4.9.3.7 Texture pages 0x401160 [asm, px]
+
+RAW (Image Alchemy) header big-endian: width at +8, height +0xa, palette count +0xc; width
+must be >= 256. When the palette count is 0 the image is 24-bit: each row's first 256
+texels are read as R, G, B and the rest of the row (w*3 - 0x300 bytes) skipped. A texel is
+stored as RGB565 built from the DirectDraw pixel format: (R >> 3) << 11 | (G >> 3) << 6 |
+(B >> 3). **Green uses only 5 bits** (its lowest bit is always 0) because the shifts come
+from per-channel bit counts 5/6/5 and positions 11/5/0 (globals 0x4ee9ac.., 0x4ee9c4..,
+masks 0x4ee9d0..0x4ee9d8 set by 0x473c3c) applied as "top 5 bits then shift". (LEZ menu
+pictures use G >> 2, a full 6 bits.) The paletted RAW path converts the palette the same
+way then maps indices. 0x43e280 is **not** involved (that is the LEZ/TGA picture path).
+Stored as 256 u16 per row at page object +0x330. Texel value 0 is the see-through colour
+for kinds 38/39 (pure black RGB < 8,8,8 becomes 0). [asm, px]
+
+---------------------------------------------------------------------------------------------
+
+#### 4.9.4 MAP face flags (u32 at MAP face +0x48) [asm]
+
+For textured faces (MAP kind 3/4) and the loader's last argument = 1 (all these pages):
+
+| flag | effect |
+|---|---|
+| (none) | draw kind 0x10 (16): opaque textured. (Argument 0 -> kind 1.) |
+| 0x10000 | kind 0x26 (38): see-through texture (texel 0 skipped), **two-sided** in practice because the models carry both windings (argument 0 -> kind 2) |
+| 0x200000 | kind 0x15 (21): half-brightness texture; with 0x10000 -> 0x27 (39) see-through and half brightness |
+| 0x20000 | face flag bit 0 (+0x38) |
+| 0x400000 | flag bit 1: sort key + 1024 (drawn as if farther: decals/backgrounds) |
+| always | flag bit 2 |
+| 0x100000 | flag bit 3 |
+| 0x40000 | kind 0x0d: never drawn (skipped in 0x49b7f0) |
+| 0x80000 | kind 8: span routine 0x4a5a90 does nothing |
+| low 16 bits | texture page number (plus the 0x422250 offset) |
+
+Untextured faces (MAP kind < 3): kind 0 (solid colour, 0x423150), 0x10000 -> 2,
+0x40000 -> 0xd, 0x80000 -> 0xc. If the page is loaded and all four (u, v) are equal, the
+face is turned into a flat face of that texel's colour.
+
+Bits 0 and 3 of +0x38 had no visible effect in these pages ([guess]: lighting / collision
+uses in races).
+
+Flags used by these models: camera 0x200001 / 0x1 (page 1; kinds 21 / 16); D, S, I
+0x200000 / 0 (kinds 21 / 16); DsInt, moto, racer, ellipse 0x110000 (kind 38) and 0x310000
+(kind 39): flat two-sided billboards in the model's YZ plane (they face the camera after the
+b = +-pi/2 yaw).
+
+---------------------------------------------------------------------------------------------
+
+#### 4.9.5 What the port needs, in order
+
+1. RAW texture page loader (24-bit and paletted, green 5 bits, 256 texels per row).
+2. 3DF + MAP loader with the corner order and mirror of 3.1, the scales and (page 25) the
+   recentre.
+3. The cosine table, the float32 transform, projection and the sort/clip rules (3.2-3.5).
+4. The affine triangle with 13-bit fixed point and the four span kinds; the s-buffer (or the
+   painter's equivalent).
+5. The two page scripts (1.3, 2.3) with the dt rule (>500 ms -> 100 ms) and progress sums,
+   the 1.2 s tile transition between them, Escape on page 25, Return on page 14, and the
+   blinking FULL D3D VERSION text (frame counted: 10 on, 10 off at the game's frame rate).
+
+---------------------------------------------------------------------------------------------
+
+#### 4.9.6 Verification against the running original
+
+- Page 25: tools/model.py `dsi` at 19923.5 ms vs build/ref/orig_p25_logo_end.png: 11
+  differing pixels of 307200; at 14592 ms vs build/ref/orig_p25_logo_a.png: 28 pixels.
+  16 further captures 1.25 s apart fitted with consistent time offsets; residues 14-6776
+  pixels, all texel noise on slivers / big camera faces from sub-millisecond timing; the
+  orbit, spin, camera-model swing and DsInt approach all match. [px]
+- Page 14: captures after the automatic end of page 25 (about 20 s). The fitted model times
+  advance by the same 140 ms as the captures (3.02 s -> 1124 ms, 3.16 s -> 1266 ms);
+  differences are the Start button (not drawn by model.py) and a few edge pixels; the MOTO
+  texture is itself motion-blurred (it is in the page, not an effect). Final state matches
+  apart from the blinking text. See build/png/models/title_vs_orig.png (left original,
+  right model.py). [px]
+- Not verified: the GP edition tables (no GP copy run), the Escape skip on page 25 (xdotool
+  key events did not reach the game in the headless session), the 30 s attract-demo
+  timeout.
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and
