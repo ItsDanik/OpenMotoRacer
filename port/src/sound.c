@@ -45,6 +45,7 @@ static Buffer g_slot[SLOTS];
 static int g_top;               /* +0x1030 */
 static int g_handle[256];       /* 0x519ff8 */
 static int g_menu_loaded;       /* 0x503554 */
+static int g_race_set;          /* the race's set is loaded (0x504874: its voice table) */
 
 /* the switches (NOTES §4.10.6): effects 0x4db664, voices 0x4db668, CD audio 0x4db66c */
 static int g_effects_on = 1, g_voices_on = 1, g_cd_on = 1;
@@ -380,6 +381,51 @@ void sound_menu_load(void)
     unlock();
 }
 
+/* every sound of a set freed and its ids forgotten (0x4042c0 for the menu's, the race's
+   at its end); 0x4044c0 starts by forgetting every id */
+static void free_all(void)
+{
+    int k;
+    sound_stop_all();
+    lock();
+    for (k = 0; k < g_top; k++)
+        if (g_slot[k].s && !g_slot[k].copy)
+            free_chain(k);
+    for (k = 0; k < 256; k++)
+        g_handle[k] = -1;
+    g_menu_loaded = 0;
+    unlock();
+}
+
+/* 0x4044c0 (from 0x410d70 at the race's load): the bikes' engines (KTM for a dirt family,
+   else Ninja), the effects, (the track's ambience from Sound.Spt: not yet, 0x4059a0) and
+   the voices if they are on */
+void sound_race_load(int ktm)
+{
+    if (!g_ok)
+        return;
+    free_all();
+    lock();
+    if (ktm)
+        load_table(X_SFX_KTM, 16, "Ktm\\");
+    else
+        load_table(X_SFX_NINJA, 11, "Ninja\\");
+    load_table(X_SFX_DIVERS, 18, "Divers\\");
+    if (g_voices_on)
+        load_table(X_SFX_VOICES, 30, "Voices\\");
+    g_race_set = 1;
+    unlock();
+}
+
+/* the race's end: its set freed; the menu loads its own as it comes back */
+void sound_race_free(void)
+{
+    if (!g_ok)
+        return;
+    free_all();
+    g_race_set = 0;
+}
+
 int sound_running(void)
 {
     return g_ok;
@@ -407,12 +453,19 @@ void sound_toggle_effects(void)
         sound_stop_all();
 }
 
-/* 0x408f30: on loads the menu's voices if they were left out */
+/* 0x408f30: on loads the voices of the set in use if they were left out */
 void sound_toggle_voices(void)
 {
     g_voices_on ^= 1;
-    if (g_voices_on)
+    if (!g_voices_on)
+        return;
+    if (!g_race_set)
         sound_menu_load();
+    else if (g_ok && g_handle[0x30] < 0) {
+        lock();
+        load_table(X_SFX_VOICES, 30, "Voices\\");
+        unlock();
+    }
 }
 
 /* 0x409410: off stops the music, on plays the track again */

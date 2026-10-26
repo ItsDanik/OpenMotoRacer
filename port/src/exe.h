@@ -17,6 +17,10 @@ enum {
     X_CHEATS,           /* the name entry's {name, variable, value} (0x4f1250) */
     X_CHEAT_COUNT,      /* how many (0x4f1248) */
     X_STRINGS,          /* the words in six languages {id, en, fr, de, it, sp, sw} (0x4e2920) */
+    X_SFX_DIVERS,       /* the race's sounds: its effects, */
+    X_SFX_KTM,          /* the dirt bikes' engines, */
+    X_SFX_NINJA,        /* the road bikes' engines, */
+    X_SFX_VOICES,       /* the race's voices */
     X_COUNT
 };
 unsigned exe_addr(int what);

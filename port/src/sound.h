@@ -12,6 +12,8 @@ void sound_quit(void);
 void sound_frame(void);                 /* once a picture: the music read ahead, the file */
 
 void sound_menu_load(void);             /* 0x403f90: the menu's set (+ its voices) */
+void sound_race_load(int ktm);          /* 0x4044c0: the race's set (ktm: dirt bikes) */
+void sound_race_free(void);
 void sound_queue_reset(void);           /* 0x404d50 */
 
 int sound_play(int id, int flags);      /* 0x4049f0: 1 loop, 2 another copy, 4 not twice;

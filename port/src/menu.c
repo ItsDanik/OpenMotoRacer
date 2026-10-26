@@ -198,6 +198,7 @@ static void set_page(int page)
         g_menu.active = 1;
         g_menu.sel = g_menu.prev_sel = g_menu.pressed = -1;
         g_menu.mouse_mode = 0;
+        sound_menu_load();      /* 0x40a9a0's 0x403f90 (after a race: its set is gone) */
         sound_queue_reset();    /* 0x404d50 */
     }
     g_menu.last_input = g_now;

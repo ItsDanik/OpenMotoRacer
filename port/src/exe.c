@@ -21,7 +21,9 @@ static const struct {
 } builds[] = {
     { 0xd2534e97u, 1133056, "GOG game.EXE, 3.22, 1998-07-09", { 0x4e3e20, 0x4e8b60, 0x4f0dd4, 0x4f2590,
                                                                 0x4db7d8, 0x4db780, 0x4db770,
-                                                                0x4f1250, 0x4f1248, 0x4e2920 } },
+                                                                0x4f1250, 0x4f1248, 0x4e2920,
+                                                                0x4db810, 0x4db8a0, 0x4db920,
+                                                                0x4db680 } },
 };
 static int g_build = -1;
 

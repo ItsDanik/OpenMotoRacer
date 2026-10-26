@@ -278,6 +278,35 @@ int land_load(int track, char *err, int errsize)
                 fprintf(stderr, "openmotoracer: %s could not be read\n", path);
         }
     }
+    /* the int fields (0x425bb0 / 0x425080) and the float ones (0x4257e0 / 0x424c00) in
+       the order 0x427e80 reads them */
+    g_land.step_global = script_int(&s);
+    g_land.yscale = script_int(&s);
+    for (i = 0; i < 3; i++)
+        g_land.start[i] = script_int(&s);
+    g_land.optimise = script_int(&s);
+    for (i = 0; i < 9; i++)
+        for (k = 0; k < 5; k++)         /* MediumZone and HightZone (4, 5) are ints */
+            g_land.detail[i][k] = i == 4 || i == 5 ? (float)script_int(&s) : script_float(&s);
+    for (i = 0; i < 13; i++)
+        for (k = 0; k < 3; k++)
+            g_land.ai[i][k] = script_float(&s);
+    g_land.ncomputer = script_int(&s);
+    for (i = 0; i < g_land.ncomputer; i++) {
+        float v = script_float(&s);
+        if (i < 32)
+            g_land.computer_speed[i] = v;
+    }
+    for (i = 0; i < 3; i++)
+        g_land.time_skill[i] = script_int(&s);
+    g_land.ncheck = script_int(&s);
+    for (i = 0; i < g_land.ncheck; i++) {
+        k = script_int(&s);
+        if (i < 32)
+            g_land.check_time[i] = k;
+    }
+    g_land.factor_pocket = script_float(&s);
+    g_land.audio_track = script_at_end(&s) ? 0 : script_int(&s);   /* 0x4db67c */
     ok = !s.bad;
     script_close(&s);
     if (!ok) {
@@ -291,6 +320,11 @@ int land_load(int track, char *err, int errsize)
     }
     ok = read_trk(d, len);
     free(d);
+    /* 0x40df3c: the checkpoint sections, in the track's order, take TimeCheckPoint's times
+       one after the other */
+    for (i = k = 0; ok && i < g_land.nsec; i++)
+        if (g_land.sec[i].checkpoint != -1 && k < 32)
+            g_land.sec[i].time = g_land.check_time[k++];
     if (ok && !horizon_load(g_tracks[track].folder))
         fprintf(stderr, "openmotoracer: %sBank\\HorizHi.raw could not be read\n",
                 g_tracks[track].folder);
@@ -309,7 +343,7 @@ static double plane_dist(const float pl[4], const float p[3])   /* 0x4b10c0 */
 
 int land_section(const float pos[3], int hint)
 {
-    int n = g_land.nsec, i, k;
+    int n = g_land.nsec, i;
     if (n <= 0)
         return 0;
     if (hint < 0 || hint >= n) {                /* 0x40c740: the nearest by distance */
@@ -324,18 +358,36 @@ int land_section(const float pos[3], int hint)
                 best = dd, hint = i;
         }
     }
-    /* 0x40c7e0: forward while in front of the next one's start plane, back while behind
-       its own */
-    i = hint;
-    if (plane_dist(g_land.sec[i].plane[0], pos) >= 0.0) {
-        for (k = 0; k < n && plane_dist(g_land.sec[(i + 1) % n].plane[0], pos) >= 0.0; k++)
+    return land_walk(pos, hint, 0);
+}
+
+/* 0x40c7e0: forward while in front of the next one's start plane, back while behind its
+   own; *dist = how far in front of the section's plane (going back) or minus how far
+   from the next one (going forward) */
+int land_walk(const float pos[3], int hint, float *dist)
+{
+    int n = g_land.nsec, i, k;
+    double d;
+    if (n <= 0)
+        return 0;
+    i = hint >= 0 && hint < n ? hint : 0;
+    d = plane_dist(g_land.sec[i].plane[0], pos);
+    if (d >= 0.0) {
+        for (k = 0; k < n; k++) {
+            d = plane_dist(g_land.sec[(i + 1) % n].plane[0], pos);
+            if (d < 0.0)
+                break;
             i = (i + 1) % n;
+        }
     } else
         for (k = 0; k < n; k++) {
             i = (i + n - 1) % n;
-            if (plane_dist(g_land.sec[i].plane[0], pos) >= 0.0)
+            d = plane_dist(g_land.sec[i].plane[0], pos);
+            if (d >= 0.0)
                 break;
         }
+    if (dist)
+        *dist = (float)d;
     return i;
 }
 

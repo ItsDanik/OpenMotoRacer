@@ -41,6 +41,19 @@ typedef struct {
     int horizon_offset;         /* 0x4db2b0 */
     float horizon_scale;        /* 0x4db2b4 */
     int bank1_rgb;              /* bank 1's number & 4 (0x51d16c): the bikes' page 1 in RGB */
+    /* Level.Spt after the banks (0x427e80, NOTES §4.13.1.3) */
+    int step_global, yscale;    /* 0x4dbfe0, 0x516aa8 */
+    int start[3];               /* 0x51bfd8: StartPosition */
+    int optimise;               /* 0x5d2eac: ComputeLandOptimise */
+    float detail[9][5];         /* 0x51d1b8: LenBPlane .. gouraudZ, a column per detail */
+    float ai[13][3];            /* 0x5427b8..: RATTRAPAGE_SPEED .. SPEED_FACTOR */
+    int ncomputer;              /* 0x4dbfcc: NbComputer */
+    float computer_speed[32];   /* 0x51be98: ComputerSpeed, NbComputer of them */
+    int time_skill[3];          /* 0x515fe0: TimeSkill, ms by difficulty */
+    int ncheck;                 /* 0x4dbfd0: NbCheckPoint */
+    int check_time[32];         /* 0x509228: TimeCheckPoint, ms */
+    float factor_pocket;        /* 0x4dbfd8 */
+    int audio_track;            /* 0x4db67c: the race's music (0: a random one) */
 } Land;
 
 extern Land g_land;
@@ -49,6 +62,7 @@ extern Land g_land;
 int land_load(int track, char *err, int errsize);
 void land_free(void);
 int land_section(const float pos[3], int hint);         /* 0x40c740 / 0x40c7e0; hint -1 */
+int land_walk(const float pos[3], int hint, float *dist);       /* 0x40c7e0 */
 /* 0x40ce60: the road blocks and decor a camera (C at +0x68, pos at +0x98) sees from the
    section sec, into the renderer */
 void land_draw(int sec, const float c[3][3], const float pos[3]);

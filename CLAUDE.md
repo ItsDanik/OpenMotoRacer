@@ -111,7 +111,8 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   sees), `horizon.c`, and `r3d_race()` (near 64, the detail remap, the sub-6 perspective
   spans). `OMR_RACEVIEW=TRACK,FOCAL,X,Y,Z,C00..C22` draws a track from a still camera.
 - The race (NOTES §4.16): `race.c` (load, grid, frame: track, sky, riders), page 1 hands
-  over. So far a stand-in camera and no physics; Escape returns to the menu.
+  over; `rules.c` (§4.17: countdown, time limit, laps, places with the game's qsort); the
+  race's sounds and music. So far a stand-in camera and no physics; Escape returns to the menu.
 - Test switches: `OMR_PAGE`, `OMR_CHOICES="MODE,TRACK,LAPS[,REV,POC]"`, `OMR_TILE=SX,SY` (the chequered tile's scroll, to match a capture;
   `tools/cmpshot.py` finds it), `OMR_INPUT="F:key F:hold:key F:release:key F:move:X,Y F:click F:down F:up"` (input at frame F),
   `OMR_TEXT="FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT"` (one text object).

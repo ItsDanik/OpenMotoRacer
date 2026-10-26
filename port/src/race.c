@@ -6,12 +6,15 @@
 #include "race.h"
 #include "bikes.h"
 #include "choices.h"
+#include "clock.h"
 #include "config.h"
 #include "horizon.h"
 #include "input.h"
 #include "land.h"
 #include "menu.h"
 #include "r3d.h"
+#include "rules.h"
+#include "sound.h"
 #include "video.h"
 #include <math.h>
 #include <stdio.h>
@@ -22,6 +25,19 @@
 Rider g_rider[RIDERS];
 int g_racing;
 static int g_player = 1;        /* 0x4ea4c0: the local player's record */
+static unsigned g_step;         /* steps run, for their milliseconds */
+
+/* one step of Game_Frame (0x47d660) of ms milliseconds: the timers, the countdown and
+   the time limit, (the riders' steps and the physics: not yet), the race's rules */
+static void step(int ms)
+{
+    if (g_extended > 0)
+        g_extended -= ms;
+    rules_time(ms);
+    /* 0x47df40: dt = ms x 0.1, each rider's step (0x45d540); 0x47ecd0 */
+    rules_laps();
+    rules_places();
+}
 
 /* 0x40ec30: a section number brought into 0 .. count - 1 */
 static int wrap(int s)
@@ -98,6 +114,7 @@ static void grid(void)
         }
         bike3d_place(r, p);
         r->sec = s;                             /* +0x31c1 */
+        rules_progress(k);
     }
 }
 
@@ -125,13 +142,28 @@ int race_load(char *err, int errsize)
         g_rider[k].bike = 0;
         g_rider[k].skin = (k - 1 == g_rider[1].bike ? 0 : k - 1) & 7;
     }
+    memset(g_racer, 0, sizeof g_racer);
+    for (k = 1; k < g_riders; k++)
+        g_racer[k].loaded = 1;
+    if (g_mode == MODE_PRACTICE)
+        g_racer[2].loaded = 0;  /* the second record: the time attack's ghost [guess] */
+    g_racer[g_player].human = 1;
     grid();
+    /* 0x410d70 (the race's sounds), then at the start 0x47bf70: every sound stopped, the
+       race's sound init 0x4084e0, the track's music */
+    sound_stop_all();
+    sound_race_load(g_bikes[g_rider[1].bike].perso != 0);
+    music_play(g_land.audio_track, 0);
+    rules_restart();
+    g_step = 0;
     g_racing = 1;
     return 1;
 }
 
 void race_unload(void)
 {
+    sound_race_free();
+    music_stop();
     bike3d_free();
     land_free();
     r3d_race(-1);
@@ -158,6 +190,11 @@ void race_frame(void)
         menu_change_page(3);
         return;
     }
+    /* the original steps once a picture by the time it took; the port runs the 60ths of
+       a second that have passed, each the milliseconds the original would have counted
+       at 60 pictures a second (16, 17, 17, ...) */
+    for (i = 0; i < g_ticks; i++, g_step++)
+        step((int)((g_step + 1) * 50 / 3 - g_step * 50 / 3));
     /* the stand-in camera: 700 behind the bike, 260 above, looking at its seat */
     for (i = 0; i < 3; i++) {
         eye[i] = me->pos[i] - 700.0f * me->m[2][i] + 260.0f * me->m[1][i];
@@ -177,4 +214,6 @@ void race_frame(void)
         if (g_mode != 0 || i == g_player)       /* (practice's second record: unseen) */
             bike3d_draw_rider(&g_rider[i], detail_of(&g_rider[i], eye));
     r3d_render();
+    rules_countdown_sound();    /* (the dashboard's, once a picture) */
+    sound_update();             /* 0x405f30: the voice queue */
 }

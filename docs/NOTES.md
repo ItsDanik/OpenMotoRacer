@@ -5249,6 +5249,26 @@ The race object 0x52c478 (vtable 0x4d04c8): +0 0x47bf30 defaults, +4 **0x47b420 
   back to the main menu. No physics, rules or dashboard yet. Practice's second record is
   not drawn [guess: it is the time-attack ghost].
 - `input.c`: the keys held, for the race; OMR_INPUT gains `hold:KEY` and `release:KEY`.
+- `rules.c` (§4.17): the countdown and time limit 0x47dae0, laps/checkpoints/wrong way/
+  finish 0x47e3d0, places 0x47e1e0 with the C library's quicksort as the game has it
+  (0x4b3100, checked against its machine code: the 1998 MSVC qsort, shortsort at 8),
+  fastest lap 0x481800, lap record 0x458310 (against bestscor.dat's best lap). The race
+  runs the 60ths of a second that passed, each of 16 or 17 ms (1000 a second), dt = ms x
+  0.1 as the original at 60 pictures a second. The countdown's beeps and voices
+  (0x4082f0) once a picture, as the dashboard plays them; recorded: "3" "2" "1" "GO" at 0,
+  2, 4, 6 s. The dashboard's texts, splits shown, events (turn signs) not yet.
+- Sounds: the race's set 0x4044c0 (`sound_race_load`: Ktm or Ninja by the bike's
+  PersoAnim, Divers, Voices; the track's ambience not yet), freed at the race's end; the
+  menu reloads its own when it becomes active again (0x40a9a0). Music: Level.Spt's
+  AudioTrack (after FactorPocket), played at the start.
+- Level.Spt after the banks, in the order 0x427e80 reads it: StepGlobal, YScaleLevel,
+  StartPosition x3, ComputeLandOptimise (ints); 9 detail columns x 5 (MediumZone and
+  HightZone ints); **13** AI rows x 3 floats (RATTRAPAGE_SPEED/CURVE/COUPLE, ATTENTE1 x3,
+  ATTENTE2 x3, CURVE_RANGE, COUPLE_OUT_RANGE, COUPLE_IN_RANGE, SPEED_FACTOR); NbComputer
+  + that many floats; TimeSkill x3; NbCheckPoint + that many ints; FactorPocket; AudioTrack.
+  The .trk reader (0x40df3c) gives the checkpoint sections, in section order, the
+  TimeCheckPoint values one after the other; 0x47b4ff counts them into 0x4e9844. Every
+  track: as many checkpoint sections as NbCheckPoint [test].
 
 ### 4.17 The race's rules and state machine (mapped 2026-10-26)
 
