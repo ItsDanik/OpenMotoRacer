@@ -583,6 +583,8 @@ void menu_key(int vk)
     }
 }
 
+int g_menu_char;
+
 void menu_key_up(int vk)
 {
     if (vk == VK_SHIFT)

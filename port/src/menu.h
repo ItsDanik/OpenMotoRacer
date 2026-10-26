@@ -90,6 +90,7 @@ void menu_end_frame(void);
 void menu_key(int vk);                              /* WM_KEYDOWN → 0x40a0f0 */
 int menu_alt(void);                                 /* Alt held (0x4dbfc8 & 1) */
 void menu_key_up(int vk);                           /* WM_KEYUP → 0x432700 */
+extern int g_menu_char;                             /* 0x51be90: WM_CHAR's character */
 void menu_mouse_move(int x, int y);                 /* WM_MOUSEMOVE */
 void menu_mouse_button(int left, int down);         /* WM_[LR]BUTTON(DOWN|UP) */
 

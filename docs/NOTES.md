@@ -3129,6 +3129,9 @@ build/ref/orig_after_race_top5.png (Snow Ride, 2 laps; four rows, best lap 01'15
 If 0x5401c4 still set: save the table (0x464b70); if 0x540cb8: save the best lap
 (0x4658b0(0x540230)). So leaving with the name half typed saves it as typed.
 
+Port (2026-10-26): `page_top5.c` takes the 'TINI' rows and best lap, the typing (WM_CHAR as
+`g_menu_char`: SDL's text input, Backspace 8, Return 13) and the saves of Return and the end.
+
 #### Globals
 Reads 0x4dbffc (Solo), 0x4dc094 (mode), 0x4dc08c/0x4dc088 (track), 0x4dc074 (laps),
 0x4dc068 (Reverse), 0x4dc078 (Pocket), 0x509ba8/0x5083b4 (championship race / count),

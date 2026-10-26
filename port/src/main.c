@@ -223,6 +223,8 @@ static void scripted_input(const char *script, int frame)
                 input_key(vk, 1);
                 race_key(vk, 1);
                 menu_key(vk);
+                g_menu_char = vk == VK_BACK ? 8 : vk == VK_RETURN ? 13
+                    : strlen(k) == 1 ? tolower((unsigned char)k[0]) : g_menu_char;
             }
             if (!hold) {
                 input_key(vk, 0);
@@ -328,6 +330,15 @@ int main(int argc, char **argv)
                     race_key(vk_of(e.key.keysym.sym), 1);
                     menu_key(vk_of(e.key.keysym.sym));
                 }
+                /* WM_CHAR: Backspace and Return give one too */
+                if (e.key.keysym.sym == SDLK_BACKSPACE)
+                    g_menu_char = 8;
+                else if (e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER)
+                    g_menu_char = 13;
+                break;
+            case SDL_TEXTINPUT:
+                if ((unsigned char)e.text.text[0] >= 0x20 && (unsigned char)e.text.text[0] < 0x7f)
+                    g_menu_char = e.text.text[0];
                 break;
             case SDL_KEYUP:
                 if (vk_of(e.key.keysym.sym)) {

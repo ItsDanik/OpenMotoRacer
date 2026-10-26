@@ -1,7 +1,7 @@
 /* Page 9, TOP 5 (start 0x44cfd0, frame 0x44d540, end 0x44d510), the Solo half: the best
    races and the best lap of the chosen track, laps and options, from Data\bestscor.dat
    (NOTES §4.12.5). The race's end marks a new record by the name 'TINI' and the page then
-   takes the player's three letters and saves the table: that comes with the race. */
+   takes the player's three letters and saves the table. */
 #include "choices.h"
 #include "exe.h"
 #include "font.h"
@@ -9,6 +9,7 @@
 #include "pages.h"
 #include "r3d.h"
 #include "scores.h"
+#include "sound.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -22,11 +23,18 @@ enum {
 
 static int g_slid;              /* 0x542380: the second slides have started */
 static int g_blink;             /* 0x4e9114: 0..4, the new names' cursor shows on 0..2 */
+static unsigned g_new;          /* 0x5401c4: the rows the player's race has just entered */
+static int g_new_lap;           /* 0x540cb8: and the best lap */
+static int g_cursor;            /* 0x540070: letters typed */
 
 void page_top5_start(void)
 {
     static const unsigned char white[3] = { 255, 255, 255 };
+    int i;
     g_slid = 0;
+    g_new = 0;
+    g_new_lap = 0;
+    g_menu_char = 0;
     memset(&g_best_lap, 0x7f, sizeof g_best_lap);
     font_set_colors(font_get(12), white, white);
     scores_load();
@@ -52,13 +60,66 @@ void page_top5_start(void)
         if (g_mode == MODE_PRACTICE && g_laps <= g_tracks[g_track].laps)
             menu_add_button(PIC(P_RESET), 0, 0xffff00ffu, -1, -1, 0, 0, 0, -1, -1, 0);
     }
-    best_lap_load(&g_best_lap);
+    /* the rows a race has just put in ('TINI' as their name) wait for the player's */
+    for (i = 0; i < 5; i++)
+        if (memcmp(g_scores[i].b + 9, "TINI", 4) == 0) {
+            g_new |= 1u << i;
+            memset(g_scores[i].b + 9, 0, 4);
+        }
+    if (g_new)
+        sound_play(g_new & 1 ? 0x5a : 0x59, 0);
+    if (best_lap_load(&g_best_lap) == 1 && memcmp(g_best_lap.b + 9, "TINI", 4) == 0) {
+        g_new_lap = 1;
+        memset(g_best_lap.b + 9, 0, 4);
+    }
     g_champ_shown = 1;
 }
 
+/* 0x44d510: a name typed so far is kept */
 void page_top5_end(void)
 {
-    /* (0x44d510 saves a new record's name as far as it was typed: with the race) */
+    if (g_new)
+        scores_write_rows();
+    if (g_new_lap)
+        best_lap_write(&g_best_lap);
+}
+
+/* the letter at the cursor of every new row and of a new best lap */
+static void put_letter(int c)
+{
+    int i;
+    for (i = 0; i < 5; i++)
+        if (g_new & 1u << i)
+            g_scores[i].b[9 + g_cursor] = (unsigned char)c;
+    if (g_new_lap)
+        g_best_lap.b[9 + g_cursor] = (unsigned char)c;
+}
+
+/* 0x44e058: WM_CHAR in keyboard mode */
+static void typing(void)
+{
+    int c = g_menu_char;
+    if (g_menu.mouse_mode || !c)
+        return;
+    if (c == 8) {
+        if (g_cursor > 0)
+            g_cursor--;
+        put_letter(0);
+    } else if (c == 13) {
+        if (g_new) {
+            g_new = 0;
+            scores_write_rows();
+        }
+        if (g_new_lap) {
+            g_new_lap = 0;
+            best_lap_write(&g_best_lap);
+        }
+    } else if (g_cursor < 3) {
+        put_letter(toupper(c));
+        g_cursor++;
+        put_letter(0);
+    }
+    g_menu_char = 0;
 }
 
 /* "MM'SS''HH" */
@@ -111,12 +172,19 @@ static void draw_table(void)
         bitmap_draw(PIC(P_LINE), BM_OWN, 100, 0);
         bitmap_place(PIC(P_NUMBER + i), 28, y - 14, 0);
         bitmap_draw(PIC(P_NUMBER + i), BM_OWN, 100, 0);
-        draw_text(12, score_name(r), 110, y);
+        if (g_new & 1u << i) {          /* the name being typed, its cursor blinking */
+            if (!score_name(r)[0])
+                g_cursor = 0;
+            snprintf(s, sizeof s, g_blink < 3 ? "%s_" : "%s", score_name(r));
+            draw_text(12, s, 110, y);
+        } else
+            draw_text(12, score_name(r), 110, y);
         format_time(s, sizeof s, score_time(r));
         draw_text(12, s, 480, y);
     }
     if (score_lap(&g_best_lap) != SCORE_EMPTY) {
-        draw_text(9, score_name(&g_best_lap), 330, 400);
+        snprintf(s, sizeof s, g_new_lap && g_blink < 3 ? "%s_" : "%s", score_name(&g_best_lap));
+        draw_text(9, s, 330, 400);
         format_time(s, sizeof s, score_lap(&g_best_lap));
         draw_text(9, s, 180, 400);
     }
@@ -152,6 +220,7 @@ void page_top5_frame(void)
     menu_transition();
     r3d_render();
     menu_end_frame();
+    typing();
 
     pressed = menu_pressed();
     if (pressed < 0 || pressed > 2)
