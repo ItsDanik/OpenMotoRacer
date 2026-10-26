@@ -167,14 +167,22 @@ small functions (they call 0x4c4f71). No RTTI for the game's own classes:
 reads and writes the running game's memory (`/proc/<pid>/mem` is closed by the kernel's
 ptrace rule; wine's ReadProcessMemory works). `tools/origshot.sh` copies the back surface
 out of memory. `tools/patch_orig.py` patches the private copy only.
-**Not working yet** (2026-10-26). The game starts, runs its menu (the menu pointer is set
-and the pause flag 0x4dbff4 is clear) and blits 640x480 RGB565 pictures, but nothing ever
-reaches the hidden display:
+**Works on Danik's own screen** (he agreed, 2026-10-26): `ORIG_DISPLAY=:1 tools/orig.sh
+start -NoD3D -windowed -us` with GOG's dgVoodoo DDraw.dll (`WINEDLLOVERRIDES=ddraw,d3dimm=n,b`,
+its `dgVoodoo.conf` sets DesktopBitDepth=16) shows the Delphine logo intro (page 25), then
+the attract-mode demo race (West Way), software renderer, 640x480 window "Moto Racer -
+© 1997". `tools/orig.sh shot FILE` takes the window (xdotool + import). The game stops
+moving when its window loses focus — which is probably why nothing ever appeared on the
+hidden display (no window manager there to give it focus). Reference pictures in
+`build/ref/`.
+
+The hidden display (:57), for the record (2026-10-26), all black:
+ the game starts, runs its menu and blits 640x480 RGB565
+pictures, but nothing reaches the display:
 - 24-bit display, windowed: "16 bit screen mode required !".
 - 16-bit Xvfb, windowed or full screen, with wine's ddraw (OpenGL or GDI renderer): black.
 - Depth test patched out, full screen on a 24-bit display: "Cannot initialise screen mode"
   (Xvfb cannot change mode); the same inside `explorer /desktop`.
 - GOG's dgVoodoo DDraw.dll (`WINEDLLOVERRIDES=ddraw,d3dimm=n,b`): black, and 0x4eea14 stays 0.
 - The back surface read from memory (0x4eea14) in the plain-ddraw run: all black.
-Next to try: the real display (Danik's permission), or Proton/DXVK with dgVoodoo, or
-reading the menu's state to see whether it waits for something (the CD's audio?).
+Next to try there: give the window focus with xdotool (`windowactivate`), with dgVoodoo.

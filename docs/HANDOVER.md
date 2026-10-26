@@ -16,15 +16,14 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   no tool yet.
 - Map: the MFC app, `OnIdle` = the frame, the menu's page table, the race object, the
   variable-step clock (NOTES §4). The picture is 16-bit RGB565.
-- Running the original under wine: tools made, but no picture yet (NOTES §5).
+- The original runs on Danik's screen (NOTES §5): logo intro and the demo race pictured.
 
 ## Waiting for Danik
-- Whether Claude may run the original on Danik's own screen for reference pictures (a
-  window appears for a minute or two), or whether he prefers to run it himself.
-- `xdotool` (`sudo pacman -S xdotool`): to press keys in the original on the hidden display.
+- Nothing. (He allowed the original on his screen, `ORIG_DISPLAY=:1`, and installed xdotool.)
 
 ## Next, in order
-1. A picture from the original (NOTES §5), then pictures of each menu page for reference.
+1. The original on the hidden display with focus given by xdotool (so it needs no screen of
+   Danik's); then pictures of each menu page for reference.
 2. A model viewer (`tools/model.py`: 3DF + MAP + texture page; which palette the texture
    pages use: they have none of their own).
 3. The port's skeleton (C, SDL2, a 16-bit framebuffer at 640x480/320x240) and its first
