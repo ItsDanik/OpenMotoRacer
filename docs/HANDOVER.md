@@ -82,6 +82,29 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
 - The tracker shows Claude's messages at its bottom ("From Claude", the `messages` dataset)
   and Danik writes from it (comments sent to Claude): keep it watched.
 
+## Done (2026-10-26, session 2: the race made whole)
+- The bike's drawing leans, pitches and steers; the chase camera turns with it; F7 the
+  dashboard's three states and the gear hint; smooth pictures between the 62.5 Hz steps
+  (F10; Danik asked for "unlocked framerate, correct speed").
+- TOP 5: a new record's name typed and saved.
+- The computer riders drive (`cpu.c`, NOTES §4.21, bit-exact on three recordings of the
+  original: `tools/cpucheck.sh`, the recorder `tools/win/cpuwatch.c`).
+- The race's sounds (`race_sound.c`, NOTES §4.10.6): engines, skids, crowd, voices.
+- GAME OVER (a sprite object, `sprite.c`, NOTES §4.20 §3.5); Pause.
+- Joysticks (`joy.c`, NOTES §4.22): detection, dead zone, page 12 binding, page 13, the
+  race's bits through the bindings, the dialogs' arrows, Ctrl+J / Ctrl+K.
+- The on-board view (F6) with the cockpit (NOTES §4.20 mode 6): looks the same as the
+  original's capture (`build/ref_onboard_orig.png`, Speed Bay; retake it as below). The fix that made the cockpit textured also gave the
+  player's rear wheel its tyre texture (it was black near the camera).
+
+### Driving the original to the on-board view (Speed Bay, Practice)
+Keep its sound off Danik's speakers: `pactl load-module module-null-sink sink_name=mrnull`
+and `export PULSE_SINK=mrnull` before `tools/orig.sh start`. Keys with `tools/orig.sh key`:
+Escape (retry until the title shows, not the logo), Return (name), Return (main menu),
+Left + Return (Solo), Left Left + Return (Practice), Return (track page), Return (bike page:
+Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
+`tools/orig.sh stop` and `pactl unload-module module-null-sink`.
+
 ## Waiting for Danik
 - The CD's MOTO.EXE (NOTES §1): its text code differs from GOG's; run GOG's logic on the
   CD's data, or ask for the official 3.22 patch?
@@ -90,10 +113,15 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   the original, or a user folder? (For now a user folder, the game's read as a fallback.)
 
 ## Next, in order
-1. The race: the computer riders (0x46bf80, 0x46b120); the drawing's lean, pitch,
-   steering, suspension (NOTES §4.15.4), lighting and shadow; the engine sounds; F6;
-   smooth pictures between the 62.5 Hz steps.
-2. Sound: pause on losing focus, the race's sounds. Joysticks (SDL game controllers).
-3. The track's billboards (+0x5c) and AnimDecor; the glass capture's page 2 clashes
-   with the level's pages 2..19 once a race exists.
-4. The CD's `MOTO.EXE`: line it up with GOG's `game.EXE` (which tables the port reads).
+1. Replays and the TV director (the "watch the replay" choice in the results dialog prints
+   "not written yet"; camera.c's header), the record split line on the dashboard (0x412e50,
+   `rules.c` split()).
+2. The championship's pages 16/17/18 and the podium (page 24, `0x47b600`): race.c sends
+   them to TOP 5 for now.
+3. The CD sprite messages (0x482030), the mouse in the race's dialogs, F1 / F11 / F12,
+   the music's pause.
+4. The track's billboards (+0x5c) and AnimDecor (land.c, "not read yet"); the bikes'
+   shadows and lighting; the glass capture's page 2 against the level's pages 2..19.
+5. Two players on one PC: the original has no split screen (ask Danik what he expects).
+6. The CD's `MOTO.EXE`: line it up with GOG's `game.EXE` (which tables the port reads).
+7. Then speed on the MiSTer's ARM, releases, the MiSTer core (the skill's steps 8-10).

@@ -9768,18 +9768,27 @@ instead). X = the wheelie angle O(k)+0x307d. Let M, T be the bike matrix
 - look-at 0x46e140; then roll r = lean O(k)+0x2e1d · 0.25f [0x4d13e0]:
   C = C·R(0,0,r) (table sin/cos, inline), T likewise; +0xc0 = 0x490220(C).
 - In this mode 0x458b80 draws the cockpit instead of the player's bike (§4.1).
-- [2026-10-26, partly mapped, not ported] The cockpit's two models come from the bike's
-  carac script keys **FileGuidon** (0x4e79f0, the handlebar: 3DF/MAP names into 0x5190e0 /
-  0x519120) and **FileCockpit** (0x4e79e4: 0x519160 / 0x5191a0), read by 0x429e20 (0x42a0f2
-  on); loaded by 0x413450 into 0x504ed8 (handlebar) and 0x51bf60 (cockpit) with scale 8.0
-  (0x4204b0). 0x462110's constants: wheelie × 0.6366197723675814 (2/π, 0x4d1068); a value
-  of 0x45ca00(bike) × the double at 0x4d1070 smoothed into 0x4ea4e4 by the double at
-  0x4d0f88 (both read as doubles by peek; check the asm's operand sizes: they look like
-  float pairs −0.25/−80 and 0.25/40); offsets susp × 10.0 (0x4d1078) + wheelie' × −80.0
-  (0x4d1074) − 350.0 (0x4d1080) and susp × 5.0 (0x4d0f78) + 350.0 (0x4d1088); the lean of
-  the followed rider × 0.4 (0x4d1090) as a roll, the steering × 0.000285714 (0x4d1098) as
-  the handlebar's yaw. Asm dump: build/ (asmrange 0x462110 0x462580). Not yet read: the
-  matrix helpers 0x403740, 0x40fd20, 0x40fd40, 0x410010, 0x49b2c0, 0x49bca0's use here.
+- [2026-10-26, mapped and ported: `bike3d_cockpit*`, `camera.c` on-board] The cockpit's
+  two models come from the bike's carac script keys **FileGuidon** (0x4e79f0, the
+  handlebar: 3DF/MAP names into 0x5190e0 / 0x519120) and **FileCockpit** (0x4e79e4:
+  0x519160 / 0x5191a0), read by 0x429e20 (0x42a0f2 on); loaded by 0x413450 into 0x504ed8
+  (handlebar) and 0x51bf60 (cockpit) through 0x420a50(…, −1, 0) (no page offset: their
+  faces name **page 7**, the level's `bank\bnk00_07.raw`, the same file on every track,
+  one for the road tracks and one for the dirt: gloves top left, the cockpit panel bottom
+  right), scale 8.0 (0x4204b0). 0x462110 once a step: the shake g = (pitch × −0.25f
+  [float 0x4d1070] − g) × 0.25f [float 0x4d0f88] + g (0x4ea4e4), pitch = 0x45ca00(bike).
+  When drawn: X' = wheelie × 2/π (double 0x4d1068); A = (0, X' × −80f [0x4d1074] + susp
+  × 10.0 [double 0x4d1078] − 350.0 [double 0x4d1080], susp × 5f [0x4d0f78] + 350f
+  [0x4d1088]); Rg = R(g, 0, 0). Handlebar: N = Rg·R(0,0,−lean × 0.4 [double 0x4d1090])·
+  R(0, steer × 0.000285714f [0x4d1098], 0), T = A·Rg. Cockpit: N = Rg·Rroll·R(0,0,0),
+  T = A·Rg. Both in the camera's space. Their faces go through **0x49bca0**: the farthest
+  corner, key = z × 0.2 − near; kind 0 stays, 1 and 0x10 become 0x10, every other kind
+  (the flag-0x80000 kind 8 windscreen streaks) **0x2c** = 0x4a57f0, half and half
+  (texel 0 skipped, else ((dst>>1)&0x7bef) + ((tex>>1)&0x7bef)). Then 0x49c590 as any
+  race face (the detail remap: near faces to the perspective twins 31.., which read the
+  face's float texel coordinates, stored by 0x420a50 as (float) of the MAP's ints, the
+  args of 0x422ed0 / 0x422d20). Not drawn while Tab looks back (preset), in replays, or
+  with the Pocket bikes. [asm, px: equal in look to the original's capture]
 
 **Mode 7** -> 0x46f840, the chase camera.
 
