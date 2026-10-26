@@ -43,9 +43,15 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   and the music as GOG does; a recorded run equals 13.wav sample for sample.
 - Page 15, the name entry, in the port (NOTES §4.11): equal to the original's picture
   (through model.py) apart from the pointer; the chain logo → title → name → main menu runs.
-- Mapped by helpers, not yet in NOTES: the Solo pages 5, 6, 9, 10, 1 and the race settings
-  (`build/notes/solo_pages.md`, captures `build/ref/orig_p*`). The track format
-  (`build/notes/track.md`, part-way).
+- The Solo pages mapped (NOTES §4.12, from build/notes/solo_pages.md; captures
+  `build/ref/orig_p*`); pages 5 (SELECT MODE) and 6 (SELECT RACE / CHAMPIONSHIP) in the
+  port with the race settings and track lists (`choices.c`): six screens equal to the
+  original's captures but for the pointer. The track format is mapped part-way
+  (`build/notes/track.md`).
+- The speed (Danik, 2026-10-26: "runs a bit too fast"): the clock is the real time in a
+  window, per-picture counts go by 60ths (NOTES §4.2). `tools/shots.sh` sums the test
+  pictures (`tools/shots.sh | diff build/shots.txt -` after every change);
+  `tools/cmpshot.py` compares a picture with a capture and finds the tile's scroll.
 - The tracker shows Claude's messages at its bottom ("From Claude", the `messages` dataset)
   and Danik writes from it (comments sent to Claude): keep it watched.
 
@@ -57,7 +63,8 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   the original, or a user folder?
 
 ## Next, in order
-1. The Solo pages from build/notes/solo_pages.md (5, 6, 10, 9, then 1), then 11 options.
+1. The Solo pages (NOTES §4.12.10): 10 CHOOSE BIKE (2D first, the 3D bike later), 9 TOP 5,
+   1 loading; then 20/21 championship saves and 11 options.
 2. Sound: CONFIG.BPT's switches and volumes, pause on losing focus, the race's sounds.
 3. The track (.trk), the race loop, the race renderer (the same r3d with the race's
    near plane 64 and its face kinds): build/notes/track.md, track_raster.md/.py,
