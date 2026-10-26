@@ -5245,10 +5245,17 @@ The race object 0x52c478 (vtable 0x4d04c8): +0 0x47bf30 defaults, +4 **0x47b420 
 - `race.c`: page 1 loads the race (`race_load`: the track, the bikes, the riders, the
   grid) and hands over (`menu_leave`); `race_frame` draws the sky, the track and the
   riders (`bike3d_draw_rider`, the detail by distance as 0x45f160: >= 3000 the very low
-  model, >= 2500 low, < 1000 the skeleton, else medium). A **stand-in camera** (700
-  behind, 260 above the player) until the chase camera 0x46f840 is mapped; Escape goes
-  back to the main menu. No physics, rules or dashboard yet. Practice's second record is
-  not drawn [guess: it is the time-attack ghost].
+  model, >= 2500 low, < 1000 the skeleton, else medium). Escape: the pause menu.
+  Practice's second record is not drawn [guess: it is the time-attack ghost].
+- 2026-10-26: the player's bike is `bikephys.c` (bit-exact against the original's recorded
+  steps, tools/physcheck.sh), stepped in `step()` with bike against bike; the drawing's
+  Rider copies the frame's matrix (the tumbling one when crashed), the place, the wheels
+  and the section. `camera.c` is the chase 0x46f840 (§4.20 §2.5) with F5's distances, Tab's
+  look back and the finish orbit; it starts at rest [guess: the original's +0xc8 is left
+  from 0x46d760]. The dials take O+0x118, O+0x11c / bike+0x70 x 16000 and the gear. The
+  computer riders are bikephys records with driven = 0: they stand on the grid until
+  0x46bf80 is written. Not yet: F6 on-board, the TV director, the lean/pitch/steering of
+  the drawing (§4.15.4), engine sounds, joysticks.
 - `input.c`: the keys held, for the race; OMR_INPUT gains `hold:KEY` and `release:KEY`.
 - `rules.c` (§4.17): the countdown and time limit 0x47dae0, laps/checkpoints/wrong way/
   finish 0x47e3d0, places 0x47e1e0 with the C library's quicksort as the game has it
@@ -5789,7 +5796,7 @@ For k = 1 .. 0x509bac−1, skipping riders with obj+0x68 = 0:
        : **0x50 WELLDONE**; p == 0x509bac − 1 → **0x48 YURALOSR**; p > 2 → **0x47
        YOULOST**; p = 1, 2 → none. All with 0x404da0(id, 500).
        Note: places are 0-based and 0x509bac = loaded riders + 1, so p == 0x509bac − 1
-       cannot happen in Solo (captures: 0x4dc100 = 0x4dc154 = 23): the "you're a loser"
+       cannot happen in Solo (a single race: 0x509bac = 25, 24 riders loaded): the "you're a loser"
        voice is dead there; the last place gets YOULOST [asm + test].
 6. After the loop: if anyline → **0x481800()** (who holds the fastest lap, §5).
 
@@ -5979,10 +5986,14 @@ time message); otherwise text 0x4e9870 removed and **voice 0x34 CKCKPNT** ("chec
 | text ids | 0x4e9858 time-out warning (0x481af0), 0x4e9864 final lap (0x481c50), 0x4e9868 lights (0x482220), 0x4e986c wrong way (0x481db0), 0x4e9870 lap message (0x481f10), 0x4e985c/0x4e9860/0x4e9874/0x4e9878 other HUD texts, 0x4e98d0 countdown number, 0x4e98e8 GET READY / GO |
 
 ##### 9. Checked [test]
-- Captures build/trackcap (single race, 3 laps, tracks 1 and 4): 0x4dc0b4 = 1 with
+- Captures build/trackcap (the attract demo, 3 laps, tracks 1 and 4; see below for a single race): 0x4dc0b4 = 1 with
   0x4dc0a8 5434, 2264, 4079, 908 (all < 6000) during the countdown; afterwards 0x4dc0b4 =
-  0 and 0x4dc0a8 = 7 493..37 876 (time left); 0x4dc100 = 0x4dc154 = 23; 0x52c10c = 648 /
-  668 sections; obj(0)+0x68 = 0 (slot 0 not raced).
+  0 and 0x4dc0a8 = 7 493..37 876 (time left); 0x4dc100 = 0x4dc154 = 23 (the demo: records 1..23, all
+  computer); 0x52c10c = 648 / 668 sections; obj(0)+0x68 = 0 (slot 0 not raced).
+- A Solo single race measured (build/nbcap1, 2026-10-26): 0x509bac = 25, 0x542874 = 23,
+  0x4dc100 = 24, records 1..24 loaded (+0x68 = 1), 1 the human, the HUD "24/24". 0x410a50:
+  the human at record 1 except in a demo (0x4e9834 = 2), then 23 opponents from the next
+  record; 0x4dc100 is 0x4817a0's count of +0x68 over the 25 records.
 - Checkpoint layout from tools/track.py (checkpoint 0 at section 0 on ile01 and ile04).
 
 ##### 10. Open points
@@ -9400,7 +9411,7 @@ the finishing place, TIME OUT / FINAL LAP / WRONG WAY / CHECK POINT. Its picture
 tools/hud_text.py as the captures do (q17's 12 texts exact, q14's countdown the same).
 Not yet: the split line (0x412e50), labels (3.7), the CD data's sprite messages, GAME OVER,
 the dials' gear-change hint (3b; the dials themselves are written: 0 pixels differ from
-tools/hud_dials.py, `r3d_screen_points/faces`). The port's single race has 24 bikes where q14/q17 show "/23": being measured.
+tools/hud_dials.py, `r3d_screen_points/faces`). The port's single race has 24 bikes, as the original's (q14/q17's "/23" was the attract demo, §4.17.9).
 
 ##### 3.0 Fonts, coordinates, frame counters
 - The HUD fonts are fetched every frame by 0x4816c0 through Font_Get 0x4903d0 [asm]:

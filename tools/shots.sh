@@ -87,3 +87,4 @@ OMR_CHOICES="1,0,3,0,0" run race_pause_quit 1 300 "200:escape 240:q"
 OMR_CHOICES="1,0,3,0,0" run race_countdown 1 20
 OMR_CHOICES="1,0,3,0,0" run race_hud 1 700
 OMR_CHOICES="1,0,3,0,0" run race_timeover 1 9003
+OMR_CHOICES="0,0,3,0,0" run race_ride 1 800 "100:hold:up 700:hold:left 760:release:left"

@@ -1,10 +1,12 @@
 /* The race (NOTES §4.16): its load (0x47b420), the riders on the starting grid (0x410a50,
    0x47bf70), and its frame (Game_Frame 0x47d660). Written so far: the track, its sky, the
-   riders standing on the grid, the pause menu (Escape). The physics, the chase camera,
-   the dashboard and the race's rules are being mapped; until then the camera is a
-   stand-in that looks over the player's shoulder. */
+   riders on the grid, the player's bike (bikephys.c) and the chase camera (camera.c),
+   the dashboard, the race's rules, the pause menu (Escape). The computer riders stand on
+   the grid until their model (0x46bf80) is written. */
 #include "race.h"
+#include "bikephys.h"
 #include "bikes.h"
+#include "camera.h"
 #include "choices.h"
 #include "clock.h"
 #include "config.h"
@@ -30,8 +32,7 @@ Rider g_rider[RIDERS];
 int g_racing;
 static int g_player = 1;        /* 0x4ea4c0: the local player's record */
 unsigned g_keys[RIDERS];        /* +0x31e9: the control bits (RK_*) */
-int g_turbo[RIDERS], g_turbo_hit[RIDERS];       /* +0x31f9, +0x3201 */
-static int g_accel_held;        /* 0x4e8964 */
+static BikePhys g_phys[RIDERS]; /* the riders' bikes */
 static unsigned g_events;       /* 0x4e8918 */
 static int g_finish_timer, g_timeover_timer;    /* 0x4e9824, 0x4e9828 */
 
@@ -50,49 +51,13 @@ void race_key(int vk, int down)
         dialog_pause(1);
         return;
     }
-    for (a = 0; a < ACTIONS; a++) {
-        if (g_binding[a][0] != vk)
-            continue;
-        switch (a) {
-        case 0:                                 /* accelerate */
-            g_accel_held = down;
-            if (down)
-                *b = (*b & ~RK_BRAKE) | RK_ACCEL;
-            else
-                *b &= ~RK_ACCEL;
-            break;
-        case 1:                                 /* brake */
-            if (down) {
-                if (g_control)
-                    *b = (*b & ~RK_ACCEL) | RK_BRAKE;
-            } else {
-                *b &= ~RK_BRAKE;
-                if (g_accel_held)
-                    *b |= RK_ACCEL;
-            }
-            break;
-        case 2:                                 /* left */
-        case 3:                                 /* right */
-            if (!down)
-                *b &= a == 2 ? ~RK_LEFT : ~RK_RIGHT;
-            else if (g_control)
-                *b = (*b & (a == 2 ? ~RK_RIGHT : ~RK_LEFT)) | (a == 2 ? RK_LEFT : RK_RIGHT);
-            break;
-        case 4:                                 /* gear up (0x4dc110 = 1) */
-        case 5:                                 /* gear down */
-            if (!down)
-                *b &= a == 4 ? ~RK_GEARUP : ~RK_GEARDOWN;
-            else if (!g_counting && g_control)
-                *b |= a == 4 ? RK_GEARUP : RK_GEARDOWN;
-            break;
-        case 6:                                 /* turbo */
-            if (!down)
-                g_turbo[g_player] = 0;
-            else if (g_control)
-                g_turbo[g_player] = g_turbo_hit[g_player] = 1;
-            break;
-        }
+    if (vk == VK_TAB || vk == 0x74) {           /* the look back, F5 the distance */
+        camera_key(vk, down);
+        return;
     }
+    for (a = 0; a < ACTIONS; a++)
+        if (g_binding[a][0] == vk)
+            bikephys_key(&g_phys[g_player], b, a, down, g_control);
 }
 
 #define STEP_MS 16
@@ -100,18 +65,48 @@ static unsigned g_step_at;      /* the clock's time the steps have reached */
 
 static void race_end(int ms);
 
+/* the drawing's copy of a bike: the frame's matrix (the tumbling one when crashed), the
+   place, the wheels, the section */
+static void to_rider(Rider *r, const BikePhys *b)
+{
+    const float *m = b->crashed ? b->tumble : b->frame;
+    memcpy(r->m, m, sizeof r->m);
+    memcpy(r->t, m + 9, sizeof r->t);
+    memcpy(r->pos, b->pos, sizeof r->pos);
+    memcpy(r->rear, b->rear, sizeof r->rear);
+    memcpy(r->front, b->front, sizeof r->front);
+    r->sec = b->sec;
+}
+
 /* one step of Game_Frame (0x47d660) of ms milliseconds: the timers, the countdown and
-   the time limit, (the riders' steps and the physics: not yet), the race's rules */
+   the time limit, each driven bike's step (0x45d540) and bike against bike (0x47ecd0),
+   the race's rules, the camera */
 static void step(int ms)
 {
+    BikePhys *all[RIDERS];
+    int k;
     g_control = 1;              /* Game_Frame: the player's keys are read */
     if (g_extended > 0)
         g_extended -= ms;
     rules_time(ms);
-    /* 0x47df40: dt = ms x 0.1, each rider's step (0x45d540); 0x47ecd0 */
+    /* 0x4dc150, the frame time smoothed by an eighth */
+    g_bikeworld.frame_ms = (float)((ms - (double)g_bikeworld.frame_ms) * 0.125
+                                   + g_bikeworld.frame_ms);
+    g_bikeworld.countdown = g_counting;
+    for (k = 0; k < RIDERS; k++)
+        all[k] = &g_phys[k];
+    for (k = 1; k < g_riders; k++)      /* 0x47df40: dt = ms x 0.1 */
+        if (g_racer[k].loaded && g_phys[k].driven)
+            bikephys_step(&g_phys[k], g_keys[k], 0x8000, 0x8000, (float)(ms * 0.1),
+                          g_counting, g_time_left);
+    bikephys_collide(all, g_riders, (float)(ms * 0.1));
+    for (k = 1; k < g_riders; k++)
+        to_rider(&g_rider[k], &g_phys[k]);
     rules_laps();
     rules_places();
     race_end(ms);
+    camera_step(&g_phys[g_player], (float)(ms * 0.1), g_counting,
+                g_racer[g_player].state == RS_FINISHED);
 }
 
 /* 0x40ec30: a section number brought into 0 .. count - 1 */
@@ -189,6 +184,12 @@ static void grid(void)
         }
         bike3d_place(r, p);
         r->sec = s;                             /* +0x31c1 */
+        /* 0x411010: player 1's gearbox is the menu's, the others automatic */
+        bikephys_init(&g_phys[k], r->bike, (const float (*)[3])r->m, p, s, k == g_player,
+                      k == g_player ? g_gearbox : 1);
+        g_phys[k].number = k;
+        if (k != g_player)
+            g_phys[k].driven = 0;               /* (the computer's model: not yet) */
         rules_progress(k);
     }
 }
@@ -197,15 +198,30 @@ static void grid(void)
    race's sound init 0x4084e0, the track's music */
 static void start(void)
 {
+    int k;
     text_clear();
+    /* 0x411010: srand(0), the riders' records for bike against bike */
+    memset(&g_bikeworld.rider, 0, sizeof g_bikeworld.rider);
+    for (k = 1; k < g_riders; k++)
+        g_bikeworld.rider[k] = &g_phys[k];
+    g_bikeworld.nriders = g_riders;
+    g_bikeworld.crt = 0;
+    g_bikeworld.reverse = g_reverse ? -1 : 1;
+    g_bikeworld.mode = g_mode;
+    g_bikeworld.followed = g_player;
+    g_bikeworld.replay = 0;
+    g_bikeworld.gear_latch = 0;
+    g_bikeworld.countdown = 1;
+    g_bikeworld.dt = 1.6f;
+    g_bikeworld.frame_ms = STEP_MS;
+    memset(g_phys, 0, sizeof g_phys);
     grid();
+    camera_reset(&g_phys[g_player]);
     sound_stop_all();
     sound_race_load(g_bikes[g_rider[1].bike].perso != 0);
     music_play(g_land.audio_track, 0);
     memset(g_keys, 0, sizeof g_keys);
-    memset(g_turbo, 0, sizeof g_turbo);
-    memset(g_turbo_hit, 0, sizeof g_turbo_hit);
-    g_accel_held = 0;
+    bikephys_key(&g_phys[g_player], &g_keys[g_player], 0, 0, 0);     /* 0x4e8964 = 0 */
     rules_restart();
     hud_restart();
     g_finish_timer = g_timeover_timer = -1;
@@ -256,8 +272,8 @@ int race_load(char *err, int errsize)
 void race_release_keys(void)
 {
     g_keys[g_player] = 0;
-    g_turbo[g_player] = 0;
-    g_accel_held = 0;
+    g_phys[g_player].turbo_held = 0;
+    bikephys_key(&g_phys[g_player], &g_keys[g_player], 0, 0, 0);
 }
 
 void race_event(unsigned bits)
@@ -399,7 +415,8 @@ static int detail_of(const Rider *r, const float cam[3])
 void race_frame(void)
 {
     const Rider *me = &g_rider[g_player];
-    float eye[3], at[3], c[3][3], pos[3];
+    const BikePhys *b = &g_phys[g_player];
+    float eye[3], c[3][3];
     static const float zero[3];
     int i, y, sec;
     if (g_events && !events())
@@ -415,13 +432,8 @@ void race_frame(void)
         g_step_at += STEP_MS;
         step(STEP_MS);
     }
-    /* the stand-in camera: 700 behind the bike, 260 above, looking at its seat */
-    for (i = 0; i < 3; i++) {
-        eye[i] = me->pos[i] - 700.0f * me->m[2][i] + 260.0f * me->m[1][i];
-        at[i] = me->pos[i] + 120.0f * me->m[1][i];
-    }
-    r3d_camera(eye, at);
-    r3d_get_camera(c, pos);
+    camera_apply();
+    r3d_get_camera(c, eye);
     sec = land_section(eye, me->sec);
     for (y = 0; y < g_scr_h; y++)
         memset(g_screen + y * g_pitch, 0, sizeof(uint16_t) * (size_t)g_scr_w);
@@ -433,7 +445,9 @@ void race_frame(void)
     for (i = 1; i < g_riders; i++)
         if (g_mode != 0 || i == g_player)       /* (practice's second record: unseen) */
             bike3d_draw_rider(&g_rider[i], detail_of(&g_rider[i], eye));
-    hud_bike(0, 0, 1);         /* (the physics' speed, revs and gear: to come) */
+    /* 0x484810: the speed O+0x118, the rev needle's target rpm / bike+0x70 x 16000 */
+    hud_bike(b->kmh, (int)(b->rpm / (double)g_bikes[me->bike].phys[(0x70 - 0x14) / 4]
+                           * 16000.0), b->gear);
     hud_dials_3d();
     r3d_render();
     hud_draw();

@@ -93,7 +93,7 @@ void r3d_init(void)
 {
     int k;
     for (k = 0; k < 16384; k++)                         /* 0x4901e0 */
-        g_cos[k] = (float)cos(k * 6.283185307179586 / 16384.0);
+        g_cos[k] = (float)cos(k * 6.283185307178 * (double)6.103515625e-05f);
     r3d_begin();
 }
 

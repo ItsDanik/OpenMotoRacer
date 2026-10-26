@@ -75,9 +75,10 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   Equal to the original's captures (dirt: 8 edge pixels; road: all). `OMR_TURN` holds the
   turntable for such checks.
 - The race starts: page 1 loads it (track, bikes, 24 riders on the grid as 0x47bf70
-  places them) and draws it from a stand-in camera; Escape goes back. Three helpers are
-  mapping the physics/controls (build/notes/bike_physics.md), the camera/HUD/drawing
-  (race_view.md) and the rules (race_rules.md).
+  places them). The rules, laps, places, countdown, time limit, the dashboard and dials,
+  the pause menu, the end of the race (results, continue, bestscor.dat) are written.
+- The player's bike rides (bikephys.c, bit-exact on the original's recorded steps) under
+  the chase camera (camera.c). The computer riders stand on their grid places.
 - The tracker shows Claude's messages at its bottom ("From Claude", the `messages` dataset)
   and Danik writes from it (comments sent to Claude): keep it watched.
 
@@ -89,9 +90,9 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   the original, or a user folder? (For now a user folder, the game's read as a fallback.)
 
 ## Next, in order
-1. The race: the race loop (0x47d660), the chase camera (0x46f840), the bikes on the
-   track with bike3d.c (lean, pitch, steering, suspension and the LOD models are in
-   NOTES §4.15.4 already; lighting, shadow and kinds 3/4/9/42 are not), then physics.
+1. The race: the computer riders (0x46bf80, 0x46b120); the drawing's lean, pitch,
+   steering, suspension (NOTES §4.15.4), lighting and shadow; the engine sounds; F6;
+   smooth pictures between the 62.5 Hz steps.
 2. Sound: pause on losing focus, the race's sounds. Joysticks (SDL game controllers).
 3. The track's billboards (+0x5c) and AnimDecor; the glass capture's page 2 clashes
    with the level's pages 2..19 once a race exists.

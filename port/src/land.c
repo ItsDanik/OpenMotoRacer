@@ -2,6 +2,7 @@
    the level's texture pages (0x410590), the section a point is in (0x40c740, 0x40c7e0)
    and the pieces a camera sees (0x40ce60), drawn through the race's renderer. */
 #include "land.h"
+#include "bikephys.h"
 #include "choices.h"
 #include "config.h"
 #include "files.h"
@@ -238,6 +239,7 @@ void land_free(void)
     free(g_land.lib);
     free(g_land.decor);
     memset(&g_land, 0, sizeof g_land);
+    bikephys_track_free();
     for (i = 2; i < LEVEL_BANKS; i++)
         r3d_free_page(i);
     horizon_free();
@@ -333,6 +335,7 @@ int land_load(int track, char *err, int errsize)
         snprintf(err, (size_t)errsize, "%s is not a track this game knows.", path);
         return 0;
     }
+    bikephys_track();           /* 0x40e5c0: the section planes the bikes use */
     return 1;
 }
 
