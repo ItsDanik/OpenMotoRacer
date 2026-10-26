@@ -198,6 +198,7 @@ int main(int argc, char **argv)
     if (!shot || getenv("OMR_WAV"))     /* (--shot is silent unless asked for a file) */
         sound_init(getenv("OMR_WAV"));
 
+    clock_start(!shot);
     /* the front end, from its first page: the Delphine logo (25) */
     if (!menu_start(page, err, sizeof err))
         fail(err, shot != 0);

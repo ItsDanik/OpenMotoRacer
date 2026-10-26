@@ -342,7 +342,7 @@ void menu_draw_buttons(void)
             bitmap_step(g_menu.b[i].pic, 0, 0);
     if (g_menu.sel != -1)
         g = g_menu.b[g_menu.sel].group;
-    g_blink ^= 1;
+    g_blink ^= g_ticks & 1;     /* (each frame in the game: each 60th here) */
     for (i = 0; i < g_menu.nbuttons; i++) {
         Button *b = &g_menu.b[i];
         int state = 0;

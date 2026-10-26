@@ -197,31 +197,34 @@ void page_title_frame(void)
     menu_begin_frame();
     if (g_mr_arrived > 2) {
         bitmap_draw(PIC(P_TITLE + 3), BM_OWN, 100, 0);
-        /* "FULL D3D VERSION" is added on frames 11 to 20 of every 21: each copy blinks
-           500 ms on, 500 off from its own start, and the copies pile up (48 at most) */
-        if (++g_mr_frames > 10) {
-            Font *f = font_get(31);
-            TextArgs a;
-            if (f)
-                font_set_colors(f, named_colour(COL_YELLOW), named_colour(COL_BLACK));
-            memset(&a, 0, sizeof a);
-            a.text = "FULL D3D VERSION";
-            a.font = 31;
-            a.y = 60;
-            a.align = 0x22;
-            a.effect = FX_BLINK;
-            a.blink = -500;
-            a.id_out = &g_text_id;
-            a.vx = -1, a.vy = 1;
-            a.tx = 0, a.ty = 40;
-            a.s = 1.5, a.k = 1.0;
-            a.own_colours = 1;
-            a.fore = named_colour(COL_YELLOW);
-            a.back = named_colour(COL_BLACK);
-            text_add(&a);
+        /* "FULL D3D VERSION" is added on frames 11 to 20 of every 21 (here 60ths of a
+           second): each copy blinks 500 ms on, 500 off from its own start, and the copies
+           pile up (48 at most) */
+        for (i = 0; i < g_ticks; i++) {
+            if (++g_mr_frames > 10) {
+                Font *f = font_get(31);
+                TextArgs a;
+                if (f)
+                    font_set_colors(f, named_colour(COL_YELLOW), named_colour(COL_BLACK));
+                memset(&a, 0, sizeof a);
+                a.text = "FULL D3D VERSION";
+                a.font = 31;
+                a.y = 60;
+                a.align = 0x22;
+                a.effect = FX_BLINK;
+                a.blink = -500;
+                a.id_out = &g_text_id;
+                a.vx = -1, a.vy = 1;
+                a.tx = 0, a.ty = 40;
+                a.s = 1.5, a.k = 1.0;
+                a.own_colours = 1;
+                a.fore = named_colour(COL_YELLOW);
+                a.back = named_colour(COL_BLACK);
+                text_add(&a);
+            }
+            if (g_mr_frames > 20)
+                g_mr_frames = 0;
         }
-        if (g_mr_frames > 20)
-            g_mr_frames = 0;
     } else {
         bitmap_draw(PIC(P_TITLE + g_mr_arrived), BM_OWN, 100, 0);
         for (i = 0; i < 3; i++) {

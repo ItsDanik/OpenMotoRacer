@@ -217,9 +217,9 @@ void bitmap_step(Bitmap *b, int dx, int dy)
     double s;
     if (b->mode == BM_TILE) {
         /* 0x43f840: the scroll, each frame (it also moves a wobble the drawing never
-           reads, NOTES §4.7) */
-        b->sx = (b->sx + dx) & 0x7f;
-        b->sy = (b->sy + dy) & 0x7f;
+           reads, NOTES §4.7); here each 60th of a second */
+        b->sx = (b->sx + dx * g_ticks) & 0x7f;
+        b->sy = (b->sy + dy * g_ticks) & 0x7f;
         return;
     }
     if (!b->sliding)

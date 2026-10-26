@@ -2,6 +2,7 @@
    with an effect (blinking, fading, see-through) and a motion, timed by the text clock
    0x4e4ed0. */
 #include "text.h"
+#include "clock.h"
 #include "font.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -176,14 +177,16 @@ int text_empty(void)
     return 1;
 }
 
-/* 0x416b40: one step a drawn frame */
+/* 0x416b40: one step a drawn frame (here each 60th of a second) */
 static void move(Text *t)
 {
-    if (t->motion == 2) {
-        t->s += t->k;
-        t->x += (int)(t->vx * t->s);
-        t->y += (int)(t->vy * t->s);
-    }
+    int i;
+    if (t->motion == 2)
+        for (i = 0; i < g_ticks; i++) {
+            t->s += t->k;
+            t->x += (int)(t->vx * t->s);
+            t->y += (int)(t->vy * t->s);
+        }
 }
 
 /* 0x416da0 */
@@ -211,7 +214,7 @@ static void draw_one(Text *t)
         break;
     case FX_BLINK:
         if (t->period == 0)
-            visible = (++t->frames & t->mask) != t->mask;
+            visible = ((t->frames += g_ticks) & t->mask) != t->mask;
         else
             visible = elapsed % (2u * (unsigned)t->period) < (unsigned)t->period;
         break;
