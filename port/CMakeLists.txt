@@ -21,6 +21,9 @@ set(OMR_SOURCES
   src/exe.c
   src/video.c
   src/bitmap.c
+  src/clock.c
+  src/menu.c
+  src/page_main.c
 )
 
 add_executable(openmotoracer ${OMR_SOURCES})

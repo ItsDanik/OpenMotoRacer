@@ -24,14 +24,20 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   routine; its first picture, the settled title page, equals the original's to the pixel
   (5-6-5) apart from the Start button (NOTES §4.7).
 
+- The menu core (NOTES §4.4, mapped from the machine code: pages, buttons, keys, mouse,
+  slides, the glass transition's timing) and the main menu (page 3) in the port: equal
+  to the original's main menu apart from the pointer; arrows, Tab, Return, Escape and the
+  mouse work as in the game. The text system mapped (NOTES §4.8, `tools/fnt.py`).
+
 ## Waiting for Danik
 - Nothing. (He allowed the original on his screen, `ORIG_DISPLAY=:1`, and installed xdotool.)
 
 ## Next, in order
-1. The menu's machinery: the page table (0x4dbb38) and Menu_Frame, the buttons (0x40c1f0,
-   0x40c500), the mouse cursor, the fonts (FNT) and the texts; then the pages in their
-   order (25 logo → 14 title → 15 name entry → main menu). Reference pictures of each from
-   the original as the port reaches it (`tools/orig.sh key`).
+1. The 3D renderer the menus need (the title's logo pieces, the Delphine logo, the name
+   entry's letters, the glass transition): build/notes/title3d.md when its helper is done.
+   Then pages 25 → 14 → 15 → 3 in order, the port starting on 25; reference pictures of
+   each from the original (`tools/orig.sh key`). Then the text system in the port (fonts,
+   the text objects 0x53b8e8) for the pages that use it.
 2. A model viewer (`tools/model.py`: 3DF + MAP + texture page; which palette the texture
    pages use: they have none of their own).
 3. The port's skeleton (C, SDL2, a 16-bit framebuffer at 640x480/320x240) and its first

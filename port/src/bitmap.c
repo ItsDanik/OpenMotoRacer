@@ -1,9 +1,11 @@
 /* Menu pictures (NOTES §3.3, §4.7): .LEZ files, a packed 8-bit TGA, made 16-bit at load
    (0x43eb00), listed in the game's table of menu pictures and drawn by 0x43ede0. */
 #include "bitmap.h"
+#include "clock.h"
 #include "exe.h"
 #include "files.h"
 #include "video.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -175,6 +177,65 @@ void bitmap_free(Bitmap *b)
 {
     free(b->pix);
     b->pix = 0;
+}
+
+void bitmap_place(Bitmap *b, int x, int y, int align)
+{
+    if (align == 1)
+        x = (640 - b->w) >> 1;
+    else if (align == 2) {
+        x -= b->w >> 1;
+        y -= b->h >> 1;
+    }
+    b->x = x;
+    b->y = y;
+}
+
+void bitmap_slide(Bitmap *b, int x, int y, float seconds, int ease, int align)
+{
+    b->t0 = g_now;
+    b->dur = (unsigned)(int)((double)seconds * 1000.0);    /* 0.7 s: 699 ms */
+    b->t1 = b->t0 + b->dur;
+    if (align == 1)
+        x = (640 - b->w) >> 1;
+    else if (align == 2) {
+        y -= b->h >> 1;
+        x -= b->w >> 1;
+    }
+    b->dx = x - b->x;
+    b->dy = y - b->y;
+    b->from_x = b->x;
+    b->from_y = b->y;
+    b->sliding = 1;
+    b->ease = ease;
+}
+
+void bitmap_step(Bitmap *b, int dx, int dy)
+{
+    unsigned n;
+    float f;
+    double s;
+    if (b->mode == BM_TILE) {
+        /* 0x43f840: the scroll, each frame (it also moves a wobble the drawing never
+           reads, NOTES §4.7) */
+        b->sx = (b->sx + dx) & 0x7f;
+        b->sy = (b->sy + dy) & 0x7f;
+        return;
+    }
+    if (!b->sliding)
+        return;
+    n = g_now < b->t1 ? g_now : b->t1;
+    f = (float)((double)(n - b->t0) / (double)b->dur);
+    if (b->ease == 0)
+        s = f;
+    else if (b->ease == 1)
+        s = (sin(f * 3.141592653589793 - 1.5707963267948966) + 1.0) * 0.5;
+    else
+        return;
+    b->x = (int)(b->dx * s + b->from_x);
+    b->y = (int)(b->dy * s + b->from_y);
+    if (n == b->t1)
+        b->sliding = 0;
 }
 
 /* 0x43f0f0: the tile over the whole 640x480 screen, 128 pixels at a time, rows going

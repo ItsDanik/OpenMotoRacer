@@ -80,8 +80,12 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - The screen is the game's: 640x480 RGB565 (`video.c`), shown 4:3.
 - `--shot FILE N` (`OMR_SHOT`): no window, N frames, the screen as a BMP. `--help` lists
   the test switches (`OMR_*`).
-- So far: the menu pictures (`bitmap.c`: LEZ, the table 0x4e3e20, the drawing 0x43ede0);
-  shows the settled title page's picture.
+- `clock.c`: the game's millisecond clock (timeGetTime), 1000/60 a frame.
+- `menu.c`: the menu core (NOTES §4.4): pages by the game's numbers, page change, buttons,
+  keys (SDL keys turned into Windows key codes) and mouse, the game's own pointer.
+- Pages written: 3 main menu (`page_main.c`), 4 quit. A page not written yet ends the
+  program with a message. Starts on page 3 for now (`OMR_PAGE=N` another).
+- Test switches: `OMR_PAGE`, `OMR_INPUT="F:key F:move:X,Y F:click"` (input at frame F).
 
 ## File formats
 
@@ -90,6 +94,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 | .BKF | bank: u32 count, 0x2c-byte records (name[0x24], offset, size), files | `tools/bkf.py`, all 28 unpack |
 | .RAW | Image Alchemy "mhwanh" picture (BE header, palette, 8-bit pixels) | `tools/raw.py` |
 | .LEZ | packed 8-bit TGA (`LEZ1`, LZ with 10-bit distances) | `tools/lez.py`, all 755 |
+| .FNT | bitmap font: first, count, height, palette size, palette, widths, glyphs | `tools/fnt.py`, all 34; NOTES §4.8 |
 | .BPT | the .Spt scripts as tokens, XOR with Park-Miller from 0x1a2b3c4d | `tools/bpt.py`, all |
 | .3DF .MAP | model (float vertices x96, faces) + per-face texture mapping | read from 0x4216a0, NOTES §4.5 |
 | .ROT .SKL .PIV | animations, skeletons | to do |

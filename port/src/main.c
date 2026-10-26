@@ -1,10 +1,12 @@
 /* OpenMotoRacer: Moto Racer (Delphine Software, 1997), its software renderer, written
    again in C from what the original program does (docs/NOTES.md). */
-#include "bitmap.h"
+#include "clock.h"
 #include "exe.h"
 #include "files.h"
+#include "menu.h"
 #include "video.h"
 #include <SDL.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,7 +21,10 @@ static void usage(void)
          "  --shot FILE N      no window: run N frames, save the screen as a BMP, quit\n"
          "                     (OMR_SHOT=\"FILE N\")\n"
          "test switches (environment):\n"
-         "  OMR_PIC=ID         show the menu picture ID of the game's table instead");
+         "  OMR_PAGE=N         start on the menu page N (the game's numbers)\n"
+         "  OMR_INPUT=\"F:WHAT ...\"  at frame F: a key (return, escape, space, tab,\n"
+         "                     backspace, left, right, up, down, shift, a letter),\n"
+         "                     move:X,Y (the mouse), click (left button down and up)");
 }
 
 static void fail(const char *msg, int headless)
@@ -30,17 +35,86 @@ static void fail(const char *msg, int headless)
     exit(1);
 }
 
+/* SDL's keys as the Windows key codes the game compares against */
+static int vk_of(SDL_Keycode k)
+{
+    if (k >= 'a' && k <= 'z')
+        return k - 'a' + 'A';
+    if (k >= '0' && k <= '9')
+        return k;
+    if (k >= SDLK_F1 && k <= SDLK_F12)
+        return 0x70 + (k - SDLK_F1);
+    if (k >= SDLK_KP_1 && k <= SDLK_KP_9)
+        return 0x61 + (k - SDLK_KP_1);
+    switch (k) {
+    case SDLK_BACKSPACE: return VK_BACK;
+    case SDLK_TAB: return VK_TAB;
+    case SDLK_RETURN: case SDLK_KP_ENTER: return VK_RETURN;
+    case SDLK_LSHIFT: case SDLK_RSHIFT: return VK_SHIFT;
+    case SDLK_LCTRL: case SDLK_RCTRL: return VK_CONTROL;
+    case SDLK_LALT: case SDLK_RALT: return VK_MENU;
+    case SDLK_ESCAPE: return VK_ESCAPE;
+    case SDLK_SPACE: return VK_SPACE;
+    case SDLK_PAGEUP: return VK_PRIOR;
+    case SDLK_PAGEDOWN: return VK_NEXT;
+    case SDLK_END: return VK_END;
+    case SDLK_HOME: return VK_HOME;
+    case SDLK_LEFT: return VK_LEFT;
+    case SDLK_UP: return VK_UP;
+    case SDLK_RIGHT: return VK_RIGHT;
+    case SDLK_DOWN: return VK_DOWN;
+    case SDLK_INSERT: return VK_INSERT;
+    case SDLK_KP_0: return 0x60;
+    }
+    return 0;
+}
+
+/* OMR_INPUT: what happens at this frame */
+static void scripted_input(const char *script, int frame)
+{
+    static const struct { const char *name; int vk; } keys[] = {
+        { "return", VK_RETURN }, { "escape", VK_ESCAPE }, { "space", VK_SPACE },
+        { "tab", VK_TAB }, { "backspace", VK_BACK }, { "left", VK_LEFT },
+        { "right", VK_RIGHT }, { "up", VK_UP }, { "down", VK_DOWN }, { "shift", VK_SHIFT },
+    };
+    const char *s = script;
+    while (s && *s) {
+        int f, n = 0, x, y;
+        char what[32];
+        unsigned i;
+        if (sscanf(s, " %d:%31s%n", &f, what, &n) != 2)
+            break;
+        s += n;
+        if (f != frame)
+            continue;
+        if (sscanf(what, "move:%d,%d", &x, &y) == 2)
+            menu_mouse_move(x, y);
+        else if (strcmp(what, "click") == 0) {
+            menu_mouse_button(1, 1);
+            menu_mouse_button(1, 0);
+        } else if (strlen(what) == 1 && isalpha((unsigned char)what[0]))
+            menu_key(toupper((unsigned char)what[0]));
+        else
+            for (i = 0; i < sizeof keys / sizeof keys[0]; i++)
+                if (strcmp(what, keys[i].name) == 0) {
+                    menu_key(keys[i].vk);
+                    menu_key_up(keys[i].vk);
+                }
+    }
+}
+
 int main(int argc, char **argv)
 {
-    const char *data = getenv("OMR_DATA"), *shot = 0, *env;
+    const char *data = getenv("OMR_DATA"), *shot = 0, *env, *script = getenv("OMR_INPUT");
     char err[512], shotbuf[512];
-    int shot_frames = 0, frame, i, quit = 0;
-    Bitmap title;
+    int shot_frames = 0, frame, i, page = 3;
 
     if ((env = getenv("OMR_LANG")))
         g_lang = atoi(env);
     if ((env = getenv("OMR_SHOT")) && sscanf(env, "%511s %d", shotbuf, &shot_frames) == 2)
         shot = shotbuf;
+    if ((env = getenv("OMR_PAGE")))
+        page = atoi(env);
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-data") == 0 && i + 1 < argc)
             data = argv[++i];
@@ -56,6 +130,8 @@ int main(int argc, char **argv)
     }
     if (g_lang < 0 || g_lang > 5)
         g_lang = 0;
+    if (page < 0 || page >= MENU_PAGES)
+        page = 3;
     if (shot)
         SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0)
@@ -70,28 +146,49 @@ int main(int argc, char **argv)
         fail(err, shot != 0);
     if (!video_init(shot != 0, err, sizeof err))
         fail(err, shot != 0);
+    SDL_ShowCursor(SDL_DISABLE);        /* the game draws its own pointer */
 
-    /* the first picture: the title page once its three logo pieces have arrived (page 14,
-       0x446b80, draws the table's picture 0xbf, title4.lez, whole in its own mode);
-       OMR_PIC=<id> shows another picture of the table */
-    env = getenv("OMR_PIC");
-    if (!bitmap_load_id(&title, env ? (int)strtol(env, 0, 0) : 0xbf))
-        fail("The title picture (data\\menu\\bitmap\\title4.lez) could not be read.", shot != 0);
+    /* the front end; its first page will be the Delphine logo (25) once the pages
+       before the main menu are written */
+    if (!menu_start(page, err, sizeof err))
+        fail(err, shot != 0);
 
-    for (frame = 0; !quit; frame++) {
+    for (frame = 0; !g_quit; frame++) {
         SDL_Event e;
-        while (SDL_PollEvent(&e))
-            if (e.type == SDL_QUIT || (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE))
-                quit = 1;
-        bitmap_draw(&title, BM_OWN, 100, 0);
+        while (SDL_PollEvent(&e)) {
+            switch (e.type) {
+            case SDL_QUIT:
+                g_quit = 1;
+                break;
+            case SDL_KEYDOWN:
+                if (vk_of(e.key.keysym.sym))
+                    menu_key(vk_of(e.key.keysym.sym));
+                break;
+            case SDL_KEYUP:
+                if (vk_of(e.key.keysym.sym))
+                    menu_key_up(vk_of(e.key.keysym.sym));
+                break;
+            case SDL_MOUSEMOTION:
+                menu_mouse_move(e.motion.x, e.motion.y);
+                break;
+            case SDL_MOUSEBUTTONDOWN:
+            case SDL_MOUSEBUTTONUP:
+                if (e.button.button == SDL_BUTTON_LEFT || e.button.button == SDL_BUTTON_RIGHT)
+                    menu_mouse_button(e.button.button == SDL_BUTTON_LEFT,
+                                      e.type == SDL_MOUSEBUTTONDOWN);
+                break;
+            }
+        }
+        scripted_input(script, frame);
+        menu_frame();
         if (shot && frame + 1 >= shot_frames) {
             if (!video_shot(shot))
                 fail(SDL_GetError(), 1);
             break;
         }
         video_present();
+        clock_frame();
     }
-    bitmap_free(&title);
     video_quit();
     SDL_Quit();
     return 0;
