@@ -24,6 +24,9 @@ set(OMR_SOURCES
   src/clock.c
   src/menu.c
   src/page_main.c
+  src/script.c
+  src/font.c
+  src/text.c
 )
 
 add_executable(openmotoracer ${OMR_SOURCES})

@@ -18,7 +18,7 @@ static const struct {
     const char *what;
     unsigned addr[X_COUNT];
 } builds[] = {
-    { 0xd2534e97u, 1133056, "GOG game.EXE, 3.22, 1998-07-09", { 0x4e3e20, 0x4e8b60 } },
+    { 0xd2534e97u, 1133056, "GOG game.EXE, 3.22, 1998-07-09", { 0x4e3e20, 0x4e8b60, 0x4f0dd4 } },
 };
 static int g_build = -1;
 

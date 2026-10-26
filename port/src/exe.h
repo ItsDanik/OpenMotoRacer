@@ -9,6 +9,7 @@ int exe_load(char *err, int errsize);
 enum {
     X_BITMAP_TABLE,     /* the menu pictures (NOTES §4.7) */
     X_LANG_FOLDERS,     /* "data\\MenuUs\\", ... */
+    X_COLOURS,          /* the named colours, R,G,B every 4 bytes (NOTES §4.8.3.5) */
     X_COUNT
 };
 unsigned exe_addr(int what);

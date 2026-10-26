@@ -4,6 +4,8 @@
 #include "exe.h"
 #include "files.h"
 #include "menu.h"
+#include "font.h"
+#include "text.h"
 #include "video.h"
 #include <SDL.h>
 #include <ctype.h>
@@ -24,7 +26,10 @@ static void usage(void)
          "  OMR_PAGE=N         start on the menu page N (the game's numbers)\n"
          "  OMR_INPUT=\"F:WHAT ...\"  at frame F: a key (return, escape, space, tab,\n"
          "                     backspace, left, right, up, down, shift, a letter),\n"
-         "                     move:X,Y (the mouse), click (left button down and up)");
+         "                     move:X,Y (the mouse), click (left button down and up)\n"
+         "  OMR_TEXT=\"FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT\"  a text object on the\n"
+         "                     first page (FORE, BACK: the game's colour numbers, -1 for\n"
+         "                     the font's own)");
 }
 
 static void fail(const char *msg, int headless)
@@ -33,6 +38,36 @@ static void fail(const char *msg, int headless)
     if (!headless)
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "OpenMotoRacer", msg, 0);
     exit(1);
+}
+
+/* OMR_TEXT: one still text object, as 0x417d20 gets it */
+static void test_text(const char *spec)
+{
+    static char text[200];
+    int font, x, y, align, effect, blink, fore, back, n = 0;
+    TextArgs a;
+    if (sscanf(spec, "%d,%d,%d,%i,%d,%d,%d,%d,%n", &font, &x, &y, &align, &effect, &blink,
+               &fore, &back, &n) < 8 || !n) {
+        fprintf(stderr, "openmotoracer: OMR_TEXT wants FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,"
+                "TEXT\n");
+        return;
+    }
+    snprintf(text, sizeof text, "%s", spec + n);
+    memset(&a, 0, sizeof a);
+    a.text = text;
+    a.font = font;
+    a.x = x;
+    a.y = y;
+    a.align = align;
+    a.effect = effect;
+    a.blink = blink;
+    a.own_colours = fore >= 0 && back >= 0;
+    if (a.own_colours) {
+        a.fore = named_colour(fore);
+        a.back = named_colour(back);
+    }
+    if (!text_add(&a))
+        fprintf(stderr, "openmotoracer: OMR_TEXT: the text was not added\n");
 }
 
 /* SDL's keys as the Windows key codes the game compares against */
@@ -144,6 +179,8 @@ int main(int argc, char **argv)
     }
     if (!exe_load(err, sizeof err))
         fail(err, shot != 0);
+    if (!font_init(err, sizeof err))
+        fail(err, shot != 0);
     if (!video_init(shot != 0, err, sizeof err))
         fail(err, shot != 0);
     SDL_ShowCursor(SDL_DISABLE);        /* the game draws its own pointer */
@@ -152,6 +189,8 @@ int main(int argc, char **argv)
        before the main menu are written */
     if (!menu_start(page, err, sizeof err))
         fail(err, shot != 0);
+    if ((env = getenv("OMR_TEXT")))
+        test_text(env);
 
     for (frame = 0; !g_quit; frame++) {
         SDL_Event e;

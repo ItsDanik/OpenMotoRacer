@@ -85,7 +85,11 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   keys (SDL keys turned into Windows key codes) and mouse, the game's own pointer.
 - Pages written: 3 main menu (`page_main.c`), 4 quit. A page not written yet ends the
   program with a message. Starts on page 3 for now (`OMR_PAGE=N` another).
-- Test switches: `OMR_PAGE`, `OMR_INPUT="F:key F:move:X,Y F:click"` (input at frame F).
+- Text (NOTES §4.8): `script.c` reads BPT, `font.c` the 35 fonts (FONTS.BPT + .FNT),
+  `text.c` the 48 text objects (blink, fades, see-through, drift).
+- Test switches: `OMR_PAGE`, `OMR_INPUT="F:key F:move:X,Y F:click"` (input at frame F),
+  `OMR_TEXT="FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT"` (one text object).
+- Progress tracker for Danik: https://claude.ai/artifact/CCupuhZmsCRgz7FA5eFMxz
 
 ## File formats
 

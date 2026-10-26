@@ -1116,6 +1116,15 @@ RGB565 framebuffer at 640x480; implement Direct, AntiAlias8Transp, Pal. Implemen
 48-slot text list with effects 0..7 and modes 0..4 driven by a millisecond clock.
 `tools/fnt.py` is the reference for the pixel maths.
 
+**In the port** (`port/src/script.c`, `font.c`, `text.c`): FONTS.BPT and every .FNT
+loaded at start; the clock set at the top of Menu_Frame (0x409c70, timeGetTime), the list
+updated and drawn before the pointer, cleared on a page change. **Checked**: "FULL D3D
+VERSION" (`OMR_TEXT="31,0,60,0x22,3,-500,5,1,FULL D3D VERSION"`) covers the same 2171
+pixels as in the original's title capture (orig_p14_title_fulld3d.png against
+orig_p14_title.png), every one equal in 5-6-5; shown 0-499 ms, hidden 500-999 ms.
+Not written yet: motion 1 (0x416b40's fly-to-target) and the dodging (0x417ac0), each
+prints a message when a page asks for it.
+
 
 #### 4.8.4 Where the words come from
 

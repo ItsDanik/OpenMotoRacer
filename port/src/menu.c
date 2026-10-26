@@ -3,6 +3,7 @@
 #include "menu.h"
 #include "clock.h"
 #include "pages.h"
+#include "text.h"
 #include "video.h"
 #include <stdio.h>
 #include <string.h>
@@ -79,7 +80,8 @@ static void set_page(int page)
 
 void menu_change_page(int page)
 {
-    /* (0x409eb0 also deletes the text sprites and frees unpacked pictures) */
+    /* (0x409eb0 also frees unpacked pictures) */
+    text_clear();
     g_menu.sel = -1;
     g_navigated = 0;
     g_menu.mouse_mode = 1;
@@ -123,6 +125,7 @@ void menu_capture(void)
 void menu_frame(void)
 {
     int page = g_menu.page;
+    text_clock(g_now);          /* 0x409c70 */
     if (!pages[page].frame && !pages[page].start && page != 0) {
         fprintf(stderr, "openmotoracer: the page %d (%s) is not written yet\n", page,
                 page_names[page]);
@@ -296,9 +299,13 @@ void menu_begin_frame(void)
     }
 }
 
-/* the game's own mouse pointer (Pointeur.lez, 0x55), its corner on the hot spot */
+/* the text objects (0x418790, 0x417840, 0x418860), then the game's own mouse pointer
+   (Pointeur.lez, 0x55), its corner on the hot spot */
 void menu_end_frame(void)
 {
+    text_update();
+    if (!text_empty())
+        text_draw();
     Bitmap *p = &g_pics[0x55];
     bitmap_place(p, g_mx, g_my, 0);
     bitmap_draw(p, BM_OWN, 100, 0);
