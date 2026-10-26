@@ -31,9 +31,11 @@ typedef struct {                /* a DirectSound buffer: a sample object (0x30 b
     int copy;                   /* +0x28: shares its data with the head */
     int playing, loop;
     uint64_t pos;               /* in samples, 32.32 */
-    int freq;                   /* +0x14 */
+    int freq;                   /* what is heard */
+    int hz;                     /* +0x14: as last set (the length's) */
     float gl, gr;               /* volume and pan as gains */
     int vol, pan;
+    int paused;                 /* +0x24: stopped by the pause-all, to play again */
 } Buffer;
 
 static SDL_AudioDeviceID g_dev;
@@ -144,7 +146,7 @@ static int new_slot(Sample *s, int copy)
     g_slot[k].s = s;
     g_slot[k].next = -1;
     g_slot[k].copy = copy;
-    g_slot[k].freq = s->rate;
+    g_slot[k].freq = g_slot[k].hz = s->rate;
     g_slot[k].vol = 255;
     set_gains(&g_slot[k]);
     if (k >= g_top)
@@ -534,7 +536,7 @@ void sound_stop(int h)
 {
     lock();
     if (h >= 0 && h < SLOTS && g_slot[h].s)
-        g_slot[h].playing = 0;
+        g_slot[h].playing = g_slot[h].paused = 0;
     unlock();
 }
 
@@ -543,16 +545,102 @@ void sound_stop_all(void)
     int k;
     lock();
     for (k = 0; k < g_top; k++)
-        g_slot[k].playing = 0;
+        g_slot[k].playing = g_slot[k].paused = 0;
     unlock();
+}
+
+/* ------------------------------------------------------------------ the server's own calls */
+
+/* 0x423fd0 on the id's sample (0x519ff8[id]): no switch, no volume set, no "last" kept;
+   the copy playing, -1 none */
+int sound_server_play(int id, int flags)
+{
+    int h;
+    if (id < 0 || id > 255)
+        return -1;
+    lock();
+    h = play_buffer(g_handle[id], flags);
+    unlock();
+    return h;
+}
+
+void sound_volume(int h, int v)         /* 0x424030 */
+{
+    lock();
+    set_volume(h, v);
+    unlock();
+}
+
+void sound_pan(int h, int p)            /* 0x424070 → 0x441e10 */
+{
+    if (h < 0 || h >= SLOTS || !g_slot[h].s)
+        return;
+    lock();
+    g_slot[h].pan = p < -128 ? -128 : p > 128 ? 128 : p;
+    set_gains(&g_slot[h]);
+    unlock();
+}
+
+/* 0x424050 → 0x441dc0: kept always, heard only between 1000 and 44100 Hz */
+void sound_frequency(int h, int hz)
+{
+    if (h < 0 || h >= SLOTS || !g_slot[h].s)
+        return;
+    lock();
+    if (hz > 1000 && hz < 44100)
+        g_slot[h].freq = hz;
+    g_slot[h].hz = hz;
+    unlock();
+}
+
+/* 0x424090 → 0x441e80: 1 stops every looping copy that plays and marks it, 0 plays the
+   marked ones again from their start */
+void sound_pause_all(int on)
+{
+    int k;
+    lock();
+    for (k = 0; k < g_top; k++) {
+        Buffer *b = &g_slot[k];
+        if (!b->s)
+            continue;
+        if (on && b->playing && b->loop) {
+            b->playing = 0;
+            b->paused = 1;
+        } else if (!on && b->paused) {
+            b->paused = 0;
+            b->pos = 0;
+            b->playing = 1;
+        }
+    }
+    unlock();
+}
+
+int sound_last_voice(void)              /* 0x502898 */
+{
+    return g_last_voice;
+}
+
+void sound_set_last_voice(int id)
+{
+    g_last_voice = id;
+}
+
+int sound_last_effect(void)             /* 0x502710 */
+{
+    return g_last_effect;
+}
+
+void sound_set_last_effect(int id)
+{
+    g_last_effect = id;
 }
 
 /* 0x441fa0: in whole samples, then ms at the buffer's frequency */
 unsigned sound_length(int h)
 {
-    if (h < 0 || h >= SLOTS || !g_slot[h].s || g_slot[h].freq <= 0)
+    if (h < 0 || h >= SLOTS || !g_slot[h].s || g_slot[h].hz <= 0)
         return 0;
-    return g_slot[h].s->n * 1000u / (unsigned)g_slot[h].freq;
+    return g_slot[h].s->n * 1000u / (unsigned)g_slot[h].hz;
 }
 
 /* ------------------------------------------------------------------ the queues */
@@ -763,4 +851,34 @@ void sound_frame(void)
         fwrite(out, 4, n, g_wav);
         g_wav_frames += n;
     }
+}
+
+int sound_effects_on(void)
+{
+    return g_effects_on;
+}
+
+int sound_voices_on(void)
+{
+    return g_voices_on;
+}
+
+/* 0x4059a0's load of one of the track's ambient samples (DIVERS\name.wav) as id, if that
+   id has none yet: volume full, pan in the middle */
+void sound_load_named(int id, const char *name)
+{
+    char path[256];
+    if (!g_ok || id < 0 || id > 255 || g_handle[id] >= 0)
+        return;
+    snprintf(path, sizeof path, "data\\sfx\\16_Bits\\Divers\\%s.wav", name);
+    lock();
+    g_handle[id] = load(path);
+    set_volume(g_handle[id], 0xff);
+    unlock();
+}
+
+int sound_rate(int id)                  /* 0x442010: the file's own rate, 0 none */
+{
+    int h = sound_handle(id);
+    return h >= 0 && g_slot[h].s ? g_slot[h].s->rate : 0;
 }

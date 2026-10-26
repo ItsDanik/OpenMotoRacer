@@ -3,7 +3,8 @@
    fonts, the default); the countdown and the messages are text objects; the dials (§3b)
    are a model of the track's and two needles put into the 3D's depth lists. Not yet: the
    gear-change hint of the digits-only dashboard, the split against the leader (0x412e50), the riders' labels (Link and
-   time attack), the CD data's picture messages (0x4dc180 = 0) and GAME OVER. */
+   time attack) and the CD data's picture messages (0x4dc180 = 0). GAME OVER is a sprite
+   object (0x482120, §3.5). */
 #include "hud.h"
 #include "bikephys.h"
 #include "bikes.h"
@@ -18,6 +19,7 @@
 #include "race.h"
 #include "rules.h"
 #include "sound.h"
+#include "sprite.h"
 #include "text.h"
 #include "video.h"
 #include <math.h>
@@ -35,6 +37,7 @@ static int g_go;                /* 0x4dbe44: GO still to show, its lifetime */
 static int g_last_cp;           /* the race object's +4: the checkpoint last told */
 static int g_loaded;            /* 0x4dc100 */
 static int id_laps, id_count, id_ready, id_finish, id_timeout, id_final, id_wrong, id_check;
+static int id_gameover;         /* 0x4e987c */
 
 static uint32_t ubits(float f)
 {
@@ -125,6 +128,7 @@ static void say(int *id, const char *s, int life, int align, int x, int y, int e
     a.own_colours = 1;
     a.fore = named_colour(COL_RED);
     a.back = named_colour(COL_BLACK);
+    a.list = 1;         /* 0x53ba68 */
     text_add(&a);       /* (its steps 5, 5 out of other texts' way: not written) */
 }
 
@@ -152,6 +156,7 @@ static void message(int *id, int c, int life, int blink, int fore)
     a.own_colours = 1;
     a.fore = named_colour(fore);
     a.back = named_colour(COL_BLACK);
+    a.list = 1;         /* 0x53ba68 */
     text_add(&a);
 }
 
@@ -172,6 +177,54 @@ void hud_message(int which)
         text_remove(id_wrong);
         break;
     }
+}
+
+/* 0x480930's sprites for GAME OVER (§3.5): the pictures of banks 0x5d3cb2, 0x5d3b69 and
+   0x5d3dfb, loaded once */
+static SpritePic pic_hires, pic_lowres, pic_gameover;
+static Sprite spr_over1, spr_over2, spr_over_lr;        /* 0x4eaa94, 0x4eaa98, 0x4eaac4 */
+
+static void load_sprites(void)
+{
+    static int done;
+    static const Sprite over1 = { &pic_gameover, 0, 89, 255, 255, 0, 0, 1 },
+        over2 = { &pic_hires, 0, 98, 113, 247, 0, 9, 1 },
+        over_v2 = { &pic_lowres, 0, 15, 255, 127, 0, 0, 1 },
+        over_cd = { &pic_lowres, 0, 143, 255, 255, 0, 0, 1 };
+    if (done)
+        return;
+    done = 1;
+    sprite_pic_load(&pic_hires, "Data\\Design\\Texts\\HiRes.RAW");
+    sprite_pic_load(&pic_lowres, "Data\\Design\\Texts\\LowRes.RAW");
+    sprite_pic_load(&pic_gameover, "Data\\Design\\Texts\\GameOver.RAW");
+    spr_over1 = over1;
+    spr_over2 = over2;
+    /* 0x4dc180 (0x472c40): GOG's LowRes.RAW is 128 high and holds only "Game over" */
+    spr_over_lr = pic_lowres.h == 128 ? over_v2 : over_cd;
+}
+
+/* 0x482120(0): GAME OVER in the middle for 3 s, then drifting off to the right. It
+   also removes TIME OUT's and WRONG WAY's ids from 0x53b8e8, but those live in 0x53ba68,
+   so they stay (and GAME OVER, in the list drawn after, covers them). */
+void hud_game_over(void)
+{
+    TextArgs a;
+    load_sprites();
+    memset(&a, 0, sizeof a);
+    a.lifetime = 3000;
+    a.align = 0x42;
+    a.motion = 4;
+    a.id_out = &id_gameover;
+    /* (steps 5, 5 and re-centring out of other objects' way in 0x53b8e8: nothing else
+       is there in a race but the screen-mode text, not written) */
+    a.vx = 2;
+    a.s = 2.0;
+    a.k = 5.0;
+    a.parts = 2;
+    a.lo[0] = &spr_over_lr;
+    a.hi[0] = &spr_over1;
+    a.hi[1] = &spr_over2;
+    text_add(&a);
 }
 
 /* 0x482220: "3 LAPS", steady, then see-through blinking, then falling away */
@@ -205,6 +258,7 @@ static void laps_text(int m)
     a.own_colours = 1;
     a.fore = named_colour(COL_RED);
     a.back = named_colour(COL_BLACK);
+    a.list = 1;         /* 0x53ba68 */
     text_add(&a);
 }
 
@@ -420,6 +474,7 @@ static void finish_place(void)
     a.y = 5;
     a.align = 0xc2;
     a.id_out = &id_finish;
+    a.list = 1;         /* 0x53ba68 */
     text_add(&a);
 }
 
@@ -725,6 +780,14 @@ static void racing(void)
     }
 }
 
+/* the controller's name after Ctrl+J / Ctrl+K (0x431922, 0x431a0c), 3 s at the top;
+   slot 0 the joystick's (0x4e98d8), 1 the keyboard's (0x4e98dc) */
+void hud_notice(int slot, const char *s)
+{
+    static int id[2];
+    say(&id[slot & 1], s, 3000, 0x22, 0, 0x14, FX_FADE_OUT, F_MESSAGES, 4);
+}
+
 void hud_restart(void)
 {
     g_laps_mode = g_last_count = -1;
@@ -743,12 +806,14 @@ void hud_draw(void)
         g_loaded += g_racer[k].loaded;
     if (!g_race_over) {
         if (g_time_over)
-            text_remove(id_finish);     /* (GAME OVER 0x482120: not yet) */
+            text_remove(id_finish);     /* (Link: the results, GAME OVER) */
         else if (g_counting)
             countdown();
         else
             racing();
     } else {
+        if (g_solo)
+            text_remove(id_gameover);           /* (and 0x4e9880) */
         best_panel(0);
         finish_place();     /* (unless the race's end shows its podium: not yet) */
         lap_panel();

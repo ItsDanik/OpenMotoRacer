@@ -2400,9 +2400,15 @@ void bikephys_collide(BikePhys *all[], int n, float dt)
                 int c;
                 for (c = 0; c < 3; c++)
                     dd[c] = (float)((R)p[k]->pos[c] - p[k]->pos1[c]);
-                l = length(dd);
+                /* not 0x40fcd0: (y y + z z) + x x, the length kept as a double */
+                l = sqrt(((R)dd[1] * dd[1] + (R)dd[2] * dd[2]) + (R)dd[0] * dd[0]);
                 s[k] = (float)(l / dt * 0.78125);
-                unit(nn[k], dd);
+                memcpy(nn[k], dd, 12);
+                if (l != 0.0) {
+                    R r = 1.0 / l;
+                    for (c = 0; c < 3; c++)
+                        nn[k][c] = (float)(dd[c] * r);
+                }
             }
             k = s[0] > s[1] ? 0 : 1;
             A = p[k], B = p[1 - k];
@@ -2428,18 +2434,15 @@ void bikephys_collide(BikePhys *all[], int n, float dt)
                     q->pos[c] = (float)((((R)q->pos[c] - q->pos1[c]) * t + q->pos1[c]) - nq[c]);
                 wheels_from_matrix(q);
             }
-            for (k = 0; k < 3; k++)
-                mix[k] = (float)((R)sA * nA[k] + (R)sB * nB[k]);
-            normalise(mix);
             A->hit_timer = 200.0f;          /* the faster one */
             turbo_off(A);
             if (A->driven) {
                 if (!headon) {
                     if (hard) {
-                        if (A->speed > 22.222f)
-                            A->speed = 22.222f;
-                        if (sB > 22.222f)
-                            sB = 22.222f;
+                        if (A->speed > 22.22222222222222)   /* 80 km/h at most */
+                            A->speed = 22.222221f;
+                        if (sB > 22.22222222222222)
+                            sB = 22.222221f;
                         crash(A, nA);
                         A->events |= 8;
                     } else
@@ -2461,6 +2464,10 @@ void bikephys_collide(BikePhys *all[], int n, float dt)
             } else {
                 if (!headon) {
                     if (hard) {
+                        if (A->speed > 22.22222222222222)   /* 80 km/h at most */
+                            A->speed = 22.222221f;
+                        if (sB > 22.22222222222222)
+                            sB = 22.222221f;
                         crash(A, nA);
                         A->events |= 8;
                     } else
@@ -2477,6 +2484,11 @@ void bikephys_collide(BikePhys *all[], int n, float dt)
                 }
                 A->engine = A->cpu_speed = A->speed;
             }
+            /* with sB as A's crash may have cut it; the game spills sB nB[2] to a float */
+            mix[0] = (float)((R)sA * nA[0] + (R)sB * nB[0]);
+            mix[1] = (float)((R)sA * nA[1] + (R)sB * nB[1]);
+            mix[2] = (float)((R)sA * nA[2] + (float)((R)sB * nB[2]));
+            normalise(mix);
             turbo_off(B);                   /* the slower one */
             if (B->driven) {
                 if (!headon) {
@@ -2493,7 +2505,7 @@ void bikephys_collide(BikePhys *all[], int n, float dt)
                     } else
                         B->events |= 0x10;
                     B->push = (float)((R)sA - sB);
-                    if (B->push < 5.5556)
+                    if (B->push < 5.555555555555555)
                         B->push = 5.5555553f;
                     B->speed = 0.0f;
                     set_forward(B, 0.0f);
@@ -2518,7 +2530,7 @@ void bikephys_collide(BikePhys *all[], int n, float dt)
                     B->speed = (float)((R)sA - sB);
                 }
                 B->speed = (float)(B->speed * 1.1);
-                if (B->speed < 5.5556)
+                if (B->speed < 5.555555555555555)
                     B->speed = 5.5555553f;
                 B->engine = B->cpu_speed = B->speed;
             }
@@ -2527,3 +2539,38 @@ void bikephys_collide(BikePhys *all[], int n, float dt)
             frame_and_lean(B);
         }
 }
+
+/* ------------------------------------------------------------------ for cpu.c */
+/* The same routines, reached by the computer riders' step (bikephys_int.h) */
+#include "bikephys_int.h"
+
+int bp_nsec(void) { return s_nsec; }
+int bp_wrap(int sec) { return wrap_sec(sec); }
+const float *bp_sec_pos(int sec) { return s_sec[wrap_sec(sec)].pos; }
+const float *bp_sec_m(int sec) { return s_sec[wrap_sec(sec)].m; }
+float bp_sec_line(int sec) { return s_sec[wrap_sec(sec)].line; }
+int bp_walk(int hint, const float p[3]) { return walk(hint, p); }
+double bp_road_y(int sec, const float p[3]) { return road_y(sec, p); }
+int bp_walls(int sec, const float a[3], const float b[3], float hit[3], float v[3],
+             float n[3])
+{
+    return s_nsec > 0 && walls(sec, a, b, hit, v, n);
+}
+int bp_bends(int sec, int n) { return bends(sec, n); }
+void bp_mulvec(float o[3], const float v[3], const float *m) { mulvec(o, v, m); }
+void bp_cross(float o[3], const float a[3], const float b[3]) { cross(o, a, b); }
+void bp_normalise(float v[3]) { normalise(v); }
+void bp_look(float *o, const float a[3], const float b[3]) { look(o, a, b); }
+double bp_heading(const float *m) { return heading(m); }
+float bp_wrap_ge(float a) { return wrap_ge(a); }
+void bp_turn_yaw(BikePhys *b, float yaw) { turn_yaw(b, yaw); }
+float bp_carac(const BikePhys *b, int off) { return carac(b, off); }
+int bp_perso(const BikePhys *b) { return bk(b)->perso; }
+void bp_start_step(BikePhys *b) { start_step(b); }
+void bp_turbo(BikePhys *b, float dt) { turbo(b, dt); }
+void bp_frame_and_lean(BikePhys *b) { frame_and_lean(b); }
+void bp_wheel_spin(BikePhys *b) { wheel_spin(b, (unsigned)b->keys1); }
+void bp_suspension(BikePhys *b) { suspension(b); }
+void bp_tumble(BikePhys *b, float dt) { tumble(b, dt); }
+void bp_dials(BikePhys *b) { dials(b); }
+double bikephys_frame_pitch(const BikePhys *b) { return frame_pitch(b); }

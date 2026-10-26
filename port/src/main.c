@@ -16,6 +16,7 @@
 #include "saves.h"
 #include "video.h"
 #include "input.h"
+#include "joy.h"
 #include "race.h"
 #include <SDL.h>
 #include <ctype.h>
@@ -33,15 +34,20 @@ static void usage(void)
          "                     own data/ is read when a file is not there)\n"
          "  -lang N            menus' language: 0 US, 1 French, 2 German, 3 Italian,\n"
          "                     4 Spanish, 5 Swedish (OMR_LANG)\n"
+         "  -jN                the joystick's dead zone, 0..0xffff (the game's own switch;\n"
+         "                     OMR_JOYDEAD; default 2048)\n"
          "  --shot FILE N      no window: run N frames, save the screen as a BMP, quit\n"
          "                     (OMR_SHOT=\"FILE N\")\n"
          "test switches (environment):\n"
          "  OMR_PAGE=N         start on the menu page N (the game's numbers; 25 the logo)\n"
          "  OMR_INPUT=\"F:WHAT ...\"  at frame F: a key (return, escape, space, tab,\n"
-         "                     backspace, left, right, up, down, shift, minus, plus,\n"
+         "                     backspace, left, right, up, down, shift, ctrl, minus, plus,\n"
          "                     a letter),\n"
          "                     move:X,Y (the mouse), click (left button down and up),\n"
-         "                     down, up (the left button alone)\n"
+         "                     down, up (the left button alone),\n"
+         "                     joy:X,Y,BUTTONS (joystick 0 held so: 0..65535, the button\n"
+         "                     bits; with --shot no real joystick is read)\n"
+         "  OMR_DEVICE=N       the controller: 1 keyboard, 2 joystick, 4 joypad\n"
          "  OMR_CHOICES=MODE,TRACK,LAPS[,REVERSE,POCKET,MANUAL]  the race chosen (MODE 0\n"
          "                     practice, 1 single race, 2 championship; MANUAL 1: the\n"
          "                     manual gearbox), for OMR_PAGE=9 and on\n"
@@ -173,6 +179,7 @@ static int vk_of(SDL_Keycode k)
     case SDLK_RIGHT: return VK_RIGHT;
     case SDLK_DOWN: return VK_DOWN;
     case SDLK_INSERT: return VK_INSERT;
+    case SDLK_PAUSE: return 0x13;
     case SDLK_KP_0: return 0x60;
     case SDLK_KP_PLUS: return VK_ADD;
     case SDLK_KP_MINUS: return VK_SUBTRACT;
@@ -187,8 +194,9 @@ static void scripted_input(const char *script, int frame)
         { "return", VK_RETURN }, { "escape", VK_ESCAPE }, { "space", VK_SPACE },
         { "tab", VK_TAB }, { "backspace", VK_BACK }, { "left", VK_LEFT },
         { "right", VK_RIGHT }, { "up", VK_UP }, { "down", VK_DOWN }, { "shift", VK_SHIFT },
+        { "ctrl", VK_CONTROL },
         { "minus", VK_SUBTRACT }, { "plus", VK_ADD }, { "f5", 0x74 }, { "f6", 0x75 },
-        { "f7", 0x76 }, { "f10", 0x79 },
+        { "f7", 0x76 }, { "f10", 0x79 }, { "pause", 0x13 },
     };
     const char *s = script;
     while (s && *s) {
@@ -200,8 +208,11 @@ static void scripted_input(const char *script, int frame)
         s += n;
         if (f != frame)
             continue;
+        unsigned jb;
         if (sscanf(what, "move:%d,%d", &x, &y) == 2)
             menu_mouse_move(x, y);
+        else if (sscanf(what, "joy:%d,%d,%u", &x, &y, &jb) == 3)
+            joy_fake(x, y, jb);
         else if (strcmp(what, "click") == 0) {
             menu_mouse_button(1, 1);
             menu_mouse_button(1, 0);
@@ -254,6 +265,8 @@ int main(int argc, char **argv)
             home = argv[++i];
         else if (strcmp(argv[i], "-lang") == 0 && i + 1 < argc)
             g_lang = atoi(argv[++i]);
+        else if (strncmp(argv[i], "-j", 2) == 0 && argv[i][2])  /* the game's own */
+            g_joy_dead = atoi(argv[i] + 2);
         else if (strcmp(argv[i], "--shot") == 0 && i + 2 < argc) {
             shot = argv[++i];
             shot_frames = atoi(argv[++i]);
@@ -262,6 +275,8 @@ int main(int argc, char **argv)
             return strcmp(argv[i], "--help") == 0 ? 0 : 1;
         }
     }
+    if ((env = getenv("OMR_JOYDEAD")))
+        g_joy_dead = atoi(env);
     if (g_lang < 0 || g_lang > 5)
         g_lang = 0;
     if (page < 0 || page >= MENU_PAGES)
@@ -270,6 +285,8 @@ int main(int argc, char **argv)
         SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0)
         fail(SDL_GetError(), 1);
+    if (!shot)                          /* (tests read no real joystick) */
+        SDL_InitSubSystem(SDL_INIT_JOYSTICK);
 
     if (!files_init(data ? data : "Moto Racer")) {
         snprintf(err, sizeof err, "No data folder in %s.\nPoint -data (or OMR_DATA) at the "
@@ -280,6 +297,9 @@ int main(int argc, char **argv)
     if (!exe_load(err, sizeof err))
         fail(err, shot != 0);
     config_load();
+    if ((env = getenv("OMR_DEVICE")))
+        g_input_device = atoi(env);
+    joy_detect();                       /* 0x4189b0, at the start */
     /* the track list and the championship (0x472c40: the game stops without them) */
     if (!tracks_load() || !champ_load())
         fail("The track lists (data\\LIST.BPT, CHAMPA.BPT...) could not be read.", shot != 0);

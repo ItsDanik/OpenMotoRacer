@@ -1,8 +1,8 @@
 /* The race (NOTES §4.16): its load (0x47b420), the riders on the starting grid (0x410a50,
    0x47bf70), and its frame (Game_Frame 0x47d660). Written so far: the track, its sky, the
    riders on the grid, the player's bike (bikephys.c) and the chase camera (camera.c),
-   the dashboard, the race's rules, the pause menu (Escape). The computer riders stand on
-   the grid until their model (0x46bf80) is written. */
+   the dashboard, the race's rules, the pause menu (Escape), the computer riders
+   (cpu.c). */
 #include "race.h"
 #include "bikephys.h"
 #include "bikes.h"
@@ -10,13 +10,17 @@
 #include "choices.h"
 #include "clock.h"
 #include "config.h"
+#include "cpu.h"
 #include "dialog.h"
+#include "exe.h"
 #include "horizon.h"
 #include "hud.h"
 #include "input.h"
+#include "joy.h"
 #include "land.h"
 #include "menu.h"
 #include "r3d.h"
+#include "race_sound.h"
 #include "rules.h"
 #include "scores.h"
 #include "sound.h"
@@ -35,6 +39,33 @@ unsigned g_keys[RIDERS];        /* +0x31e9: the control bits (RK_*) */
 static BikePhys g_phys[RIDERS]; /* the riders' bikes */
 static unsigned g_events;       /* 0x4e8918 */
 static int g_finish_timer, g_timeover_timer;    /* 0x4e9824, 0x4e9828 */
+static int g_paused;            /* 0x4dc038: Pause, App_OnIdle leaves the race alone */
+static unsigned g_joy_keys;     /* +0x31ed: the bits from the joystick */
+static int g_joy_y = 0x8000, g_joy_x = 0x8000;  /* +0x31f1, +0x31f5 */
+static int g_joy_turbo;         /* +0x31fd: a turbo binding held */
+static int g_ctrl_held;         /* 0x4dc108: Ctrl is down */
+static int g_onboard;           /* 0x4dc00c: F6, the view from the rider's eyes */
+
+/* Ctrl+J (0x431922): the joystick or joypad chosen in the options, if one answers, else
+   the keyboard; Ctrl+K: the keyboard */
+static void controller(int joystick)
+{
+    if (!joystick) {
+        g_input_device = 1;
+        hud_notice(1, exe_text(30));
+        return;
+    }
+    g_input_device = g_joy_type;
+    if (g_joy_type == 2 || g_joy_type == 4) {
+        joy_detect();
+        if (!g_joy[0].working)
+            g_input_device = 1;
+    }
+    if (g_input_device != g_joy_type)
+        hud_notice(0, exe_text(98));
+    else if (g_input_device == 2 || g_input_device == 4)
+        hud_notice(0, exe_text(g_input_device == 2 ? 32 : 31));
+}
 
 /* 0x431250 (WM_KEYDOWN, the repeats of a held key too) and 0x432700 (WM_KEYUP): the keys
    bound to the seven actions (0x53eae0) set and clear the player's bits; pressing one
@@ -45,8 +76,23 @@ void race_key(int vk, int down)
     int a;
     if (!g_racing)
         return;
+    if (vk == 0x13 && down && g_solo) {         /* Pause (0x4314f7): the race stands */
+        g_paused ^= 1;
+        sound_pause_all(g_paused);              /* 0x424090 (and the CD's MCI pause) */
+        return;
+    }
+    if (g_paused)
+        return;
     if (dialog_key(vk, down))
         return;
+    if (vk == VK_CONTROL) {     /* 0x4dc108 */
+        g_ctrl_held = down;
+        return;
+    }
+    if (g_ctrl_held && down && (vk == 'J' || vk == 'K')) {
+        controller(vk == 'J');
+        return;
+    }
     if (vk == VK_ESCAPE && down) {
         dialog_pause(1);
         return;
@@ -58,6 +104,11 @@ void race_key(int vk, int down)
     if (vk == 0x79) {                           /* F10 (the port's): smooth pictures */
         if (down)
             g_smooth = !g_smooth;
+        return;
+    }
+    if (vk == 0x75) {                           /* F6: on board (0x4e8944 is set in a race) */
+        if (down)
+            g_onboard ^= 1;
         return;
     }
     if (vk == 0x76) {                           /* F7: the dials */
@@ -91,6 +142,7 @@ static void to_rider(Rider *r, const BikePhys *b)
     memcpy(r->front, b->front, sizeof r->front);
     r->sec = b->sec;
     r->lean = b->lean, r->pitch = b->pitch, r->steer = b->steer, r->speed = b->speed;
+    r->wheelie = b->wheelie;
     r->dive = b->dive, r->susp = b->susp;
     r->spin_rear = b->spin_rear, r->spin_front = b->spin_front;
     r->crashed = b->crashed, r->roll_side = b->roll_side;
@@ -110,6 +162,18 @@ static void from_rider(BikePhys *b, const Rider *r)
     memcpy(b->tumble_pt, r->body_pt, sizeof r->body_pt);
 }
 
+/* the on-board view draws the cockpit in place of the player's bike (0x458b80), unless
+   Tab looks back or the bikes are the Pocket ones (0x462110) */
+static int onboard_now(void)
+{
+    return g_onboard && !g_phys[g_player].crashed;
+}
+
+static int cockpit_shown(void)
+{
+    return onboard_now() && !camera_preset() && !g_pocket;
+}
+
 /* one step of Game_Frame (0x47d660) of ms milliseconds: the timers, the countdown and
    the time limit, each driven bike's step (0x45d540) and bike against bike (0x47ecd0),
    the race's rules, the camera */
@@ -118,6 +182,20 @@ static void step(int ms)
     BikePhys *all[RIDERS];
     int k;
     g_control = 1;              /* Game_Frame: the player's keys are read */
+    g_joy_keys = 0, g_joy_x = g_joy_y = 0x8000;
+    if (g_input_device == 2 || g_input_device == 4) {   /* 0x4116f0: 0x411b30 */
+        BikePhys *p = &g_phys[g_player];
+        int was = g_joy_turbo;
+        g_joy_keys = joy_race(0, &g_joy_x, &g_joy_y, &g_joy_turbo, g_counting, g_control,
+                              g_input_device);
+        if (g_control != 1)
+            g_joy_x = 0x8000, g_joy_keys &= 1;
+        if (g_joy_turbo != was) {
+            p->turbo_held = g_joy_turbo;
+            if (g_joy_turbo)
+                p->turbo_pressed = 1;
+        }
+    }
     if (g_extended > 0)
         g_extended -= ms;
     rules_time(ms);
@@ -127,18 +205,29 @@ static void step(int ms)
     g_bikeworld.countdown = g_counting;
     for (k = 0; k < RIDERS; k++)
         all[k] = &g_phys[k];
-    for (k = 1; k < g_riders; k++)      /* 0x47df40: dt = ms x 0.1 */
-        if (g_racer[k].loaded && g_phys[k].driven)
-            bikephys_step(&g_phys[k], g_keys[k], 0x8000, 0x8000, (float)(ms * 0.1),
-                          g_counting, g_time_left);
+    for (k = 1; k < g_riders; k++)      /* 0x47df40: dt = ms x 0.1; 0x45d540 */
+        if (!g_racer[k].loaded)
+            continue;
+        else if (g_phys[k].driven)
+            bikephys_step(&g_phys[k], g_keys[k] | (k == g_player ? g_joy_keys : 0),
+                          k == g_player ? g_joy_x : 0x8000, k == g_player ? g_joy_y : 0x8000,
+                          (float)(ms * 0.1), g_counting, g_time_left);
+        else                            /* a computer rider (0x46bf80) */
+            cpu_step(&g_phys[k], (float)(ms * 0.1), g_counting);
     bikephys_collide(all, g_riders, (float)(ms * 0.1));
     for (k = 1; k < g_riders; k++)
         to_rider(&g_rider[k], &g_phys[k]);
     rules_laps();
+    for (k = 1; k < g_riders; k++)      /* 0x47e3d0 walks each bike's own +0x31c1 */
+        g_phys[k].sec = g_rider[k].sec;
     rules_places();
     race_end(ms);
+    camera_onboard(g_onboard && !g_phys[g_player].crashed);         /* 0x4583e0 */
     camera_step(&g_phys[g_player], (float)(ms * 0.1), g_counting,
                 g_racer[g_player].state == RS_FINISHED);
+    if (cockpit_shown())        /* 0x462110's shake, once a picture of the original */
+        bike3d_cockpit_step(bikephys_frame_pitch(&g_phys[g_player]));
+    race_sound_step(all, g_player, camera_eye(), camera_target(), (float)(ms * 0.1));
 }
 
 /* 0x40ec30: a section number brought into 0 .. count - 1 */
@@ -221,7 +310,7 @@ static void grid(void)
                       k == g_player ? g_gearbox : 1);
         g_phys[k].number = k;
         if (k != g_player)
-            g_phys[k].driven = 0;               /* (the computer's model: not yet) */
+            g_phys[k].driven = 0;               /* a computer rider (cpu.c) */
         rules_progress(k);
     }
 }
@@ -248,9 +337,12 @@ static void start(void)
     g_bikeworld.frame_ms = STEP_MS;
     memset(g_phys, 0, sizeof g_phys);
     grid();
+    /* 0x47bf70: srand(timeGetTime()), the computer riders' speeds (0x47bc60) */
+    cpu_start(g_bikeworld.rider, g_riders, g_difficulty, g_pocket, g_now);
     camera_reset(&g_phys[g_player]);
     sound_stop_all();
     sound_race_load(g_bikes[g_rider[1].bike].perso != 0);
+    race_sound_start(camera_eye(), g_player);   /* 0x4084e0 */
     music_play(g_land.audio_track, 0);
     memset(g_keys, 0, sizeof g_keys);
     bikephys_key(&g_phys[g_player], &g_keys[g_player], 0, 0, 0);     /* 0x4e8964 = 0 */
@@ -258,6 +350,8 @@ static void start(void)
     hud_restart();
     g_finish_timer = g_timeover_timer = -1;
     g_step_at = g_last_now = g_now;
+    g_paused = 0;
+    g_joy_turbo = g_ctrl_held = g_onboard = 0;
     memcpy(g_before, g_rider, sizeof g_before);
 }
 
@@ -479,6 +573,7 @@ static void blend(Rider *o, const Rider *a, const Rider *b, float t)
     o->speed = mix(a->speed, b->speed, t);
     o->dive = mix(a->dive, b->dive, t);
     o->susp = mix(a->susp, b->susp, t);
+    o->wheelie = mix(a->wheelie, b->wheelie, t);
     o->roll_side = mix(a->roll_side, b->roll_side, t);
     o->spin_rear = mix_angle(a->spin_rear, b->spin_rear, t);
     o->spin_front = mix_angle(a->spin_front, b->spin_front, t);
@@ -501,12 +596,20 @@ void race_frame(void)
     float eye[3], c[3][3], a;
     static const float zero[3];
     int i, k, y, sec;
+    if (g_paused) {             /* the last picture stays; no time passes */
+        g_step_at += g_now - g_last_now;
+        g_last_now = g_now;
+        return;
+    }
     if (g_events && !events())
         return;
     text_clock(g_now);
     dialog_frame();
-    if (dialog_holds())         /* (the time since the last step kept) */
+    if (dialog_holds()) {       /* (the time since the last step kept) */
         g_step_at += g_now - g_last_now;
+        if (g_input_device == 2 || g_input_device == 4)
+            joy_menu(race_key); /* 0x411a10: the stick as the arrows and Return */
+    }
     g_last_now = g_now;
     /* the original steps once a picture by the time it took, and GOG's -FrameRateMax60
        makes every picture 16 ms (1000 / 60 in integers): 62.5 steps a second of dt 1.6.
@@ -537,7 +640,10 @@ void race_frame(void)
     r3d_focal(FOCAL);
     land_draw(sec, (const float (*)[3])c, eye);
     for (i = 1; i < g_riders; i++)
-        if (g_mode != 0 || i == g_player)       /* (practice's second record: unseen) */
+        if (i == g_player && onboard_now()) {
+            if (cockpit_shown())
+                bike3d_cockpit(&g_shown[i], g_shown[g_player].lean);
+        } else if (g_mode != 0 || i == g_player)        /* (practice's second record) */
             bike3d_draw_rider(&g_shown[i], detail_of(&g_shown[i], eye));
     hud_bike(b);
     hud_dials_3d();

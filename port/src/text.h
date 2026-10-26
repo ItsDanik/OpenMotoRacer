@@ -1,5 +1,6 @@
 #ifndef TEXT_H
 #define TEXT_H
+#include "sprite.h"
 
 /* The moving, blinking, fading texts of the menus and the race: the list of 48 at
    0x53b8e8 (NOTES §4.8.3.6). */
@@ -25,6 +26,13 @@ typedef struct {                /* 0x417d20's arguments */
     double s, k;                /* 20+21, 22+23 */
     int own_colours;            /* 24 */
     const unsigned char *fore, *back;   /* 25, 26: R,G,B */
+    /* the port's: which of the race's lists (0 = 0x53b8e8, 1 = 0x53ba68, drawn first) */
+    int list;
+    /* a sprite object instead of a text (0x418160, item type 2; text and font unused):
+       up to 8 parts, each a low-res and a hi-res sprite and a step before it */
+    int parts;
+    const Sprite *lo[8], *hi[8];
+    int part_dx[8], part_dy[8];
 } TextArgs;
 
 typedef struct Text Text;      /* a text object (0xc2 bytes) */
@@ -41,7 +49,7 @@ char *text_string(Text *t);
 void text_args_of(const Text *t, TextArgs *a);
 
 void text_clock(unsigned ms);           /* 0x4178c0 */
-int text_add(const TextArgs *a);        /* 0x417d20: 1 if added */
+int text_add(const TextArgs *a);        /* 0x417d20 (a sprite object: 0x418160): 1 if added */
 int text_find(int id);                  /* 0x4179f0: alive in the list */
 void text_remove(int id);               /* 0x4177e0 */
 void text_update(void);                 /* 0x418790 */

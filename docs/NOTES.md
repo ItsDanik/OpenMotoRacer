@@ -2134,6 +2134,369 @@ Podium (page 24): objects 0x540080/0x5400c0 = podium1 (id 4) looped forever with
 1000 ms, pans +20 and −20, the second at the file's rate − 1000 Hz (a stereo chorus);
 0x540100/0x540140 = podium2 (id 5) the same after 7000 ms [decomp; field meanings above].
 
+##### 4.10.6.2a The race's ambience, mapped from the asm (2026-10-26; in the port: race_sound.c)
+All [asm] unless marked. GOG game.EXE 3.22. Clock = 0x50bbc8 (`g_now`, ms, unsigned).
+Random = Rand_Next(4) 0x4b1160 (`rand_next(4)`, 0..0x7ffe, never negative so the
+cdq/idiv remainders are plain C `%`). Sound server calls are the raw ones (0x423fd0 play
+on `handle[id]` = 0x519ff8[id], 0x424000 stop, 0x424030 volume, 0x424050 freq,
+0x424070 pan): no switch tests, no "last id" bookkeeping, no default volume.
+x87 at 53-bit: every intermediate a double, every store to memory a float.
+
+###### 0. Data
+
+**soundDesc (0x4c bytes; array 0x502930, count 0x5028b0, max 32 — the 32nd add raises an error)**
+| off | what (Sound.Spt order) |
+|---|---|
+| +0x00 | id (int) |
+| +0x04 | first sample id (the first name's id from 0x4056c0) |
+| +0x08 | number of names (random pick: first + rand%count) |
+| +0x0c | flags: LOOPED 1, PAN 2, RANDPAN 4, VOL 8, FADEIN 0x10, FADEOUT 0x20, FADEFREQ 0x40, INFPLAY 0x80, SINVOL 0x100, SINFREQ 0x200 |
+| +0x10/+0x14 | start delay base / random (ms) |
+| +0x18/+0x1c | play time base / random (ms); SINVOL/SINFREQ: +0x18 = the period (ms), +0x1c = SINVOL depth |
+| +0x20 | fade-in ms |
+| +0x24 | fade-out ms |
+| +0x28/+0x2c | repeat count base / random |
+| +0x30/+0x34 | frequency base / random; base <= 0 → base + the sample file's own rate |
+| +0x38 | FADEFREQ / SINFREQ depth (Hz) |
+| +0x3c | volume 0..255 |
+| +0x40 | pan (fixed, −128..128) |
+| +0x44/+0x48 | float near / far, in metres (×128 → world units) |
+
+Sound.Spt values seen (tools/bpt.py; ILE01..11): e.g. D30 bercy13/14/24
+`LOOPED|FADEIN|FADEOUT` 10000 10000 2000 3000 3000 4000 1 0 0 3000 0 250 0 | 0.0 0.0;
+D0 mouet-1..3 `PAN|VOL` ... −1500 3000 0 200 0 | 30.0 100.0; D5 airplane
+`LOOPED|INFPLAY|VOL|PAN` ... 255 0 | 100.0 300.0; D35 vent `...|SINVOL|SINFREQ`
+0 0 22000 60 3000 0 0 0 8400 0 4000 220 50. Commands present: `soundDesc`, `ambiance n id..`
+(ILE02: 35 36; ILE09: 30..34), `signal SIG n id..` (e.g. `signal 8 2 1 1`, `signal 7 2 10 11`,
+ILE10 `signal 10 1 15`). Note repeat count 0 (vent descs) → `--repeat == 0` never hits
+before wrapping (only matters with FADEOUT/no INFPLAY; vent is INFPLAY).
+
+**The set 0x503568 (`this` of 0x405bc0, 0x4059a0, 0x405790)**
+| off | what |
+|---|---|
+| +0x000 | count (0x503568), at most 0x28 = 40 (only 0x405790 checks it) |
+| +0x004 + i·0x10 | entry i: +0 kind (0 decor, 1 signal, 2 ambiance), +4 section (kind 0), +8 signal number 6..12 (kind 1), +0xc decor object pointer (kind 0) |
+| +0x284 + i·0x40 | sound object i (= 0x5037ec + i·0x40) |
+| +0xc6c + s·4 | section numbers: index s = signal number 6..12 → +0xc84 + (s−6)·4 (i.e. +0xc84 is the 7 "nearest section with zone bit k" filled by 0x40d3b0; +0xc6c is just the base for signal numbers 6..12) |
+| +0xc84 | 7 ints, filled by 0x40d3b0 each frame (−1 if none) |
+
+**Sound object (0x40 bytes) — written by 0x404ee0**
+| off | what |
+|---|---|
+| +0x00 | desc pointer |
+| +0x04 | handle playing (−1) |
+| +0x08 | sample id chosen |
+| +0x0c | volume = desc+0x3c × [0x5028c0] >> 8 (0x5028c0 = 0xff, set by 0x4084e0; flat image has 0) |
+| +0x10 | state start time (ms) |
+| +0x14 | delay (ms) |
+| +0x18 | play time (ms) |
+| +0x1c | fade-in ms (desc+0x20) |
+| +0x20 | fade-out ms (desc+0x24) |
+| +0x24 | repeats left |
+| +0x28 | frequency (Hz) |
+| +0x2c | state 0..5 |
+| +0x30 | float far·128 |
+| +0x34 | float 255 / ((far − near)·128) |
+| +0x38 | float last distance |
+| +0x3c | "stopped" (1 = no handle held) |
+
+###### 1. Parsing: 0x405ea0 (called at the end of the track load 0x40d650) [asm]
+
+```
+0x503550 = detail (0x4dc098); 0x5028b0 = 0 (descs); 0x503538 = 0 (names); set.count = 0
+Script s = open "%sSound.Spt" with the level's folder (0x4dc088 + level·0x130 + 0x24,
+           e.g. "Data\ile01\") — the port: the same folder string land.c opens Level.Spt with
+0x42e850(s)    — the parser; ends at the end of the file (the reader throws, caught)
+0x405790(set)  — the decor entries (kind 0)
+```
+Before it, the loader built each section's **zone mask +0xf8** (0x40e0da..0x40e139):
+```
+mask = 0; for sec 0..nsec-1: e = sec.event(+0xec); if 6 <= e <= 12: mask ^= 1 << (e-6);
+          sec.zone(+0xf8) = mask
+```
+(the port's Section has `event`; it has no zone field: compute it.)
+
+**0x42e850 parser loop**
+```
+loop:
+  str = script_str()                       (0x424e60)
+  if str == "soundDesc":
+     d.id = int; n = int; d.count = n
+     for j < n: name = str; id = name_id(name) (0x4056c0); if j == 0: d.first = id
+     flagstr = str; flags = 0
+     for (i = 0; i < strlen(flagstr); i++)
+        if (flagstr[i] == '|' or i == 0):
+           p = flagstr + i (+1 if it is '|')
+           strncmp(p, "LOOPED",6)==0 → |=1; "PAN",3 → 2; "RANDPAN",7 → 4; "VOL",3 → 8;
+           "FADEIN",6 → 0x10; "FADEOUT",7 → 0x20; "FADEFREQ",8 → 0x40; "INFPLAY",7 → 0x80;
+           "SINVOL",6 → 0x100; "SINFREQ",7 → 0x200; else log "Unknow flag ..." (tested in
+           that order, first match wins)
+     13 ints → +0x10 .. +0x40 (in order); 2 floats (0x424c00 = script_float) → +0x44, +0x48
+     descs[0x5028b0++] = d; if 0x5028b0 == 32: error (fatal: 0x4b4db0 throw)
+  elif str == "ambiance": n = int; for n: add_ambiance(int)       (0x406030)
+  elif str == "signal":   sig = int; n = int; for n: if !add_signal(int id, sig): log  (0x4060a0)
+  else log 'Unknow command "%s"' and go on
+```
+With script.h: `script_str`, `script_int`, `script_float`, and stop when `script_at_end(&s)`
+(or `s.bad`) after a token — the original stops by the reader's exception at EOF.
+
+**0x4056c0 name_id(name) — the ambient sample name table**
+Table at 0x502718: {char *name, int id} ×48 max (names copied into 0x504570 + k·16),
+count 0x503538. Look up by exact strcmp → its id; else append: k = count++, name copied,
+id = **0x5c + count** (after the ++), i.e. 0x5d, 0x5e, … in order of first appearance.
+
+**0x406030 add_ambiance(id)**
+find the first desc with desc.id == id; if found: entry[count].kind = 2; obj[count].desc = d;
+count++. (Not found: nothing, no message.) No count limit test.
+
+**0x4060a0 add_signal(id, sig) → 0/1**
+if sig < 6 or sig > 12: return 0. entry[count].+8 = sig (written even if no desc);
+find desc id; if found: entry[count].kind = 1; obj[count].desc = d; count++. return 1.
+
+**0x405790 the decor entries (kind 0) [asm]**
+```
+if nsec <= 0 return
+for i in 0..nsec-1:
+  if count == 40: error "…" (0x4dbacc / 0x4dbaa8) and stop
+  for j in 0..sec[i].ndecor(+0xd4)-1:
+     o = decor[(int16)sec[i].decor[j](+0xb4)]       (0x4dc0e4[], signed word index)
+     sid = o+0x44                                   (the .trk decor record's last i32,
+                                                     the port's Decor.anim; −1 none)
+     if sid == -1: continue
+     if count == 40: error, stop
+     d = first desc with desc.id == sid
+     if d: entry[count] = {kind 0, +4 section i, +0xc o}; obj[count].desc = d; count++
+     else log "Warning:no sound description found for sound ID(%d) for object(%s)" (name o+0x5c)
+```
+A decor listed by several sections gets one entry per listing. Counts per track (decor
+references with a sound id): ILE01 11, ILE02 4, ILE08 7, ILE09 2, ILE10 11 (id 12 has no
+desc there: warnings), ILE11 12; others 0.
+
+###### 2. Loading the samples: 0x4059a0(set) (from 0x4044c0 after Ktm/Ninja + Divers, before the voices; and 0x408f30) [asm]
+```
+for each object i < count: d = obj[i].desc
+  for j < d.count:
+     id = d.first + j
+     k = index in the name table (0x50271c ids) with ids[k] == id, searched over all 48 slots
+     if not found: k = 0x30 → log 0x4dbaf8; continue
+     if handle[id] == -1:
+        path = "data\sfx\" + (Wave16 ? "16_Bits\" : "8_Bits\") + "Divers\" + name[k] + ".wav"
+        handle[id] = load(path); volume(handle[id], 0xff); pan(handle[id], 0)
+```
+(The port: same as sound.c's `load_table` but by name; names like "bercy13" → DIVERS/BERCY13.WAV.)
+
+###### 3. Re-arm: 0x404ee0(obj) [asm]
+```
+d = obj.desc
+obj.sample = d.first; if d.count: obj.sample += rand%d.count            (rand #1)
+obj.h = -1; obj.stopped(+0x3c) = 1
+f = d.freq(+0x30); if f <= 0: f += sample_rate(handle[obj.sample])   (0x442010: the
+                                                 file's nSamplesPerSec; 0 if no handle)
+obj.freq = f; if d.freq_rand(+0x34): obj.freq += rand % d.freq_rand              (rand #2)
+obj.delay = d.delay(+0x10); if d.delay_rand: obj.delay += rand % d.delay_rand    (rand #3)
+obj.play  = d.play(+0x18);  if d.play_rand:  obj.play  += rand % d.play_rand     (rand #4)
+obj.repeat= d.rep(+0x28);   if d.rep_rand:   obj.repeat+= rand % d.rep_rand      (rand #5)
+obj.fadein = d+0x20; obj.fadeout = d+0x24
+obj.vol = (d.vol(+0x3c) * [0x5028c0]) >> 8          (int, arithmetic shift)
+obj.start = now; obj.state = 0; obj.lastd(+0x38) = 0 (int 0 = 0.0f)
+obj.far128 = (float)(d.far * 128.0)                 (double 0x4d0140 = 128.0)
+obj.scale  = (float)(255.0 / ((d.far - d.near) * 128.0))   (double 0x4d0148 = 255.0;
+             far − near in double from floats; far == near → inf, as the game)
+```
+Note: the old handle is NOT stopped here (callers stop first when needed).
+Callers: 0x4084e0 race sound init (all i < count, after 0x5028c0 = 0xff), 0x405f30
+(detail back from 0), 0x405030 state 3 (repeats used up), 0x408800/0x408b30 toggles,
+podium 0x452f80.
+
+###### 4. The state machine: 0x405030(obj, audible, x, y, z) [asm]
+Listener = camera block +0x98 (0x516258 + cam·0x238; position) and +0xa4 (look-at), cam =
+0x4dc0f8 (0 in the race). The port: camera_eye() and the target (+0xa4).
+```
+if !effects(0x4db664): return
+d = obj.desc; att = 255; pan = d.pan(+0x40)
+if obj.start > now: obj.start = now                     (unsigned compare)
+t = now - obj.start                                     (unsigned)
+if !audible:
+   if !obj.stopped: stop(obj.h); obj.h = -1; obj.stopped = 1
+   return
+if d.flags & VOL(8):
+   dx = (float)(x - cx); dy = (float)(y - cy); dz = (float)(z - cz)   (stored floats)
+   D = sqrt((dy*dy + dz*dz) + dx*dx)                     (double)
+   if D > obj.far128:                                    (fcom: strictly greater)
+      if obj.lastd > obj.far128 && !obj.stopped: stop(obj.h); obj.h = -1; obj.stopped = 1
+      obj.lastd = (float)D; return                       (so a sound stops on the 2nd
+                                                          frame beyond far; nothing else
+                                                          runs while beyond, timers too)
+   att = ftol((obj.far128 - (float)D) * obj.scale)       (fld far128; fsub Dfloat; fmul
+                                                          scale) clamp 0..255
+   obj.lastd = (float)D
+if (d.flags & LOOPED) && obj.state == 5 && obj.stopped:  (came back in range while holding)
+   obj.h = -1; obj.stopped = 1
+   if effects: obj.h = play(handle[obj.sample], (d.flags & 1) | 2); obj.stopped = 0
+   (no freq/volume set here; state 5 below sets the volume)
+d = obj.desc; flags = d.flags
+if flags & PAN(2):
+   Lx,Lz = look-at; Cx,Cz = camera
+   inv1 = 1.0 / sqrt((Lz-Cz)^2 + (Lx-Cx)^2)               (double; dz² first then + dx²)
+   fz = inv1*(Lz-Cz); fx = inv1*(Lx-Cx)                     (doubles, not stored)
+   X = x - Cx (double);  Zf = (float)(z - Cz)
+   inv2 = 1.0 / sqrt(X*X + (double)(z-Cz)*Zf)               (the 2nd factor is the float)
+   Xn = X * inv2 (double);  Zn = (float)((float)inv2 * Zf)
+   p = (float)(fz*Xn - fx*Zn)
+   dead zone exactly as 0x4079e0: p >= 0.15f → p - 0.15f; bits(p) >= 0xbe19999a → p + 0.15f;
+   else 0 (float 0x4d012c = 0.15, bits 3e19999a)
+   pan = ftol(p * 75.29412f)                                (float 0x4d0138, bits 42969697)
+switch obj.state:             (jump table 0x40569c; >5: return)
+case 0:  if obj.delay < t: obj.state = 1                    return
+case 1:  obj.h = -1; obj.stopped = 1                        (old handle not stopped)
+         if effects: obj.h = play(handle[obj.sample], (flags & 1) | 2); obj.stopped = 0
+         freq(obj.h, obj.freq); obj.start = now
+         if d.flags & FADEIN: obj.state = 2; v = 0  else: v = obj.vol; obj.state = 5
+         volume(obj.h, (v * att) >> 8)
+         if d.flags & RANDPAN(4): pan = rand % 128 - 64     (rand: one call)
+         pan(obj.h, pan)                                    return
+case 2 (fade-in):
+         vol = obj.vol
+         x = (unsigned)(t * vol) / (unsigned)obj.fadein     (imul low 32 bits, unsigned div)
+         if (int)x > vol: x = vol
+         v = ftol((double)att * ((double)vol * sin((double)(int)x / (double)vol * (pi/2))))
+             >> 8                                           (double 0x4d0158 = pi/2)
+         volume(obj.h, v); pan(obj.h, pan)
+         if d.flags & FADEFREQ(0x40): freq(obj.h, (unsigned)(d.ffreq(+0x38) * t) /
+                                       (unsigned)obj.fadein + obj.freq)
+         if obj.fadein < t: obj.start = now; obj.state = 5   return
+case 3 (stop):
+         stop(obj.h); obj.h = -1; obj.stopped = 1
+         if --obj.repeat == 0: rearm(obj)  (0x404ee0)
+         obj.state = 0                                      return
+case 4 (fade-out):
+         fo = obj.fadeout; vol = obj.vol
+         x = (unsigned)((fo - t) * vol) / (unsigned)fo      (unsigned division of the
+                                                             32-bit product, as the asm)
+         if (int)x < 0: x = 0
+         v = ftol(att * (vol * sin((int)x / (double)vol * pi/2))) >> 8
+         volume(obj.h, v); pan(obj.h, pan)
+         if d.flags & FADEFREQ: freq(obj.h, (unsigned)((fo - t) * d.ffreq) / (unsigned)fo
+                                     + obj.freq)
+         if fo < t: obj.start = now; obj.state = 3          return
+case 5 (hold):
+         v = obj.vol; flags = d.flags
+         if !(flags & INFPLAY(0x80)) && obj.play < t:
+            obj.state = (flags & FADEOUT(0x20)) ? 4 : 3; obj.start = now
+         if flags & SINVOL(0x100):
+            v = (ftol(sin((double)t / (double)d.play(+0x18) * 2pi)
+                      * (double)(d.play_rand(+0x1c) * [0x5028c0])) >> 8) + obj.vol
+                                                            (double 0x4d0160 = 2pi;
+                                                             t as unsigned 64-bit fild)
+         if flags & SINFREQ(0x200):
+            freq(obj.h, ftol(sin((double)t / d.play * 2pi) * (double)d.ffreq(+0x38)
+                             + (double)obj.freq))
+         volume(obj.h, (v * att) >> 8); pan(obj.h, pan)     return
+```
+Notes: t, delay, play, fadein are compared unsigned (`jae`). In state 5, t keeps counting
+from the fade-in's end (start = now at state 2's end), and the SIN* phase uses that t.
+With fade-in 0 and FADEIN set, state 2 divides by 0 in the game (no desc does that).
+In state 4 once t > fo the product wraps: one frame of a strange volume before state 3
+(faithful copy: compute in uint32).
+
+###### 5. Placing the set each frame: 0x405bc0(set) [asm]
+```
+set.near[0..6] (+0xc84) = -1
+0x40d3b0(track, set.near, 0x28)                   (below)
+for i < count: e = entry[i]
+  kind 0: if detail(0x4dc098) == 0: skip (no call at all)
+          aud = 0x40d350(track, e.section, 0x3c)  (below)
+          o = e.decor; v = o.model_near(+0x4c)->vertices(+4)[0]   (the near library
+              model's FIRST VERTEX; the port: g_land.lib[o->lib].m[0].v[0])
+          a = ftol(o.ang[0](+0x14) * 2607.594587618272); ca = cos[a & 0x3fff];
+              sa = cos[(a - 0x1000) & 0x3fff]                    (double 0x4d0168;
+              table 0x5fcb80 = the port's g_cos)
+          b from o.ang[1] (+0x18) → cb, sb;  c from o.ang[2] (+0x1c) → cc, sc
+          k = (float)(sc*sb)
+          x = (float)((( -(sc*cb)*v1 + (cc*cb)*v0) + v2*sb) + px)
+          y = (float)(((((cc*ca) - k*sa)*v1 + ((sc*ca) + sa*(sb*cc))*v0) + (-(cb*sa))*v2) + py)
+          z = (float)((((k*ca + cc*sa)*v1 + ((sc*sa) - ca*(sb*cc))*v0) + (cb*ca)*v2) + pz)
+              (p = o.pos +0x20/+0x24/+0x28; products of floats in double, summed in the
+               order shown; traced with a symbolic x87 run)
+          0x405030(obj[i], aud, x, y, z)
+  kind 1: s = set.near-base[e.signal]  (= +0xc84 + (signal-6)·4)
+          if s == -1: 0x405030(obj[i], 0, 0, 0, 0)
+          else 0x405030(obj[i], 1, sec[s].pos x, y, z)
+  kind 2: 0x405030(obj[i], 1, 0, 0, 0)
+  other: nothing
+```
+
+**0x40d350(track, s, range) → visible [asm]**
+track +4 = nsec n, **track +0x20 = the camera's section**, written by the drawing's
+0x40ce60 (its argument: the section 0x40c7e0 found for the camera, 0 when the track has no
+blocks). Sounds run in Game_Frame before the drawing (step 19 vs 22), so this is **the
+previous picture's camera section** (the port: race_frame's `sec = land_section(eye, …)`
+passed to land_draw).
+```
+lo = (n - range + c) % n;  hi = (c + range) % n          (C %, signed)
+if hi < lo:  return (lo < s && s < n) || (s >= 0 && hi > s)   (wrapped)
+else:        return lo < s && hi > s
+```
+
+**0x40d3b0(track, out[7], range) [asm]**
+```
+c = track+0x20; start = (n - range + c) % n; R = sec[c].pos (floats)
+best[0..6] = FLT_MAX (0x7f7fffff)
+for i in 0 .. 2*range-1:
+   s = start + i; if s >= n: s -= n            (cmp n > s keeps it)
+   dx,dy,dz = (float)(sec[s].pos - R)          (stored floats)
+   d2 = (float)((dy*dy + dz*dz) + dx*dx)        (no sqrt)
+   for k in 0..6: if (sec[s].zone & (1<<k)) && best[k] > d2: out[k] = s; best[k] = d2
+```
+So signal k+6's sound sits at the nearest section (within ±40 of the camera's section)
+whose zone bit k is set; none → inaudible (stopped).
+
+###### 6. The frame: 0x405f30 (Game_Frame step 19, after 0x4079e0) [asm]
+```
+if effects(0x4db664) && ambience(0x4db660) && !pause(0x4dc038):
+   0x405bc0(set)
+   if 0x503550 != detail(0x4dc098):
+      if detail == 0: for i < count: if entry[i].kind == 0: stop(obj[i].h); obj[i].h = -1;
+                                                           obj[i].stopped = 1
+      elif 0x503550 == 0: for i < count: if entry[i].kind == 0: rearm(obj[i])
+      0x503550 = detail
+always: 0x404b30 on the 8 queue records 0x504240.. and the voice queue 0x5028c8
+        (the port's sound_update)
+```
+0x503550 is set to the detail at the track load (0x405ea0).
+
+###### 7. Race init 0x4084e0 (the ambience part) [asm]
+`0x5028c0 = 0xff` then for i < count: rearm(obj at 0x5037ec + i·0x40). (Handles not
+stopped: the race start stopped everything with 0x424020 first.) Then the switch rule:
+if effects && !engine && !ambience: engine = ambience = 1.
+
+###### 8. Podium (0x452f80, page 24) — for reference only
+Four static objects 0x540080/0x5400c0/0x540100/0x540140 (descs 0x4e9128.. NOTES §4.10.6.2):
+rearmed once (when 0x540cc8 is set), then each frame 0x405030(obj, 1, x, y, z) with the
+same x,y,z locals (no VOL flag there, so the position does not matter).
+
+###### 9. The port's mapping
+- Section (land.h): pos (+0), axes (+0xc), decor[] (+0xb4, u16; read as int16), ndecor
+  (+0xd4), event (+0xec). Missing: the zone mask +0xf8 (compute at load, §1), the T row
+  +0x30..+0x38 (0 on every track).
+- Decor (land.h): pos = +0x20, ang = +0x14, lib (index into g_land.lib), **anim = +0x44 =
+  the sound id** (−1 none; track.py also calls it "anim"; it is what 0x405790 reads).
+  The near model +0x4c = g_land.lib[lib].m[0]; its +4 vertex array = Model.v ([guess]
+  the game does not move those vertices after the load: land.c keeps them raw too).
+  Name +0x5c (lib name) only for the warning.
+- Cosine table: r3d.h `g_cos[16384]` (0x5fcb80), index = ftol(angle·2607.594587618272).
+- Camera: camera_eye() (+0x98) and the look-at +0xa4 (the camera's `target`); the track's
+  current section: the section race_frame passes to land_draw (last picture's).
+- Detail 0x4dc098 = config.h `g_detail`.
+- Script: `script_open(&s, "<level folder>Sound.Spt")` (same folder string as Level.Spt in
+  land.c), then the loop of §1 with script_str / script_int / script_float, stopping at
+  `script_at_end`.
+- Samples: names → DIVERS/<NAME>.WAV in SFX.BKF, ids from 0x5d in first-appearance order;
+  sound.c needs a by-name loader (path as §2) and the sample's file rate for 0x442010
+  (sound.c's Sample.rate).
+
+In the port: Sound.Spt is read again at every race start (the game reads it at the track's load; only the detail-change memory 0x503550 differs), and the camera's section is the one found from the camera's eye after the previous step (the game's is the previous picture's).
+
 ##### 4.10.6.3 Engine (0x406290, per bike, from 0x4079e0 in the race) [asm for the formula, decomp
 for the rest]
 Gear sound id by gear (bike+0x7c): KTM table 0x4db638 {0, 0x22, 0x23, 0x24, 0x25, 0x26, 0x26},
@@ -2148,7 +2511,93 @@ bike+0x33c)/(X+0x38 · 48) · 1800), + obj+0x70, all × the pitch factor (arg 5,
 0.5..1.5) → SetFrequency (ignored above 44099 Hz). Volume = arg 2 · k >> 8, pan = arg 3.
 Also skid/surface loops (ids 0x17 gravier, 0x18 glace, 0x19 herbe, 0x0a derap with set
 frequencies 18000/20000/8000/5000), landings 0x0b..0x0d, brakes 0x1a/0x1b, start 0x1d..0x1f,
-random "oouups"/"ouch" voices on crashes. Not finished: what the bike fields are.
+random "oouups"/"ouch" voices on crashes.
+
+**Finished (2026-10-26, from the asm 0x406290..0x40734d; in the port: race_sound.c)** [asm]
+Call: `0x406290(this = engine object, obj = rider record, vol, pan, own, f)` (thiscall,
+ret 0x14). The rider fields (bikephys.h): speed +0x124, rpm +0x11c, gear +0x7c, keys of the
+last step +0x2dc8, events +0x2dac, ground now/last +0x2db8/+0x2dbc, sliding +0x2da0,
+wheelie +0x307d, crashed +0x30c1, driven +0x8, front/rear wheel points +0x1b4/+0x338,
+section +0x31c1. Carac row 0x509278 + bike·0x124: +0x120 PersoAnim (≠ 0: dirt bike, KTM
+tables; 0: Ninja), +0x74 the rpm's maximum (r = rpm / it), +0x48 RealSpeedMax, +0x38 (the
+wheel-height divisor). Every sound goes through the server directly (0x423fd0 play on
+0x519ff8[id], 0x424030/0x424070/0x424050): no switch test, no 0xee volume.
+
+Engine object (0x78 bytes; own 0x5034b0, others 0x5032c0 + i·0x78): +0 state (1 gear loop
+plays, 2 too slow), +4 "was above 1.389 m/s", +8 water started, +0xc skid started, handles
++0x10 skid, +0x14 surface, +0x18 wterpas, +0x1c wterdeb, +0x20 idle (motostp), +0x24/+0x28
+gear loop, +0x2c start, +0x30 brake; +0x34 vol, +0x38 brake fading, +0x3c/+0x40 brake Hz /
+volume, +0x44 skid volume, +0x48 last surface, +0x4c ramp, +0x50 skid Hz, +0x54 the
+throttle-off volume, +0x58 last keys, +0x5c last r, +0x60 its time, +0x64 last gear, +0x68
+last wheelie, +0x6c max wheelie, **+0x70 detune: 0, 100, 200, 300 Hz for the 4 others
+(0x4084e0), 0 for the own**, +0x74 last crashed. 0x406190 stops the 9 handles.
+
+**Surface** s = 0x465d20(rear point, 1): 0 when there is no track, else 0x40ec60 (lateral
+= X·(p − pos), road +0xe4 if +0xf0 < it < +0xf4 else +0xe8) **+ 9** (the second argument);
+s = 0 in the air; then 1→2, 9→6, 11→5, 12→4. The tracks' grounds 0..4 thus give 6 (tarmac:
+derap), 10 (gravier), 5 (gravier), 4 (herbe), 13 (glace); 2 (water) and 3, 7, 8 are never
+reached with the shipped tracks (ILE04's off-road value 26407168 gives no sound).
+
+Order (all volumes `vol·k >> 8`, all pans = pan):
+1. Back up after a crash (crashed 0, +0x74 set): stop all, reset. f clamped 0.5..1.5 by
+   its bits. r = (float)(rpm / carac+0x74) clamped: > 1.0 (bits) → 1, < 0.05 → 0.05.
+   own = 0 if not driven.
+2. Events: 0x40 → rouleman 0x11 (k 0xcd); 0x2a → crash 0x12 (k 0xff if bit 2 else 200);
+   0x14 and the local player → 1 in 4 voice oouups 0x3d (0x502898 = 0x3d, volume 0xff, if
+   voices); 2 and the player → 1 in 4 ouch 0x4b; 0x15 → choc 0xe + rand%2, k =
+   ftol(speed·7.2 + 170) ≤ 0xe1, Hz ftol(f·19050).
+3. Landing (ground and not ground last): k = ftol(−vy·3 + 180) ≤ 255, vy = 0x48cf20 (the
+   velocity's up part in the bike's frame); land 0x0b, dirt 0x0b + rand%3.
+4. Sliding: once, by s: 3/5/8/10/12 gravier 18000, 4 herbe 8000, 6/7 derap 5000, 13 glace
+   20000; volume starts 0x50, +30 a call to 200; Hz ftol((skidHz + speed·200)·f). Not
+   sliding: −30 a call, stopped below 0x50.
+5. base = ftol(speed·400 + 1050). s = 2 (water): wterdeb once + wterpas loop at
+   ftol(base·f), k 255 (below 2.78 m/s ftol(speed·255·0.36)); leaving water: wterfin at
+   base. **Road bikes only**: s 3/5/10 gravier, 4 herbe, a loop at ftol(speed·20 + 12000)
+   (no f), k 200 (below 8.33 m/s ftol(speed·200·0.12)); stopped when s changes.
+6. Wheelie ends on the ground: wheel 0x13, k = ftol(max(+0x6c, π/2)·121.594) + 0x40.
+7. Idle below 8.0556 m/s (29 km/h): motostp loop, k = ftol((8.0556 − speed)·48.316) in
+   0..255, Hz ftol(((detune + r·8000) + 16050)·f); below 1.3889 m/s the gear loop stops
+   (state 2). Above 8.0556 the idle stops.
+8. Coming to a stop (+0x38 and +4 and below 1.3889): 1 in 2 grince/suspens1 0x1c, k 230,
+   Hz ftol((rand%4000 + 14000)·f).
+9. Brake held on the ground above 8.33 m/s: by s 3/5/8/10 gravier, 4 herbe, 6/7 brake1/2
+   (12050 Hz base, else 22050), 13 glace; Hz ftol(ftol(base + speed·4000/RealSpeedMax)·f),
+   volume 0xe6; released (or r < 0.2): −50 a call, stopped below 0.
+10. Own bike, driven, throttle just opened: Ninja depart 0x1f − min(2, ftol(speed/RSM·5)),
+    KTM depart 0x1d + rand%3; k 200.
+11. Gear loop (state ≠ 2, gear > 0): another sample only when the table's id changes.
+    Hz = ftol((hi−lo)·r + lo); throttle just opened: 1 in 4 + rand%3000 + 2000; ramp
+    (s == 3 only: +1000 to 3000, else −1000 to 0); x = ftol(wheelie·4000 + (Hz − ramp)),
+    y = ftol((front.y − rear.y)/(carac+0x38·48)·1800); **SetFrequency(ftol((x − y +
+    detune)·f))**. Volume k: 250 for computer riders; driven: 255 with the throttle or a
+    wheelie, else a random 240 − rand%50 renewed every 50 ms (KTM 100 ms); s == 3: k +=
+    rand%50 − 30 (≥ 0); below 5.556 m/s k = ftol((speed − 0.2778)·0.18947·k).
+12. Kept: r, keys, gear, crashed, s, wheelie, max wheelie.
+Random: Rand_Next(4) throughout. Constants (tools/peek.py): 0x4d0190 0.05, 0x4d01a0 7.2,
+0x4d01a8 170, 0x4d01b0 19050f, 0x4d01b4 3f, 0x4d01b8 180f, 0x4d01bc 200f, 0x4d01c0 400f,
+0x4d01c4 1050f, 0x4d01c8 2.7778, 0x4d01d0 255f, 0x4d01d8 0.36, 0x4d01e0 20f, 0x4d01e4
+12000f, 0x4d01e8 8.3333, 0x4d01f0 0.12, 0x4d0158 π/2, 0x4d0200 121.594, 0x4d0208 8.0556,
+0x4d0210 48.316, 0x4d0218 8000f, 0x4d021c 16050f, 0x4d0220 1.3889, 0x4d0228 4000f,
+0x4d0230 0.2, 0x4d0238 5f, 0x4d023c 48f, 0x4d0240 1800f, 0x4d0248 5.5556, 0x4d0250 0.27778,
+0x4d0258 0.18947.
+
+The race start 0x4084e0 [asm]: 0x54299c = now + 36000, 0x542854 = −1, followed-last 0 (so
+the first call resets the own object), the shout flags 0x5034a8/a0/a4, 0x50352c = 0,
+0x5028ac = now; the own object and the 4 slots reset (detune i·100); previous camera =
+camera; 0x5028c0 = 0xff (the ambience's volume scale); the ambience objects re-armed; last
+voice/effect = −1; the queues reset; engine/ambience switches set if effects are on and
+both are off.
+
+Pause: the pause menu 0x436420 calls 0x424090(1) (looping copies stopped and marked) before
+continue.wav; CONTINUE 0x437ae0, RESTART 0x437610, QUIT 0x437890 call 0x424090(0) (then
+the last two stop everything).
+
+**Checked against the original (2026-10-26)**: Speed Bay practice, the same bike, Up held
+20 s, recorded under wine through a PulseAudio null sink (the music stream muted) and the
+port's OMR_WAV with AudioState 0: the dominant pitch (90–1200 Hz, 0.2 s windows) follows the
+original's through every shift to within ~1–2 % (median difference 5 Hz at ~400 Hz) and
+the loudness to a few %, the same clipping share (0.45 %).
 
 ##### 4.10.6.4 Start countdown (0x4082f0) [decomp]
 state 0: bip2 (2) + "go" (0x33); 1/2/3: bip1 (1) + "1"/"2"/"3" (0x32/0x31/0x30); once per
@@ -3997,7 +4446,10 @@ B,A,B,A...].
 (inclusive)**; +0x2c handle (counter 0x4eea18; 0x477270 finds a sprite by it); +0x30 bank;
 +0x34/+0x37 colour-key low/high (3 bytes each, from 0x4f0dd8 = black); +0x3a colour-key
 enable = 0 (tiles are opaque); +0x42 CString name; **+0x46 top fill colour, +0x48 bottom
-fill colour** (u16 RGB565); +0x4a default.
+fill colour** (u16 RGB565); +0x3e the last frame drawn; +0x4a default blit flags (1:
+clip to the screen; 0x4772f0). 0x477790's 16 arguments (`ret 0x40`): name, x1, y1, x2, y2,
++4, +8, +0xc, +0x10, +0x14, +0x18, frame count (+0), key on (+0x3a), key low*, key high*,
+one unused [asm 0x47780a..0x4778e8]. Drawn by 0x477400 (§4.20 §3.5).
 
 ##### 4.13.3.3 RAW → 16-bit (0x477b30) [asm]
 
@@ -4732,7 +5184,7 @@ Initial values are the image's; CONFIG.BPT overwrites most at start-up (GOG valu
 #### 4.14.9 In the port
 - `page_options.c`: pages 11, 12, 13, 23. Page 13 shows the port's own machine (the
   processor from /proc/cpuinfo, the memory from sysconf) in place of 0x440540's Windows
-  questions; no joystick is offered yet (`joystick_known` answers no).
+  questions; the joystick lines and page 12's bindings read SDL's joysticks (§4.22).
 - `config.c`: CONFIG.BPT read in 0x42ae30's order and written again at the end
   (§4.14.5) to the player's home folder, never the game's; the home copy is read first.
   The game's master volume (0 in the GOG copy, a Windows mixer line) starts full unless
@@ -9316,6 +9768,18 @@ instead). X = the wheelie angle O(k)+0x307d. Let M, T be the bike matrix
 - look-at 0x46e140; then roll r = lean O(k)+0x2e1d · 0.25f [0x4d13e0]:
   C = C·R(0,0,r) (table sin/cos, inline), T likewise; +0xc0 = 0x490220(C).
 - In this mode 0x458b80 draws the cockpit instead of the player's bike (§4.1).
+- [2026-10-26, partly mapped, not ported] The cockpit's two models come from the bike's
+  carac script keys **FileGuidon** (0x4e79f0, the handlebar: 3DF/MAP names into 0x5190e0 /
+  0x519120) and **FileCockpit** (0x4e79e4: 0x519160 / 0x5191a0), read by 0x429e20 (0x42a0f2
+  on); loaded by 0x413450 into 0x504ed8 (handlebar) and 0x51bf60 (cockpit) with scale 8.0
+  (0x4204b0). 0x462110's constants: wheelie × 0.6366197723675814 (2/π, 0x4d1068); a value
+  of 0x45ca00(bike) × the double at 0x4d1070 smoothed into 0x4ea4e4 by the double at
+  0x4d0f88 (both read as doubles by peek; check the asm's operand sizes: they look like
+  float pairs −0.25/−80 and 0.25/40); offsets susp × 10.0 (0x4d1078) + wheelie' × −80.0
+  (0x4d1074) − 350.0 (0x4d1080) and susp × 5.0 (0x4d0f78) + 350.0 (0x4d1088); the lean of
+  the followed rider × 0.4 (0x4d1090) as a roll, the steering × 0.000285714 (0x4d1098) as
+  the handlebar's yaw. Asm dump: build/ (asmrange 0x462110 0x462580). Not yet read: the
+  matrix helpers 0x403740, 0x40fd20, 0x40fd40, 0x410010, 0x49b2c0, 0x49bca0's use here.
 
 **Mode 7** -> 0x46f840, the chase camera.
 
@@ -9419,8 +9883,8 @@ Marks: [asm] read in build/mr.asm, [decomp] Ghidra text only, [px] confirmed on 
 number, GET READY, GO and their voices), the lap, best-lap, TIME / POS and practice panels,
 the finishing place, TIME OUT / FINAL LAP / WRONG WAY / CHECK POINT. Its pictures pass
 tools/hud_text.py as the captures do (q17's 12 texts exact, q14's countdown the same).
-Not yet: the split line (0x412e50), labels (3.7), the CD data's sprite messages, GAME OVER
-(the dials, F7's three states and the gear-change hint bar are written: 0 pixels differ from
+Not yet: the split line (0x412e50), labels (3.7), the CD data's sprite messages (GAME OVER
+is written, 3.5) (the dials, F7's three states and the gear-change hint bar are written: 0 pixels differ from
 tools/hud_dials.py, `r3d_screen_points/faces`). The port's single race has 24 bikes, as the original's (q14/q17's "/23" was the attract demo, §4.17.9).
 
 ##### 3.0 Fonts, coordinates, frame counters
@@ -9612,10 +10076,50 @@ Format: font (hi-res), x, y in 640-pixel units, flags (8 = from the right edge; 
 
   0x481f10 also calls 0x482030, the sprite form with id 0x4e987c [decomp; arguments lost by Ghidra].
 - Sprite form (CD data): sprite pairs TIME OUT 0x4eaaa4/0x4eaacc, FINAL LAP 0x4eaa9c/0x4eaac8, WRONG WAY 0x4eaab4/0x4eaadc, CHECK POINT 0x4eaab8/0x4eaae0. Same lifetimes; effect 0; blinking only through motion/blink arguments [decomp].
-- **GAME OVER, 0x482120(0)**: a sprite object in **0x53b8e8**, id 0x4e987c, lifetime 3000, align 0x42, effect 4.
-  - Parts: GameOver1/GameOver2 HR (0x4eaa94, 0x4eaa98), or Game over LR (0x4eaac4).
-  - First removes 0x4e9858 and 0x4e986c.
-  - Trigger: 0x47dae0 when the clock goes below −500 ms: sets 0x52c238, plays sound 0x39, sets player state 3. Also from the Link branch of 0x4806e0.
+- **GAME OVER, 0x482120(0)**: a sprite object in **0x53b8e8**, id 0x4e987c (the arguments read from the push order at 0x482193..0x482203 [asm]; Ghidra's "effect 4" is the motion).
+  - First removes 0x4e9858 and 0x4e986c (TIME OUT, WRONG WAY) from 0x53b8e8 [asm 0x482173..0x48218e].
+  - Trigger: 0x47dae0 when the clock goes below −500 ms: sets 0x52c238, plays sound 0x39, sets player state 3. Also from the Link branch of 0x4806e0. (0x482120(n != 0) goes to 0x482030 instead.)
+  - **0x418160 (cdecl, 31 dwords: `add esp,0x7c`) arguments** [asm 0x482193..0x482203; meaning from 0x418160's decomp, which passes its 2..9 and 15..22 to 0x416170 (§4.19 §1.3 order)]:
+
+    | # | value | meaning |
+    |---|---|---|
+    | 1 | 0x53b8e8 | the list |
+    | 2 | 3000 | lifetime ms |
+    | 3, 4 | 0, 0 | x, y |
+    | 5 | 0x42 | align: centred both ways (0x417900) |
+    | 6 | 0 | **effect 0** (none) |
+    | 7 | **4** | **motion 4**: wait the lifetime, then 2 (drift); 0x418790 then sets lifetime 0 |
+    | 8 | 0 | blink |
+    | 9 | 0x4e987c | int* id |
+    | 10, 11 | 5, 5 | dodge steps x, y (0x417ac0 against the list's live boxes) |
+    | 12 | 1 | no free place: re-align with 0x42 |
+    | 13 | 0 | int[4]* that would receive the box (none) |
+    | 14 | 0 | argument of the new object's vtable +0x1c |
+    | 15..18 | 2, 0, 0, 0 | vx, vy, tx, ty |
+    | 19+20 | 0, 0x40000000 | double s = 2.0 (drift's starting speed) |
+    | 21+22 | 0, 0x40140000 | double k = 5.0 (drift's acceleration a frame) |
+    | 23 | 2 | part count (clamped to 8) |
+    | 24..27 | [0x4eaac4], [0x4eaa94], 0, 0 | part 0: low-res handle, hi-res handle, dx, dy |
+    | 28..31 | 0, [0x4eaa98], 0, 0 | part 1: no low-res handle, hi-res handle, 0, 0 |
+
+    So: centred, still for 3 s, then it drifts right (x += trunc(2·s), s += 5 each drawn frame) and dies once its box leaves the screen (0x4169b0).
+  - **Parts, 16 bytes each** from the 24th argument [decomp 0x418160, the two copy loops]: +0 low-res handle, +4 hi-res handle, +8/+0xc an offset pair (copied to the part array local_b8). **Hi-res = ScreenMode 0x4dc0c8 == 2 and SmallFonts 0x4f0e08 == 0**: the +4 handles are used; else the +0 handles. A handle 0 finds no sprite (0x477270) and adds nothing. So **GOG's default (640x480, SmallFonts 1) shows the single "Game over LR" sprite**; hi-res shows GameOver1 HR and GameOver2 HR.
+  - Box: w = Σ(x2 − x1 + 1), h = Σ(y2 − y1 + 1) over the parts found (both summed: for hi-res 370 x 317) [decomp]; aligned with 0x417900; the first part's (+0xc − +4, +0x10 − +8) record offsets are added before the dodge test and taken off again after.
+  - **The sprites** (0x477790(name, x1, y1, x2, y2, +4, +8, +0xc, +0x10, +0x14, +0x18, frames, key on, key lo*, key hi*, unused): `ret 0x40`, fields at [asm 0x47780a..0x4778e8]), defined by 0x480930 [asm]:
+
+    | Handle | Name | Picture (bank) | Rect (inclusive) | Size | Other |
+    |---|---|---|---|---|---|
+    | 0x4eaa94 | GameOver1 HR | Texts\GameOver.RAW (0x5d3dfb, both data forms) | (0, 89)–(255, 255) | 256x167 | [asm 0x480ce7..0x480d2e] |
+    | 0x4eaa98 | GameOver2 HR | Texts\HiRes.RAW (0x5d3cb2) | (0, 98)–(113, 247) | 114x150 | +0x10 = 9; GOG form [asm 0x480d7f..0x480dca], CD form the same values [asm 0x481164..0x4811b2] |
+    | 0x4eaac4 | Game over LR | Texts\LowRes.RAW (0x5d3b69) | GOG form (0x4dc180 = 1): (0, 15)–(255, 127); CD form: (0, 143)–(255, 255) | 256x113 | [asm 0x480e07..0x480e4b; 0x481343..0x48137e] |
+
+    All: 1 frame, colour key on (+0x3a = 1), key low = high = 0x4f0dd8 (black). **In the GOG form the LowRes.RAW (256x128) holds only "Game over"** (its one sprite; bank count 1) and HiRes.RAW only GameOver2 (bank count 1, the name "Text1 HR" given to the bank) [asm 0x480d33..0x480e4b].
+  - **The object (0x415e80, 0x178 bytes, vtable 0x4d0580, +0xc type 2)** [decomp 0x415e80, 0x416430, 0x4164b0]: +0x134[8] low-res handles, +0x154[8] hi-res handles, +0xf4[8] the (dx, dy) pairs (the part records' +8/+0xc), +0xb0 part count, +0xb4[8] the sprites found, +0xac how many (0 → the object deletes itself), +0xd4[8] frame numbers (0), +0x174 blit flags (0). 0x416430(obj, count, parts by value) copies the records, then **0x4164b0** resolves the handles (hi-res test as above) and sets **+0x80 w = Σ(x2 − x1 + 1 + dx)** and **+0x84 h = the first sprite's height**. (0x418160 placed it with the summed heights, so hi-res GAME OVER sits at y 81, not centred: (480 − 317)/2.)
+  - **IsAlive 0x416a60** (slot 3) [decomp]: as 0x4169b0 (id, lifetime, the box against the screen) but needs only +0xac != 0 (no text, no font).
+  - **Draw 0x417080** (slot 2) [asm 0x417080..0x417205]: the motion step 0x416b40 as for texts; **effects 3 and 4 only blink** (period or frame mask, as Blink), every other effect draws plainly (no see-through level). Then x = +0x70, and for each sprite: x += dx, y = +0x74 + dy, **0x477400**(sprite, x, y, +0x174, frame, &rect, 1.0f); the next x is **the drawn rectangle's right edge** (inclusive, [esp+0x28] = rect[2]), so parts sit side by side overlapping by one column (GameOver2 starts on GameOver1's last column; its +0x10 = 9 lines it up with GameOver1's rows 89 → 98). If a part is not drawn the next x is stale [asm].
+  - **0x477400** [decomp]: source rect (x1, y1, x2, y2) (+ frame × (+0x14, +0x18) for frame 0 < f < count), x2/y2 kept inside the picture, x1/y1 ≥ 0, nothing unless y1 < y2 and x1 < x2; drawn at (x + (+0xc − +4), y + (+0x10 − +8)); flags 0 → the sprite's +0x4a (**1**, set by its constructor 0x4772f0). **0x4788b0** makes the screen rectangle (inclusive) at scale 1.0 (0x3f800000). **0x478990** [decomp]: flags & 1 or & 4 → clip to the screen rectangle (0x624374, 0x6d1040, 0x62e448, 0x625784), moving the source edges with it; nothing unless the clipped top < bottom and left < right; the rectangle written to the out pointer; then a DirectDraw Blt (software surfaces: 0x45ab60) with **DDBLT_KEYSRCOVERRIDE (0x10000)** when +0x3a is set: the key low/high are +0x34/+0x37 turned into the pixel format, black/black here, so **pixel 0 is see-through** (the RAW loader keeps index 0 at 0 and lifts near-black palette entries to red 8).
+  - **What the player sees** (GOG data, 640x480, SmallFonts 1): "Game over" 256x113 at (192, 183), still for 3 s, then off to the right in about eight pictures. TIME OUT (2000 ms from clock 0, in 0x53ba68) is still alive under it for its last 1.5 s: GAME OVER's removals miss it, and 0x53b8e8 is drawn after 0x53ba68.
+  - **Port** (2026-10-26): `sprite.c` (0x477b30 load, 0x477400/0x478990 keyed clipped blit), the sprite objects in `text.c` (`TextArgs.parts`; `list` keeps 0x53ba68's objects drawn first), `hud_game_over()` in `hud.c` called by `rules.c` at the time over; GAME OVER removed when a Solo player has finished. Not written: the dodge (only the screen-mode text can be in 0x53b8e8 then), the CD form's sprite messages (0x482030). Not compared with a capture of the original (none of a time over yet).
 - **Loaded but never shown in this build** [asm: no reference besides the load]: sprites EXTENDED + TIME (0x4eaaa0, 0x4eaaa8), MISSED (0x4eaabc), R (0x4eaac0). Ids 0x4e9874/78/5c/60 are only ever removed. The `_` EXTENDED TIME character is unused.
 - **DEMO, 0x486660** [decomp]:
   - While demo id 0x4e9898 is not alive: if 0x4e9830, "DEMO" in font 12, align 0x22, y 10, BlinkTransp with a 500 ms period, lifetime 2000.
@@ -9646,7 +10150,7 @@ Format: font (hi-res), x, y in 640-pixel units, flags (8 = from the right edge; 
 
 ##### 3.9 Open points (HUD)
 1. **The hi-res layout (small fonts off) is unchecked.** Every capture uses small fonts. One 640x480 race capture with small fonts off would check fonts 4/6/7/11/20 at full size and the doubled widths.
-2. **The CD-data sprite messages** (0x4dc180 = 0, through 0x418160) are not mapped: part layout, the 16-byte part records, positions. Most of 0x482030's arguments are lost in Ghidra's output.
+2. **The sprite objects** (0x418160, item type 2): the arguments, the part records and GAME OVER's sprites are mapped (3.5). The object, its draw and the keyed blit too. Still open: 0x482030's arguments (the CD form's TIME OUT / FINAL LAP / WRONG WAY / CHECK POINT through 0x418160) and a capture of the original's GAME OVER to compare.
 3. **Split reference rider** (0x412e50: 0x516ab8, 0x50dbdc+0x400, 0x457050): who it is exactly, and when 0x5dbc70 is cleared.
 4. **What sets 0x519fec** (the checkpoint display timer, ≥4000 → yellow TIME) and its starting value. (Partly answered: Game_Frame subtracts the frame's ms from it each frame, §1.1 step 8.) Also where the countdown's starting clock (0x4dc0a8, probably 6000) is set.
 5. **The DEMO text** being removed by its own second call needs a demo capture to confirm.
@@ -10015,6 +10519,104 @@ post-step 0x466d70 (so: tyre marks laid while braking/sliding [guess, strong]).
 - bike visibility, LOD, shadow, lighting halves, kind remaps ~310
 - particles ~60 to ~150, skid marks ~80, finish figure ~100, track map ~120
 - In all, about 2,500 to 2,800 lines.
+
+### 4.21 The computer riders (mapped and written 2026-10-26)
+
+The full map is build/notes/cpu_riders.md; the port is port/src/cpu.c (the routines shared
+with the player's bike through bikephys_int.h); the check is tools/cpucheck.sh.
+
+- **Who**: 0x45d540 steps a rider with obj+8 == 0 through **0x46bf80**. In Solo riders 2..24
+  (the attract demo: 1..23). All use carac row 0 of the track's family (road or dirt). They
+  share the C library's rand() (msvcrt, per-thread seed) with the player's crashes. [asm]
+- **The step 0x46bf80**: the driving 0x46b120, the walls (cpu_speed and engine halved,
+  hit_timer 200), speed = engine, now and then the turbo on a straight (rand() & 0xff == 0
+  and cpu_speed > top), a dirt bike flies above road + 8 (straight) / + 32 (bend), else it is
+  put on the road (dirt bumps: rand() % (engine / top x 8)) with its matrix from the road
+  under the axles, the wheel points, 0x469c60, a lean x 1.5 (dirt) / x 1.2 (road), smoothed
+  by half, then the same tail as the player's step (spin, suspension, tumble, dials). [asm]
+- **The driving 0x46b120**: cpu_speed grows by dt / 6 m/s to the lane's top (top x (1 +
+  lane / 40)); the bike turns a quarter of the way a step towards a point on the racing line
+  (section +0xb0) + lane_x, 16 sections ahead (dirt 9); its speed follows a mix of the motion
+  and the heading, its motion turns towards a point 4 sections ahead (dirt 2), weighted by
+  the hit timer (k = hit_timer x 0.005, at least 0.01); 1.28 units a step per m/s x dt. In
+  the air a dirt bike falls (dt x 0.24525). During the countdown it does not move. [asm]
+- **The lanes 0x46cd20**: three lanes 240 units apart; back towards the inside lane when free;
+  behind a slower rider: to a free lane next to it, or to the lane whose nearest rider is the
+  fastest if more than 6 sections ahead, else slow down to him (x 0.95; braking when that
+  drops more than 40 km/h). lane_x slides at dt x 1.0667 a step. [asm]
+- **Their top speeds 0x47bc60** (Solo): Level.Spt's ComputerSpeed (0x51be98, km/h) from the
+  back of the grid, / 3.6, x (easy 0.9, medium 1, hard 1.05) x (1 / FactorPocket with
+  Pocket), then opponents / 2 random swaps (not in a replay). Level.Spt's 13 AI rows
+  (RATTRAPAGE_SPEED...) are read by nothing: no rubber-banding. [asm; the swap not recorded]
+- **Bike against bike 0x47ecd0**, fixed in bikephys.c while checking: the speeds from a
+  double length in the order (y² + z²) + x²; a hard crash first cuts both speeds to
+  22.222221f (80 km/h) for a computer A too; B's new direction is sA nA + sB nB after that
+  cut, with sB nB.z spilled to a float; the 5.5556 floors are 5.555555555555555. After it
+  0x47e3d0 walks each rider's section again (race.c copies it back). [asm; test]
+- **Not in cpu.c**: the drawing rewrites the front wheel point +0x1b4 of the riders drawn in
+  detail after the step (the next step's front wheel spin reads it); the shadow, effects and
+  pose are drawing.
+- **Check** (tools/win/cpuwatch.c records riders 1..24 + rand() seed each frame; three attract
+  demos, the original's sound to a null sink): whole frames (every rider, then 0x47ecd0 and
+  0x47e3d0) bit-exact but the front point: West Way mid-race 930 / 931 (the one is a sample
+  taken between the step and the drawing), Snow Ride (dirt, 101 airborne states)
+  1250 / 1250, West Way from the countdown 1562 / 1562; the rand() seed after every frame
+  3743 / 3743. [test]
+
+### 4.22 The joysticks (mapped and written 2026-10-26)
+
+The block **0x51ae88** (`this` of every routine below), WinMM's joystick API [asm + decomp]:
+- +0 count (joyGetNumDevs, at most 8); +4 + 0x34·j the JOYINFOEX of joystick j (dwSize
+  0x34, dwFlags 0x483 = X, Y, buttons, RETURNCENTERED...; X at +0xc, Y +0x10, buttons
+  +0x24); +0x1a4 the dead zone; +0x1a8 + 0x194·j the JOYCAPSA (wXmin +0x24, wXmax +0x28,
+  wYmin +0x2c, wYmax +0x30, wNumButtons +0x3c).
+- per joystick at +0xe48 + 0x38·j: +0 present (answered, or JOYERR_UNPLUGGED 0xa7), +4
+  working (answered), +8 "digital" (X and Y only ever 0, 0x8000 or 0xffff; written by
+  0x418ba0 for joystick 0 only and read by nothing), +0xc..+0x14 the centres (0x8000),
+  +0x18..+0x20 the dead zones, +0x24 X, +0x28 Y (rescaled), +0x30 buttons, +0x34 the
+  direction bits (1 up, 2 down, 4 left, 8 right).
+- **0x4189c0** detection: counts, caps, then each joystick read once; centre 0x8000, dead
+  zone **0x4dbf7c** (the command line's `-jN`, atoi, 0x414cb0) or 0x800. Called at the
+  start (0x4189b0), by 0x418b60 (known? else detect again), 0x4311c0 (the Options'
+  controller), page 13 every frame, Ctrl+J.
+- **0x418ba0** reads joystick 0 or 1 (any other: 0). Error 0xb (JOYERR_NOCANDO?) logs.
+- **0x418da0** = read, copy X, Y, buttons, **0x418e40 / 0x418f30** rescale X / Y, then
+  **0x418d20** the direction bits. Rescale: inside centre ± dead → centre; above:
+  `c + ftol((v − c − dz) / (max − c − dz) · (max − c))`; below:
+  `min + ftol((v − min) / (c − min − dz) · (c − min))` (x87, divisors as unsigned 64-bit
+  loads). Direction bits test the rescaled value against centre ± dead again (so they
+  fire only about twice the dead zone out).
+- **0x418c60** for page 12: the lowest button held → n + 1; else from the **raw**
+  position X < 0x2000 → −1, X > 0xdfff → −2, Y < 0x2000 → −3, Y ≥ 0xe000 → −4; else 0.
+  The page subtracts 1: buttons n, directions −2 left, −3 right, −4 up, −5 down (the
+  binding codes, §4.14).
+- **0x411b30** (from 0x4116f0, the race's input, for each rider whose +0x31e1 is 2 or 4;
+  joystick +0x31e5): **0x431190(code)** = the action whose button binding (0x53eae4 + 8a)
+  is code. Up (−4): accelerate → bit 1; brake → bit 2 and **Y = 0xffff − Y**; gear up/down
+  → 0x10/0x20 when not counting down (0x4dc0b4) and running (0x5429b0); turbo → +0x31fd =
+  1 when running. Down (−5): accelerate → bit 1, Y flipped; brake → 2; gears only need
+  running; turbo. Left (−2): left → 4; right → 8, **X flipped**. Right (−3): left → 4, X
+  flipped; right → 8. Buttons (while bits remain, below wNumButtons): accelerate → Y =
+  centre, bit 1; brake / left / right (running) → that axis centred, the bit; gears (not
+  counting, running); turbo (running); after each button, brake clears accelerate.
+  Then: joystick (0x4dc11c = 2): accelerate on a button → Y < 0x8000 cut to 0x8000;
+  brake on a button → Y > 0x8000 cut; joypad (4): X = Y = 0x8000 (the bits alone).
+  +0x31fd changed: 1 → +0x31f9 (turbo held) = +0x3201 (pressed) = 1; 0 → +0x31f9 = 0.
+- 0x4116f0 stores bits +0x31ed, Y +0x31f1, X +0x31f5; when 0x5429b0 != 1 X = 0x8000 and
+  only bit 1 is kept. The step or's +0x31e9 (the keyboard's) with +0x31ed.
+- **0x411a10** (race held by a dialog, §4.17 part 5): joystick 0's direction bits and
+  button 0 posted as WM_KEYDOWN/UP of the arrows and Return on each change.
+- Ctrl+J (0x431922, Ctrl held = 0x4dc108): device = JoyType 0x4dc120; 2 or 4: detect,
+  none working → 1. Device != JoyType → message T98 "JOYSTICK NOT CONNECTED", else T32
+  "JOYSTICK" / T31 "JOYPAD" (0x4188b0 slot 0x4e98d8, 3000 ms, align 0x22, y 0x14, fade
+  out, font 12). Ctrl+K: device 1, T30 "KEYBOARD" (slot 0x4e98dc).
+
+Port (`joy.c`): SDL joysticks in place of WinMM; axis 0 and 1 + 0x8000 as X, Y (0..0xffff),
+a hat (a pad's cross) pushes them to the ends as the joypads of 1997 did with their axes
+(WinMM gave a cross as the POV, which the game never reads: the port's choice), buttons
+as bits (32 at most). No real joystick is read under `--shot`; `OMR_INPUT`'s
+`joy:X,Y,BUTTONS` holds a fake joystick 0 for the tests, `OMR_DEVICE` sets 0x4dc11c,
+`-jN` / `OMR_JOYDEAD` the dead zone.
 
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):

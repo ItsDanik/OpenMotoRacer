@@ -11,6 +11,7 @@ typedef struct {                /* a rider's bike, the fields the drawer reads (
     int sec;                    /* +0x31c1: its section */
     /* the race's parts (all 0 in the menu) */
     float lean, pitch, steer;   /* +0x2e1d, +0x2e8d, +0x110 */
+    float wheelie;              /* +0x307d: the turbo's front wheel lift */
     float speed;                /* +0x124: m/s, fades the steering out */
     float dive, susp;           /* +0x2e39, +0x2e91: the frame's dive, the rear suspension */
     float spin_rear, spin_front;/* +0x2e3d, +0x2e49: the wheels' turn */
@@ -34,5 +35,11 @@ void bike3d_place(Rider *r, const float p[3]);  /* 0x45c7c0 */
 void bike3d_draw_rider(Rider *r, int lod);
 /* the drawer's steps 2-6 alone: body and body_pt as a picture would leave them */
 void bike3d_body(Rider *r);
+
+/* the on-board view (F6): once a step while it shows, the frame's pitch (0x45ca00) into
+   the cockpit's shake (0x4ea4e4); then the handlebar and cockpit, lean = the followed
+   rider's (0x462110) */
+void bike3d_cockpit_step(double pitch);
+void bike3d_cockpit(const Rider *rd, float lean);
 
 #endif

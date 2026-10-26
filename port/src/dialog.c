@@ -210,6 +210,8 @@ static void act_restart(void)   /* 0x437610 */
 static void act_quit(void)      /* 0x437890 */
 {
     g_dlg->done = 1;
+    sound_pause_all(0);         /* 0x424090(0), then everything stopped (0x424020) */
+    sound_stop_all();
     if (g_solo)
         scores_write_race();
     if (g_mode == MODE_CHAMPIONSHIP)
@@ -222,13 +224,15 @@ static void act_continue(void)  /* 0x437ae0: the keys let go */
     g_dlg->done = 1;
     race_release_keys();
     g_ctrl = g_shift = 0;
+    sound_pause_all(0);         /* 0x424090(0): they go on */
 }
 
 void dialog_pause(int arg)
 {
     if (!new_dialog(6))
         return;
-    sound_play(3, 0);           /* (0x424090(1): the looping sounds paused) */
+    sound_pause_all(1);         /* 0x424090(1): the looping sounds paused */
+    sound_play(3, 0);
     g_dlg->hud = arg != 1;
     title("MOTO RACER", 0, 200, 0, 5, 0, -1, 5.0);      /* (0x4e8aec, not a word number) */
     button(104, 300, 0, 0, 0, 0x62, 1, -400, -1, 0, 0, act_restart);

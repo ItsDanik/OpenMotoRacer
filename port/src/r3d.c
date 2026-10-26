@@ -528,7 +528,9 @@ int r3d_points(int nv, const float (*v)[3], const float n[3][3], const float t[3
     return base;
 }
 
-void r3d_faces(int base, int nf, const Face *f, int skin)
+/* skin -2: 0x49bca0, the cockpit's: the farthest corner, the key z x 0.2 - near, every
+   kind but 0 drawn as 0x10 (1 and 0x10) or 0x2c */
+static void faces(int base, int nf, const Face *f, int skin)
 {
     int i, k;
     for (i = 0; i < nf; i++) {                          /* 0x49b7f0, last argument 1 */
@@ -571,11 +573,25 @@ void r3d_faces(int base, int nf, const Face *f, int skin)
         }
         if (!(area > 1.0))
             continue;
-        if (skin < 0)
+        if (skin == -2) {
+            int kind = fc->kind == 0 ? 0 : fc->kind == 1 || fc->kind == 0x10 ? 0x10 : 0x2c;
+            float key = far->z * 0.2f - g_near;
+            queue_kind(fc, base, key, -1, remap(kind, key, fc->flags));
+        } else if (skin < 0)
             queue(fc, base, far->z + (fc->flags & 2 ? 1024.0f : 0.0f), -1);
         else            /* 0x49c110: the farthest corner alone; a paletted page's own path */
             queue(fc, base, far->z, r3d_page_index(fc->page) ? skin : -1);
     }
+}
+
+void r3d_faces(int base, int nf, const Face *f, int skin)
+{
+    faces(base, nf, f, skin);
+}
+
+void r3d_faces_cockpit(int base, int nf, const Face *f)
+{
+    faces(base, nf, f, -2);
 }
 
 void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[3][3],

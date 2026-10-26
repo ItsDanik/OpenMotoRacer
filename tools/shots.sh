@@ -88,3 +88,5 @@ OMR_CHOICES="1,0,3,0,0" run race_countdown 1 20
 OMR_CHOICES="1,0,3,0,0" run race_hud 1 700
 OMR_CHOICES="1,0,3,0,0" run race_timeover 1 9003
 OMR_CHOICES="0,0,3,0,0" run race_ride 1 800 "100:hold:up 700:hold:left 760:release:left"
+OMR_CHOICES="1,0,3,0,0" run race_gameover 1 2600
+OMR_CHOICES="1,0,3,0,0" run race_onboard 1 700 "100:hold:up 300:f6 600:hold:left 640:release:left"

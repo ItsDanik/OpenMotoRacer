@@ -113,12 +113,15 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - The race (NOTES §4.16): `race.c` (load, grid, frame: track, sky, riders), page 1 hands
   over; `rules.c` (§4.17: countdown, time limit, laps, places with the game's qsort); the
   race's sounds and music; `hud.c` (§4.20 §3) the dashboard's texts, countdown and
-  messages and the dials (equal to the captures to the pixel); `dialog.c` (§4.19) the
+  messages and the dials (equal to the captures to the pixel), GAME OVER a sprite object
+  (`sprite.c`: the Texts .RAW sprites, keyed blit; §4.20 §3.5); `dialog.c` (§4.19) the
   in-race dialogs (pause, results, continue); the end of the race and bestscor.dat.
   `bikephys.c` the player's bike (bit-exact on recorded steps, `tools/physcheck.sh`),
   `camera.c` the chase camera 0x46f840 (F5 distance, Tab looks back). The computer riders
   stand on the grid until 0x46bf80 is written. SmallFonts (CONFIG, default 1) picks the
   race's small menu font.
+- Joysticks (NOTES §4.22): `joy.c`, SDL's joysticks as the game's WinMM ones (dead zone, rescale,
+  the bindings 0x411b30, the dialogs' arrows, Ctrl+J/K); `-jN` the dead zone.
 - Test switches: `OMR_PAGE`, `OMR_CHOICES="MODE,TRACK,LAPS[,REV,POC]"`, `OMR_TILE=SX,SY` (the chequered tile's scroll, to match a capture;
   `tools/cmpshot.py` finds it), `OMR_INPUT="F:key F:hold:key F:release:key F:move:X,Y F:click F:down F:up"` (input at frame F),
   `OMR_TEXT="FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT"` (one text object).

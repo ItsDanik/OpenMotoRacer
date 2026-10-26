@@ -232,6 +232,7 @@ void rules_time(int ms)
     if (g_time_left + 500 < 0) {                /* time over */
         g_time_over = 1;
         sound_queue_voice(0x39, 500);           /* GAMEOVER */
+        hud_game_over();                        /* 0x482120(0) */
         g_racer[me].state = RS_OUT;
     } else if (!g_hurry_said || g_hurry_at + 2000 < g_clock) {
         hud_message(HUD_TIME_OUT);              /* 0x481af0 */

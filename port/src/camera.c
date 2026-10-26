@@ -3,6 +3,7 @@
    the front once the bike has finished. The on-board camera (F6) and the TV director of
    the replays are not written yet. */
 #include "camera.h"
+#include "bikes.h"
 #include "menu.h"
 #include "r3d.h"
 #include <math.h>
@@ -21,6 +22,7 @@ static struct {
     int dist;                   /* +0x220: the chase distance, 0..3 (F5) */
     float c0[3][3], pos0[3];    /* (the port's: before the last step, for smooth pictures) */
     int jumped;                 /* (a cut since: no blending) */
+    int onboard;                /* 0x4dc008: mode 6, the rider's eyes (F6) */
 } g_cam;
 
 static const float g_extra[4] = { 0.0f, 128.0f, 256.0f, 512.0f };       /* +0x224 */
@@ -151,6 +153,40 @@ static void chase(const BikePhys *b, float dt, int finished)
                                - (OFF_Y * 0.6666666865348816) * (g_cam.ang[1] * -0.4244131815783876));
 }
 
+/* v M + T + P: a point of the bike */
+static void on_bike(float o[3], const float v[3], const BikePhys *b)
+{
+    int i;
+    for (i = 0; i < 3; i++)
+        o[i] = (float)((((double)v[0] * b->m[i] + (double)v[1] * b->m[3 + i])
+                        + (double)v[2] * b->m[6 + i] + b->m[9 + i]) + b->pos[i]);
+}
+
+/* 0x4700e0's mode 6: from the rider's head to 40 ahead, lower as the front wheel lifts;
+   the height lerped (dirt bikes 1/2, road bikes 10/13 a step), then rolled by a quarter of
+   the lean */
+static void onboard(const BikePhys *b)
+{
+    int dirt = g_bikes[b->bike].perso != 0, i;
+    float k = dirt ? 10.0f : 5.0f, ve[3], vt[3], e[3], t[3], rr[3][3], ang[3] = { 0, 0, 0 };
+    double f = dirt ? 0.5f : 0.7692307692307692;
+    vt[0] = 0.0f, vt[1] = (float)(b->wheelie * k + 170.0f), vt[2] = 40.0f;
+    ve[0] = 0.0f, ve[1] = (float)(b->wheelie * -k + 170.0f), ve[2] = 0.0f;
+    on_bike(t, vt, b);
+    on_bike(e, ve, b);
+    for (i = 0; i < 3; i += 2) {
+        g_cam.pos[i] = e[i];
+        g_cam.target[i] = t[i];
+    }
+    g_cam.pos[1] = (float)((e[1] - (double)g_cam.pos[1]) * f + g_cam.pos[1]);
+    g_cam.target[1] = (float)((t[1] - (double)g_cam.target[1]) * f + g_cam.target[1]);
+    r3d_camera(g_cam.pos, g_cam.target);
+    r3d_get_camera(g_cam.c, e);
+    ang[2] = (float)(b->lean * 0.25f);
+    r3d_rotation(rr, ang, ANGLE_K);
+    mul(g_cam.c, (const float (*)[3])g_cam.c, (const float (*)[3])rr);
+}
+
 void camera_step(const BikePhys *b, float dt, int countdown, int finished)
 {
     float *yaw = &g_cam.ang[1];
@@ -165,7 +201,22 @@ void camera_step(const BikePhys *b, float dt, int countdown, int finished)
                 *yaw = 0.0f;
         }
     }
-    chase(b, dt, finished);
+    if (g_cam.onboard && !g_cam.preset)
+        onboard(b);
+    else
+        chase(b, dt, finished);
+}
+
+void camera_onboard(int on)
+{
+    if (on != g_cam.onboard)
+        g_cam.jumped = 1;
+    g_cam.onboard = on;
+}
+
+int camera_preset(void)
+{
+    return g_cam.preset;
 }
 
 void camera_key(int vk, int down)
@@ -205,4 +256,9 @@ void camera_apply(float a)
 const float *camera_eye(void)
 {
     return g_cam.pos;
+}
+
+const float *camera_target(void)
+{
+    return g_cam.target;
 }

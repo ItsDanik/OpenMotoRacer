@@ -8,6 +8,7 @@
 #include "exe.h"
 #include "files.h"
 #include "font.h"
+#include "joy.h"
 #include "menu.h"
 #include "pages.h"
 #include "r3d.h"
@@ -34,10 +35,10 @@ enum {
 static int g_ctrl;              /* 0x4e90d0: 0 keyboard, 1 joypad, 2 joystick */
 static int g_nlists;            /* 0x4dc04c: Data\List*.bpt files */
 
-/* a joystick or joypad the game could use (0x418b60): none yet in the port */
+/* a joystick or joypad the game could use (0x418b60) */
 static int joystick_known(void)
 {
-    return 0;
+    return joy_known(0);
 }
 
 /* 0x4311c0: the controller chosen; back to the keyboard when there is no joystick */
@@ -47,7 +48,8 @@ static void controller_setup(void)
     g_input_device = device[g_ctrl];
     if (g_input_device == 2 || g_input_device == 4) {
         g_joy_type = g_input_device;
-        if (!joystick_known())
+        joy_detect();
+        if (!g_joy[0].working)
             g_input_device = 1;
     }
 }
@@ -293,6 +295,38 @@ static void bind(int row, int col, int v)
     g_binding[row][col] = v;
 }
 
+/* what is held on the joystick goes to the row being set, whatever the pointer is on; a
+   joystick's direction takes its opposite to the paired action */
+static void joy_bind(int v)
+{
+    int pair = -1, w = 0;
+    if (v == -1)
+        return;
+    if (g_ctrl == 1) {          /* a joypad: anything to any row */
+        bind(g_row, 1, v);
+        return;
+    }
+    switch (g_row) {
+    case 0: case 1:             /* accelerate, brake: a button or up / down */
+        if (v < 0 && v > -4)
+            return;
+        pair = 1 - g_row, w = v == -4 ? -5 : -4;
+        break;
+    case 2: case 3:             /* left, right: a button or left / right */
+        if (v < -3)
+            return;
+        pair = 5 - g_row, w = v == -2 ? -3 : -2;
+        break;
+    case 4: case 5:             /* the gears: a button */
+        if (v < 0)
+            return;
+        break;
+    }
+    bind(g_row, 1, v);
+    if (pair >= 0 && v < 0)
+        bind(pair, 1, w);
+}
+
 void page_settings_frame(void)
 {
     char buf[96];
@@ -313,10 +347,11 @@ void page_settings_frame(void)
             if (!g_menu.mouse_mode && g_menu.key)
                 bind(g_row, 0, g_menu.key);
         }
-    } else {                    /* (no joystick is read yet: nothing to bind) */
+    } else {
         Bitmap *card = PIC(g_ctrl == 1 ? P_PADCARD : P_JOYCARD);
         bitmap_step(card, 0, 0);
         bitmap_draw(card, BM_OWN, 100, 0);
+        joy_bind(joy_code(0));
     }
     bitmap_step(PIC(P_CHOSET), 0, 0);
     bitmap_draw(PIC(P_CHOSET), BM_OWN, 100, 0);
@@ -453,6 +488,7 @@ void page_diag_start(void)
     menu_add_button(PIC(P_BACK), 0, 0x0bffffffu, VK_ESCAPE, -1, 0, 0, 0, -1, -1, 0);
     font_set_colors(font_get(12), white, white);
     sysinfo();
+    joy_detect();
     bitmap_place(PIC(P_PROC), 32, 85, 0);
     bitmap_place(PIC(P_VIDEO), 32, 185, 0);
     bitmap_place(PIC(P_SON), 32, 285, 0);
@@ -504,8 +540,8 @@ void page_diag_frame(void)
     }
     snprintf(buf, sizeof buf, T(74), T(73));
     font_draw(font_get(12), buf, 128, y, 0, 0);
-    line(400, "", T(joystick_known() ? 58 : 57));
-    line(420, "", T(joystick_known() ? 60 : 59));
+    line(400, "", T(g_joy[0].present ? 58 : 57));
+    line(420, "", T(g_joy[0].working ? 60 : 59));
     menu_draw_buttons();
     menu_transition();
     r3d_render();

@@ -1,6 +1,8 @@
 /* The text objects (NOTES §4.8.3.6): the list of 48 at 0x53b8e8, each a text in a font
    with an effect (blinking, fading, see-through) and a motion, timed by the text clock
-   0x4e4ed0. */
+   0x4e4ed0. Also the sprite objects (item type 2, 0x418160: pictures side by side, NOTES
+   §4.20 §3.5). The race's two lists (0x53ba68 and 0x53b8e8) share the one array here,
+   each object marked with its list, 0x53ba68's drawn first as 0x4806e0 does. */
 #include "text.h"
 #include "clock.h"
 #include "font.h"
@@ -31,6 +33,10 @@ struct Text {
     int own_colours;            /* +0xb8 */
     unsigned char fore[3], back[3]; /* +0xbc, +0xbf */
     double fvx, fvy, px, py;    /* +0x18, +0x20, +0x28, +0x30: mode 1's flight, y up */
+    int list;                   /* the port's: 1 = 0x53ba68 */
+    int nspr;                   /* type 2: +0xac the sprites found */
+    const Sprite *spr[8];       /* +0xb4 */
+    int sdx[8], sdy[8];         /* +0xf4: the step before each */
 };
 
 static Text *g_texts[TEXTS];
@@ -69,7 +75,7 @@ static void align(int w, int h, int *x, int *y, int flags)
 /* 0x4169b0 */
 static int alive(const Text *t, int force)
 {
-    if (!t || !t->id || !t->text)
+    if (!t || !t->id || (!t->text && !t->nspr))      /* 0x4169b0, 0x416a60 */
         return 0;
     if (!force && t->lifetime && g_clock - t->start > (unsigned)t->lifetime)
         return 0;
@@ -85,25 +91,63 @@ static void delete_text(int i)
     }
 }
 
-/* 0x416170 + 0x416300 + 0x4163e0 and the layout (slot 6): a text object of its own */
+/* 0x418160's sizes and 0x416430 -> 0x4164b0: the parts' sprites (the hi-res ones at
+   640x480 without the small fonts), placed by the sum of their widths and of their
+   heights; the object is then as wide as the widths and steps, as high as the first */
+static int sprite_parts(Text *t, const TextArgs *a, int *w, int *h)
+{
+    int hires = !g_small_fonts && g_screen_mode == 2, n = a->parts > 8 ? 8 : a->parts, i;
+    *w = *h = 0;
+    if (t)
+        t->w = t->h = t->nspr = 0;
+    for (i = 0; i < n; i++) {
+        const Sprite *s = hires ? a->hi[i] : a->lo[i];
+        if (!s)
+            continue;
+        *w += s->x2 - s->x1 + 1;
+        *h += s->y2 - s->y1 + 1;
+        if (!t)
+            continue;
+        if (!t->nspr)
+            t->h = s->y2 - s->y1 + 1;
+        t->w += s->x2 - s->x1 + a->part_dx[i] + 1;
+        t->spr[t->nspr] = s;
+        t->sdx[t->nspr] = a->part_dx[i];
+        t->sdy[t->nspr++] = a->part_dy[i];
+    }
+    return n > 0 && *w > 0;
+}
+
+/* 0x416170 + 0x416300 + 0x4163e0 and the layout (slot 6): a text object of its own;
+   with parts, 0x418160's sprite object (its first sprite's offset, added for the dodge
+   and taken off again, cancels out here) */
 Text *text_new(const TextArgs *a)
 {
-    Font *f = font_get(a->font);
+    Font *f = a->parts ? 0 : font_get(a->font);
     Text *t;
     int w, h, x = a->x, y = a->y, tx = a->tx, ty = a->ty;
-    if (!f)
-        return 0;
-    font_measure(f, a->text, &w, &h, 0);
-    h += f->line;
+    if (a->parts) {
+        if (!sprite_parts(0, a, &w, &h))
+            return 0;
+    } else {
+        if (!f)
+            return 0;
+        font_measure(f, a->text, &w, &h, 0);
+        h += f->line;
+    }
     if (a->motion != 1)
         align(w, h, &x, &y, a->align);
     align(w, h, &tx, &ty, a->align);
     t = calloc(1, sizeof *t);
-    if (!t || !(t->text = malloc(strlen(a->text) + 1))) {
+    if (!t)
+        return 0;
+    if (!a->parts && !(t->text = malloc(strlen(a->text) + 1))) {
         free(t);
         return 0;
     }
-    strcpy(t->text, a->text);
+    if (t->text)
+        strcpy(t->text, a->text);
+    t->list = a->list;
     t->align = a->align;
     t->effect = a->effect;
     t->motion = a->motion;
@@ -117,6 +161,8 @@ Text *text_new(const TextArgs *a)
     t->y = y;
     t->w = w;
     t->h = h;
+    if (a->parts)
+        sprite_parts(t, a, &w, &h);
     t->start = g_clock;
     t->lifetime = a->lifetime;
     if (a->blink < 0)
@@ -321,6 +367,27 @@ void text_args_of(const Text *t, TextArgs *a)
     a->back = t->back;
 }
 
+/* 0x417080: a sprite object; effects 3 and 4 only blink it. Each part is drawn at the
+   right edge of the one before (its last column, as drawn) plus its step. */
+static void draw_sprites(Text *t)
+{
+    unsigned elapsed = g_clock - t->start;
+    int x = t->x, y, i, r[4];
+    if (t->effect == FX_BLINK || t->effect == FX_BLINK_TRANSP) {
+        if (t->period == 0) {
+            if (((t->frames += g_ticks) & t->mask) == t->mask)
+                return;
+        } else if (elapsed % (2u * (unsigned)t->period) >= (unsigned)t->period)
+            return;
+    }
+    for (i = 0; i < t->nspr; i++) {
+        x += t->sdx[i];
+        y = t->y + t->sdy[i];
+        if (sprite_draw(t->spr[i], x, y, r))
+            x = r[2];
+    }
+}
+
 /* 0x416da0 */
 void text_draw_one(Text *t)
 {
@@ -328,6 +395,10 @@ void text_draw_one(Text *t)
     unsigned elapsed = g_clock - t->start;
     int visible = 1, level = 0;
     move(t);
+    if (t->nspr) {
+        draw_sprites(t);
+        return;
+    }
     switch (t->effect) {
     case FX_TRANSP75: level = 75; break;
     case FX_TRANSP50: level = 50; break;
@@ -373,10 +444,11 @@ void text_draw_one(Text *t)
 
 void text_draw(void)
 {
-    int i;
-    for (i = 0; i < TEXTS; i++)
-        if (alive(g_texts[i], 0))
-            text_draw_one(g_texts[i]);
+    int i, list;
+    for (list = 1; list >= 0; list--)
+        for (i = 0; i < TEXTS; i++)
+            if (alive(g_texts[i], 0) && g_texts[i]->list == list)
+                text_draw_one(g_texts[i]);
 }
 
 void text_clear(void)

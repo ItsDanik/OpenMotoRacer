@@ -23,6 +23,21 @@ void sound_stop_all(void);              /* 0x424020 */
 unsigned sound_length(int h);           /* 0x4240d0: ms */
 int sound_handle(int id);               /* 0x519ff8[id] */
 
+/* the sound server's own calls, as the race's sounds make them (0x423fd0..0x424090) */
+int sound_server_play(int id, int flags);       /* the id's sample: the copy playing */
+void sound_volume(int h, int v);        /* 0..255 */
+void sound_pan(int h, int p);           /* -128..128 */
+void sound_frequency(int h, int hz);    /* heard only between 1000 and 44100 */
+void sound_pause_all(int on);           /* 1: the looping copies stopped; 0: again */
+int sound_last_voice(void);             /* 0x502898 */
+void sound_set_last_voice(int id);
+int sound_last_effect(void);            /* 0x502710 */
+void sound_set_last_effect(int id);
+int sound_effects_on(void);             /* 0x4db664 */
+int sound_voices_on(void);              /* 0x4db668 */
+void sound_load_named(int id, const char *name);   /* a track's ambient sample (Divers\) */
+int sound_rate(int id);                 /* the id's file's own rate */
+
 void sound_queue(int n, ...);           /* 0x404e10(n, delay, id, delay, id, ...) */
 void sound_queue_voice(int id, int delay);  /* 0x404da0 */
 void sound_update(void);                /* 0x404eb0: the queues, once a menu frame */

@@ -76,7 +76,8 @@ typedef struct BikePhys {
     float push;                 /* +0x180: its speed, decays 33.3 m/s a second */
     float skid_w[2];            /* +0x184, +0x188: skid marks' width (effects) */
     float vdir[3];              /* +0x18c: the smoothed direction of motion */
-    float cpu_speed;            /* +0x1a4: computer bikes' speed copy */
+    float fwd[3];               /* +0x198: computer bikes: the unit Z row (where they point) */
+    float cpu_speed;            /* +0x1a4: computer bikes' wanted speed, m/s */
     float front[3], front1[3], front2[3];   /* +0x1b4, +0x1c0, +0x1cc: front wheel point */
     float front_air;            /* +0x274: the front wheel's time off the ground */
     float rear[3], rear1[3], rear2[3];      /* +0x338, +0x344, +0x350: rear wheel point */
@@ -119,7 +120,8 @@ typedef struct BikePhys {
     int sec;                    /* +0x31c1: the section */
     float wall_n[3];            /* +0x31c5: the last wall's normal */
     float hit_timer;            /* +0x31d1: 200 after a hit */
-    int lane;                   /* +0x31d9: 0..2, -1 */
+    float lane_x;               /* +0x31d5: computer bikes: across the racing line, units */
+    int lane;                   /* +0x31d9: 0..2, -1 (computer bikes: the lane they ride) */
     int turbo_held;             /* +0x31f9: action 6 held */
     int turbo_pressed;          /* +0x3201: pressed since the pose last looked */
     int turbo_pressed1;         /* +0x3205 */
@@ -162,6 +164,9 @@ void bikephys_collide(BikePhys *all[], int n, float dt);
 /* the key handlers 0x431250 (down) and 0x432700 (up) on obj+0x31e9: action 0..5 as the
    bits above, 6 the turbo; race_running = 0x5429b0 */
 void bikephys_key(BikePhys *b, unsigned *keys, int action, int down, int race_running);
+
+/* 0x45ca00: the frame's pitch from its matrix (+0x2e55) */
+double bikephys_frame_pitch(const BikePhys *b);
 
 /* the C library's rand() as the game's (msvcrt: x 214013 + 2531011, bits 16..30) */
 int bikephys_crt_rand(void);

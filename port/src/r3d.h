@@ -67,6 +67,9 @@ void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[
    bikes': no 1024 farther, and faces on a paletted page drawn through the palette skin) */
 int r3d_points(int nv, const float (*v)[3], const float n[3][3], const float t[3]);
 void r3d_faces(int base, int nf, const Face *f, int skin);
+/* 0x49bca0, the on-board cockpit's faces: the farthest corner's depth x 0.2 - near as the
+   key, the kinds but 0 drawn as 0x10 (from 1 or 0x10) or 0x2c */
+void r3d_faces_cockpit(int base, int nf, const Face *f);
 /* the same with a rotation of row vectors, M x C (0x403880's decor, the track's blocks) */
 void r3d_object_m(const Model *m, const float r[3][3], const float pos[3]);
 /* a placement (rotation of row vectors, position) seen through the camera: N = R C,

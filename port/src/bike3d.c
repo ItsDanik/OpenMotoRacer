@@ -36,6 +36,8 @@ static struct {
 } g_skl;
 static Model g_wheel[2];        /* rear 0x52c240, front 0x51ac58 */
 static Model g_lod[3];          /* medium, low, very low: 0x53a788, 0x53a7f8, 0x53a868 */
+static Model g_bar, g_pit;      /* the on-board view's handlebar 0x504ed8, cockpit 0x51bf60 */
+static float g_shake;           /* 0x4ea4e4: the cockpit's smoothed pitch */
 static int g_loaded;
 
 /* ---------------------------------------------------------------- reading */
@@ -267,6 +269,8 @@ void bike3d_free(void)
     model_free(&g_wheel[1]);
     for (i = 0; i < 3; i++)
         model_free(&g_lod[i]);
+    model_free(&g_bar);
+    model_free(&g_pit);
     r3d_free_page(0);
     r3d_free_page(1);
     g_loaded = 0;
@@ -285,7 +289,15 @@ int bike3d_load(int rgb1)
         bike3d_free();
         return 0;
     }
-    /* 0x413450: the three far models, x 0.95 (0x4204b0) */
+    /* 0x413450: the handlebar and the cockpit x 8 (the flag 0), then the three far models,
+       x 0.95 (0x4204b0) */
+    if (!model_load_bike(&g_bar, g_fam.model[FM_HANDLEBAR][0], g_fam.model[FM_HANDLEBAR][1], 0)
+        || !model_load_bike(&g_pit, g_fam.model[FM_COCKPIT][0], g_fam.model[FM_COCKPIT][1], 0)) {
+        bike3d_free();
+        return 0;
+    }
+    model_scale(&g_bar, 8.0f, 8.0f, 8.0f);
+    model_scale(&g_pit, 8.0f, 8.0f, 8.0f);
     for (i = 0; i < 3; i++) {
         if (!model_load_bike(&g_lod[i], g_fam.model[FM_MEDIUM + i][0],
                              g_fam.model[FM_MEDIUM + i][1], dirt)) {
@@ -728,4 +740,42 @@ static void rider(Rider *rd, int lod, int draw)
         return;
     for (i = 0; i <= g_skl.n; i++)
         r3d_faces(base, g_skl.b[i].nf, g_skl.b[i].f, skin);
+}
+
+/* ---------------------------------------------------------------- the on-board view */
+
+void bike3d_cockpit_step(double pitch)
+{
+    g_shake = f32((pitch * -0.25f - g_shake) * 0.25f + g_shake);
+}
+
+/* 0x462110: the handlebar turned by the steering and the cockpit, both in the view's frame,
+   rolled by the lean, shaken by the pitch, lowered by the suspension and the wheelie */
+void bike3d_cockpit(const Rider *rd, float lean)
+{
+    M rg, rs, rr, r0, n;
+    V a, t, p;
+    float x = f32(rd->wheelie * 0.6366197723675814);           /* 2 / pi */
+    float roll = f32(-(double)lean * 0.4);
+    int base;
+    a[0] = 0.0f;
+    a[1] = f32(((double)x * -80.0f + (double)rd->susp * 10.0) - 350.0);
+    a[2] = f32((double)rd->susp * 5.0f + 350.0f);
+    rmat(rg, g_shake, 0.0, 0.0);
+    rmat(rs, 0.0, f32(rd->steer * 0.0002857142826542258f), 0.0);
+    rmat(rr, 0.0, 0.0, roll);
+    vm(t, a, (const float (*)[3])rg, 0);       /* the handlebar's place */
+    mm(n, (const float (*)[3])rg, (const float (*)[3])rr);
+    mm(n, (const float (*)[3])n, (const float (*)[3])rs);
+    base = r3d_points(g_bar.nv, (const float (*)[3])g_bar.v, (const float (*)[3])n, t);
+    if (base >= 0)
+        r3d_faces_cockpit(base, g_bar.nf, g_bar.f);
+    vm(p, a, (const float (*)[3])rg, 0);       /* the cockpit's (the inline roll of the
+                                                   game, R(0, 0, roll) R(0, 0, 0)) */
+    rmat(r0, 0.0, 0.0, 0.0);
+    mm(n, (const float (*)[3])rg, (const float (*)[3])rr);
+    mm(n, (const float (*)[3])n, (const float (*)[3])r0);
+    base = r3d_points(g_pit.nv, (const float (*)[3])g_pit.v, (const float (*)[3])n, p);
+    if (base >= 0)
+        r3d_faces_cockpit(base, g_pit.nf, g_pit.f);
 }
