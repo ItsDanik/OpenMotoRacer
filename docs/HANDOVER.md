@@ -58,6 +58,9 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   The whole Solo chain runs logo → … → Start → loading, then back to the main menu (no
   race yet). Correction in NOTES §4.12.10: the loading logo and badges are drawn by the
   load's steps (0x4470d0).
+- Pages 20/21, championship Load/Save: equal to the original's captures; the original
+  loads a save the port wrote. Saves go to ~/.config/openmotoracer for now (saves.c),
+  read from there or else from the game's data/.
 - The tracker shows Claude's messages at its bottom ("From Claude", the `messages` dataset)
   and Danik writes from it (comments sent to Claude): keep it watched.
 
@@ -66,10 +69,10 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   CD's data, or ask for the official 3.22 patch?
 - Music: loop for ever (GOG, now) or the CD's "play a repeating track twice"?
 - Where saves go (bestscor.dat, championship saves, ghosts): the game's data folder, as
-  the original, or a user folder?
+  the original, or a user folder? (For now a user folder, the game's read as a fallback.)
 
 ## Next, in order
-1. Pages 20/21 (championship load/save) and 11 options (+12, 13, 23); then the 3D bike
+1. Page 11 options (+12 controls, 13 info, 23 data disk); then the 3D bike
    on page 10 (the race's bike object, 0x45bf70 family, NOTES §4.12.10 7b).
 2. Sound: CONFIG.BPT's switches and volumes, pause on losing focus, the race's sounds.
 3. The track (.trk), the race loop, the race renderer (the same r3d with the race's

@@ -72,6 +72,8 @@ launcher (Delphi): it writes `motoracer.ini` and starts `game.EXE`.
 ## The port (`port/`)
 C11, CMake, SDL2 linked dynamically. Built with one command:
 `cmake -S port -B port/build && cmake --build port/build` → `port/build/openmotoracer`.
+- `-home DIR` / `OMR_HOME`: where saves are written (`saves.c`; default
+  `~/.config/openmotoracer`), the game's format; read from there, else the game's data/.
 - `-data DIR` / `OMR_DATA`: the player's Moto Racer folder (game.EXE + data/; default
   `./Moto Racer`). Names matched in any case. Files through the banks first (`files.c`).
 - **The game's tables are read from the player's game.EXE** at their addresses
@@ -91,7 +93,8 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   3D letters through `obj3d.c`, NOTES §4.11), 3 main menu (`page_main.c`), 4 quit,
   5 SELECT MODE (`page_mode.c`), 6 SELECT RACE (`page_track.c`), 10 CHOOSE BIKE
   (`page_bike.c`, `bikes.c`; no 3D bike yet), 9 TOP 5 (`page_top5.c`, `scores.c`:
-  bestscor.dat), 1 loading (`page_load.c`: back to page 3 until the race exists); the race
+  bestscor.dat), 1 loading (`page_load.c`: back to page 3 until the race exists), 20/21
+  championship Load/Save (`page_champ.c`); the race
   settings and track lists in `choices.c` (NOTES §4.12). A page not written yet ends the
   program with a message. Starts on 25, as the game.
 - 3D (NOTES §4.9): `r3d.c` the software renderer (float transform, depth buckets, s-buffer,

@@ -36,7 +36,11 @@ extern int g_opponents;         /* 0x4dbfdc: 0 = 24 riders, 1 = 12 (Config.Spt) 
 extern int g_champ_race;        /* 0x509ba8: the championship's race being run */
 extern int g_champ_shown;       /* 0x4e90c8: page 9 has shown the standings */
 extern int g_champ_on;          /* 0x4dc07c: the race end's "the championship goes on" */
-extern int g_list_number;       /* 0x4dc048: the data disk's list, 0 none */
+extern int g_list_number;
+extern int g_champ_new;         /* 0x4e90b0: the championship is at its first race */
+extern int g_riders;            /* 0x509bac: riders in the race (the race sets it) */
+#define CHAMP_ROWS 8
+extern unsigned char g_champ_table[CHAMP_ROWS][0xf9];  /* 0x5d0d58: the standings */       /* 0x4dc048: the data disk's list, 0 none */
 
 int tracks_load(void);          /* 0x428d60 */
 int champ_load(void);           /* 0x429a00, from the script the main menu opens */

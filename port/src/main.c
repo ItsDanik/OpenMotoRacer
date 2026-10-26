@@ -11,6 +11,7 @@
 #include "rand.h"
 #include "sound.h"
 #include "config.h"
+#include "saves.h"
 #include "video.h"
 #include <SDL.h>
 #include <ctype.h>
@@ -23,6 +24,9 @@ static void usage(void)
     puts("openmotoracer [options]\n"
          "  -data DIR          the Moto Racer folder, with game.EXE and data/ (OMR_DATA;\n"
          "                     default ./Moto Racer)\n"
+         "  -home DIR          where the hi-scores and championship saves are written\n"
+         "                     (OMR_HOME; default ~/.config/openmotoracer; the game's\n"
+         "                     own data/ is read when a file is not there)\n"
          "  -lang N            menus' language: 0 US, 1 French, 2 German, 3 Italian,\n"
          "                     4 Spanish, 5 Swedish (OMR_LANG)\n"
          "  --shot FILE N      no window: run N frames, save the screen as a BMP, quit\n"
@@ -156,7 +160,7 @@ static void scripted_input(const char *script, int frame)
 
 int main(int argc, char **argv)
 {
-    const char *data = getenv("OMR_DATA"), *shot = 0, *env, *script = getenv("OMR_INPUT");
+    const char *data = getenv("OMR_DATA"), *home = getenv("OMR_HOME"), *shot = 0, *env, *script = getenv("OMR_INPUT");
     char err[512], shotbuf[512];
     int shot_frames = 0, frame, i, page = 25;
 
@@ -169,6 +173,8 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-data") == 0 && i + 1 < argc)
             data = argv[++i];
+        else if (strcmp(argv[i], "-home") == 0 && i + 1 < argc)
+            home = argv[++i];
         else if (strcmp(argv[i], "-lang") == 0 && i + 1 < argc)
             g_lang = atoi(argv[++i]);
         else if (strcmp(argv[i], "--shot") == 0 && i + 2 < argc) {
@@ -193,6 +199,7 @@ int main(int argc, char **argv)
                  "Moto Racer folder that holds game.EXE and data/.", files_data());
         fail(err, shot != 0);
     }
+    saves_init(home);
     if (!exe_load(err, sizeof err))
         fail(err, shot != 0);
     config_load();
@@ -221,10 +228,12 @@ int main(int argc, char **argv)
             g_track = 0;
     }
     if ((env = getenv("OMR_TILE")))
-        if (sscanf(env, "%d,%d", &g_pics[0].sx, &g_pics[0].sy) == 2) {
-            g_pics[1].sx = g_pics[0].sx;        /* page 9's tile, paralax2 */
-            g_pics[1].sy = g_pics[0].sy;
-        }
+        if (sscanf(env, "%d,%d", &g_pics[0].sx, &g_pics[0].sy) == 2)
+            for (i = 1; i < MENU_PICS; i++)     /* every page's tile */
+                if (g_pics[i].mode == BM_TILE) {
+                    g_pics[i].sx = g_pics[0].sx;
+                    g_pics[i].sy = g_pics[0].sy;
+                }
 
     for (frame = 0; !g_quit; frame++) {
         SDL_Event e;

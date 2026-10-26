@@ -6,6 +6,9 @@
 cd "$(dirname "$0")/.."
 bin=${1:-port/build/openmotoracer}
 mkdir -p build/shots
+# the saves a run writes go to a scratch folder, emptied first (never the player's)
+export OMR_HOME=$PWD/build/shots/home
+rm -rf "$OMR_HOME"
 run() {     # name page frames [input]
     OMR_PAGE=$2 OMR_INPUT=$4 "$bin" --shot "build/shots/$1.bmp" "$3" > /dev/null 2>&1
     echo "$1 $(md5sum < "build/shots/$1.bmp" | cut -c1-12)"
@@ -36,3 +39,13 @@ OMR_TILE=13,115 run top5_snow 5 450 "80:move:320,250 90:click 200:move:630,10 21
 OMR_CHOICES=2,0,4 OMR_TILE=109,19 run top5_champ 9 200 "1:move:630,10"
 # page 1 from page 10's Start: orig_p1_loading_snowride
 run loading_snow 5 520 "80:move:320,250 90:click 200:move:630,10 210:right 260:return 330:move:630,10 420:return"
+# pages 21 and 20 (in this order: the save made is then listed and loaded):
+# orig_p20_load_empty, orig_p20_load_hover2, orig_p20_load_saved (the original listing the
+# port's own Champ1.sav, which it loads); champ_save has no capture (the original reaches
+# page 21 only after a championship race)
+IN20="80:move:530,250 90:click 200:move:630,10 260:move:572,411 270:click 300:move:630,10"
+OMR_TILE=105,105 run champ_load_empty 5 450 "$IN20"
+OMR_TILE=108,108 run champ_load_hover 5 450 "$IN20 400:move:300,220"
+OMR_CHOICES=2,0,4 run champ_save 9 360 "150:move:200,452 160:click 260:move:300,230 270:click 300:move:630,10"
+OMR_TILE=27,27 run champ_load_saved 5 450 "$IN20"
+run champ_loaded 5 560 "$IN20 400:move:300,230 410:click 430:move:630,10"

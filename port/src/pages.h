@@ -25,6 +25,11 @@ void page_bike_start(void);     /* 10: CHOOSE BIKE, 0x44e480 */
 void page_bike_frame(void);     /* 0x44ed30 */
 void page_bike_end(void);       /* 0x44ecf0 */
 
+void page_load_champ_start(void);   /* 20: championship Load, 0x450600 */
+void page_load_champ_frame(void);   /* 0x450800 */
+void page_save_champ_start(void);   /* 21: championship Save, 0x450d20 */
+void page_save_champ_frame(void);   /* 0x450f40 */
+
 void page_title_start(void);    /* 14: the title, 0x4465f0 */
 void page_title_frame(void);    /* 0x446b80 */
 void page_title_end(void);      /* 0x446b40 */

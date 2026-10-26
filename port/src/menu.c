@@ -43,6 +43,8 @@ static const struct {
     [10] = { page_bike_frame, page_bike_start, page_bike_end, "choose bike" },
     [14] = { page_title_frame, page_title_start, page_title_end, "title" },
     [15] = { page_name_frame, page_name_start, page_name_end, "name entry" },
+    [20] = { page_load_champ_frame, page_load_champ_start, 0, "championship load" },
+    [21] = { page_save_champ_frame, page_save_champ_start, 0, "championship save" },
     [25] = { page_logo_frame, page_logo_start, page_logo_end, "Delphine logo" },
     [26] = { page_mode_frame, page_mode_start, 0, "select mode (26)" },
 };

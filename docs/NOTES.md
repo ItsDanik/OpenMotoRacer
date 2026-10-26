@@ -3133,19 +3133,37 @@ Reads 0x4dbffc (Solo), 0x4dc094 (mode), 0x4dc08c/0x4dc088 (track), 0x4dc074 (lap
 0x4dc07c, 0x4dc1c4 (GP edition). Writes 0x4e90c8 = 1, the hi-score tables and
 bestscor.dat, deletes the timatak file. Nothing the next race reads.
 
-#### 4.12.6 Pages 20/21: championship Load / Save [decomp, medium]
-- **20 Load** (start 0x450600, frame 0x450800): CHTITRE.lez (id 0x73; CHTITREG 0x72 for
-  the GP edition) at (0,0), CHBARRE2 (0x75) at (129,158), CHLOADA/CHLOADB (0x76/0x77) at
-  (168,164), CHLIGNE1/2/3 (0x7a-0x7c) at (129,158)/(129,180)/(129,212), cancel.lez (0x47)
-  at (270,411) [decomp positions]; reads the first 0x1e bytes (the save's title)
-  of `%sData\Champ<n>.sav` for 8 slots into 0x5409c8 (0x20 each), lists them in font 12
-  (x 137, rows every 22 px up to y 374). Button 0 → glass, page 6; a slot → 0x429a00 reads
-  the save (a script) and, on success, page 6 (with the championship loaded). Reached from
-  page 6's Load button.
-- **21 Save** (start 0x450d20, frame 0x450f40): the same list; button 0 → page 9; buttons
-  1..9 → write `Data\Champ<i-1>.sav` ("w" mode): a title made of the player name 0x5161b0
-  and the current race's name (+ "P"/"R" flags, '_' → ' ') in 0x1e bytes, then the state;
-  then back to 9. Reached from page 9's Save (championship only).
+#### 4.12.6 Pages 20/21: championship Load / Save [decomp + asm, checked 2026-10-26]
+**20 Load** (start 0x450600, frame 0x450800), reached from page 6's Load in a
+championship; **21 Save** (start 0x450d20, frame 0x450f40), from page 9's Save. (An
+earlier reading here had the load parse the save as a script and the save go back to 9:
+both wrong.)
+- Pictures: tile CHFOND (id 0x71, scrolled (+1, +1) a frame), CHTITRE 0x73 (CHTITREG 0x72
+  in the GP edition) at (0,0), CHBARRE2 0x75 at (129,158); the header Load 0x76 / lit 0x77
+  (page 21: Save 0x78 / lit 0x79) at (168,164), the lit one while any slot is hovered
+  (hit ≥ 1); the slot lines 0x7a, lit 0x7b (page 21: 0x7c) for the hovered slot.
+- Buttons, rebuilt every frame: 0 = Cancel 0x47 (page 20: nb 0x08ffffff, Escape, at
+  (270,411)) or Continue 0x4d (page 21: nb 0x01ffff09, no hotkey, at (447,411); Cancel is
+  placed at (176,411) but never added); then 8 slots at (129, 197 + 22 i), hotkey 0x61 + i
+  (**keypad 1..8**), nb Down = next / Up = previous (0x0002ffff, + 0x01010000 each, the last
+  0x0700ffff: up from the first and down from the last go to button 0).
+- The start reads each slot's first 0x1e bytes (its title) into 0x5409c8 (0x20 each, byte
+  0x1f cleared; "" without a file); font 12 SetColors(white, white). Titles drawn in font 12
+  at (137, 198 + 22 i).
+- File `<0x4e8380 = "">Data\Champ%1d.sav`: the title (0x1e bytes), then u32 reverse,
+  pocket, difficulty, opponents (0x4dbfdc), race 0x509ba8, laps, **riders 0x509bac** (the
+  race's rider count), then the standings **0x5d0d58, 8 × 0xf9**: 2050 bytes.
+- Load press: the file read ("rb"; none → nothing happens), 0x4e90b0 = (race == 0), the
+  championship script of that difficulty read again (0x429a00); failed → the frame ends
+  there; read → ChangePage(6) **without** the glass. Cancel: glass, page 6.
+- Save press: "wb" (opened before anything is checked), title = sprintf("%s ON %s (",
+  player 0x5161b0, the race's track) with '_' → ' ' in the whole string, + "P" if the race
+  is Pocket (+0x24), + "R" if Reverse (+0x20), + L/M/H by difficulty, + ")", cut at 31;
+  the 0x1e bytes written are the buffer's (past the title's end, what it held before). The
+  page stays, with the new title listed. Continue: page 9, no glass.
+- Checked: the original's page 20 empty, with a slot hovered, and listing a Champ1.sav
+  **written by the port**, which it loads (to page 6, Speed Bay 04 laps): the port's
+  pictures equal but for the pointer (build/ref/orig_p20_*).
 
 #### 4.12.7 Page 1: loading (frame 0x40b3f0; no start, no end routine)
 
@@ -3453,8 +3471,13 @@ build/orig and the prefix, own Weston socket) avoided it.
   (`loading_progress`, 0x4470d0: badges, the logo on every other step); since the race
   is not written yet it then waits 2 s and goes back to the main menu (the original's
   path when a race fails to load). Same as orig_p1_loading_snowride.
-- Test switch `OMR_CHOICES=MODE,TRACK,LAPS[,REVERSE,POCKET]`; `OMR_TILE` also sets
-  page 9's tile (paralax2, id 1).
+- `saves.c` + `page_champ.c` (20, 21): the saves go to the player's folder (`-home`,
+  `OMR_HOME`, else `$XDG_CONFIG_HOME` or `~/.config/openmotoracer`) in the game's own
+  format and names; reading takes that folder's file first, else the game's `data/` one
+  (bestscor.dat too). A default until Danik decides (HANDOVER). The title's unused bytes
+  are written as zeros. `tools/shots.sh` sets OMR_HOME to `build/shots/home`, emptied.
+- Test switch `OMR_CHOICES=MODE,TRACK,LAPS[,REVERSE,POCKET]`; `OMR_TILE` sets every
+  tile picture (paralax1/2, CHFOND...).
 
 
 ## 5. Running the original (for checking)

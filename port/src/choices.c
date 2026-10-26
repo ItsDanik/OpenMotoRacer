@@ -24,6 +24,9 @@ int g_champ_race;
 int g_champ_shown;
 int g_champ_on = 1;
 int g_list_number;
+int g_champ_new;
+int g_riders;
+unsigned char g_champ_table[CHAMP_ROWS][0xf9];
 
 /* ListName, PocketAvailable, ReverseAvailable, NumberIslande, then IslandeList: name,
    folder, ON/OFF, laps for each track */

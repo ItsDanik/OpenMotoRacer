@@ -2,7 +2,7 @@
    comes with the race, which makes the new records.) */
 #include "scores.h"
 #include "choices.h"
-#include "files.h"
+#include "saves.h"
 #include "menu.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,10 +60,30 @@ static const unsigned char *find_block(unsigned char *d, long len)
     return 0;
 }
 
+/* the whole of bestscor.dat (the player's folder first, saves.h) */
+static unsigned char *read_table(long *len)
+{
+    FILE *f = save_open("bestscor.dat", "rb");
+    unsigned char *d = 0;
+    long n;
+    *len = 0;
+    if (!f)
+        return 0;
+    if (fseek(f, 0, SEEK_END) == 0 && (n = ftell(f)) > 0 && fseek(f, 0, SEEK_SET) == 0
+        && (d = malloc((size_t)n)) && fread(d, 1, (size_t)n, f) == (size_t)n)
+        *len = n;
+    else {
+        free(d);
+        d = 0;
+    }
+    fclose(f);
+    return d;
+}
+
 void scores_load(void)
 {
     long len = 0;
-    unsigned char *d = dsi_load("Data\\bestscor.dat", &len);
+    unsigned char *d = read_table(&len);
     const unsigned char *b = find_block(d, len);
     if (b)
         memcpy(g_scores, b + 0x20 + SCORE_SIZE, sizeof g_scores);
@@ -75,7 +95,7 @@ void scores_load(void)
 int best_lap_load(Score *out)
 {
     long len = 0;
-    unsigned char *d = dsi_load("Data\\bestscor.dat", &len);
+    unsigned char *d = read_table(&len);
     const unsigned char *b = find_block(d, len);
     if (b)
         memcpy(out, b + 0x20, sizeof *out);
