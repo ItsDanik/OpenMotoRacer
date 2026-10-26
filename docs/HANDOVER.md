@@ -19,11 +19,19 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
 - The original runs unseen (`tools/orig.sh`, headless Weston + Xwayland, its window given
   focus with xdotool, keys reach it): logo, title and name entry pictured (NOTES §5).
 
+- The port's skeleton (`port/`, CLAUDE.md "The port"): C/SDL2, reads the player's
+  game.EXE for the game's tables, the banks, the LEZ pictures and the game's own drawing
+  routine; its first picture, the settled title page, equals the original's to the pixel
+  (5-6-5) apart from the Start button (NOTES §4.7).
+
 ## Waiting for Danik
 - Nothing. (He allowed the original on his screen, `ORIG_DISPLAY=:1`, and installed xdotool.)
 
 ## Next, in order
-1. Pictures of each menu page of the original for reference (`tools/orig.sh key`).
+1. The menu's machinery: the page table (0x4dbb38) and Menu_Frame, the buttons (0x40c1f0,
+   0x40c500), the mouse cursor, the fonts (FNT) and the texts; then the pages in their
+   order (25 logo → 14 title → 15 name entry → main menu). Reference pictures of each from
+   the original as the port reaches it (`tools/orig.sh key`).
 2. A model viewer (`tools/model.py`: 3DF + MAP + texture page; which palette the texture
    pages use: they have none of their own).
 3. The port's skeleton (C, SDL2, a 16-bit framebuffer at 640x480/320x240) and its first

@@ -69,6 +69,20 @@ launcher (Delphi): it writes `motoracer.ini` and starts `game.EXE`.
   the layout map with every pointer site (`build/mr_layout.json`) for `strmap.py`,
   `seeds.py`, `strrefs.py`.
 
+## The port (`port/`)
+C11, CMake, SDL2 linked dynamically. Built with one command:
+`cmake -S port -B port/build && cmake --build port/build` → `port/build/openmotoracer`.
+- `-data DIR` / `OMR_DATA`: the player's Moto Racer folder (game.EXE + data/; default
+  `./Moto Racer`). Names matched in any case. Files through the banks first (`files.c`).
+- **The game's tables are read from the player's game.EXE** at their addresses
+  (`exe.c`: the PE placed at 0x400000, the build known by its FNV-1a sum; unknown builds
+  are refused with a message).
+- The screen is the game's: 640x480 RGB565 (`video.c`), shown 4:3.
+- `--shot FILE N` (`OMR_SHOT`): no window, N frames, the screen as a BMP. `--help` lists
+  the test switches (`OMR_*`).
+- So far: the menu pictures (`bitmap.c`: LEZ, the table 0x4e3e20, the drawing 0x43ede0);
+  shows the settled title page's picture.
+
 ## File formats
 
 | Ext | What | Status |

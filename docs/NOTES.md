@@ -161,6 +161,35 @@ and joined by `JoinFunc.java` (now a step of `rebuild.sh`). Catch blocks stay se
 small functions (they call 0x4c4f71). No RTTI for the game's own classes:
 `tools/vtables.py` lists the virtual tables and who installs them.
 
+### 4.7 Menu pictures
+- **The table** at 0x4e3e20: 209 records of 20 bytes, `u32 ?, u32 language, u32 id,
+  char *name, u32 mode`, ended by id -1. 0x415ad2 copies it out by id into 0x53a8d8 (16
+  bytes an id: ?, language, name, mode). The loaded pictures are pointers by id at
+  0x504880 (0x504b70 = id 0xbc).
+- **Loading** (0x43e8e0): language 0 → `data\menu\bitmap\<name>`; language 1 → the menu
+  language's folder from 0x4e8b60 (`data\MenuUs\`, `MenuFr`, `MenuGr`, `MenuIt`, `MenuSp`,
+  `MenuSw`; index 0x4dbce8, set by `-us`/`-fr`/...), and if that file is missing,
+  `data\MenuUs\`. A `.lez` is kept packed and unpacked at its first drawing; anything else
+  is a 24-bit TGA (0x43e280, rows flipped). All 209 names are `.lez`.
+- **The object** (0x40 bytes): +0 x, +4 y, +8 w, +0xc h, +0x14 mode, +0x18/+0x1c the tile's
+  scroll, +0x2c the 16-bit pixels, +0x30 the packed file.
+- **Drawing** (0x43ede0, `this, ?, mode, pct_h, pct_w`): mode 5 = the picture's own.
+  Only the bottom `pct_h`% of its rows are drawn, at y + the rows skipped; `pct_w`% of its
+  columns are cut off on the right; clipped to the screen (0x655d10 x 0x624b18, pitch
+  0x62ebec, surface 0x624f5c). Modes: 0 copied, 1 colour 0 left out, 2 every other pixel
+  (the next row starting one pixel later, then one earlier), 3 the same with colour 0 left
+  out, 4 (decided by the picture's own mode, whatever is asked) the 128x128 tile filling
+  640x480 from (sx & 0x7f, sy), 0x43f0f0. Its second path (0x4dbcf4 set, aligned 8-byte
+  copies) is not read yet; it looks like the same picture copied faster.
+- **The title page** (14, 0x446b80) draws `title.lez` (0xbc; `titleGP.lez` 0xc0 for the GP
+  edition, 0x4dc1c4) while its three 3D logo pieces fly in (`titleMr\moto`, `racer`,
+  `ellipse`, each a textured quad, drawn by 0x48c030), then `title4.lez` (0xbf), which has
+  the logo in it, once all three have arrived (0x5409bc = 3). "FULL D3D VERSION" blinks
+  above (0x4e90e0 counts frames: drawn from 11 to 20).
+- **Checked**: the port's `title4.lez` against the original's settled title page (build/ref/
+  orig_p14_title.png): every pixel the same in 5-6-5 terms outside the "Start" button
+  (261..378 x 431..469), not drawn yet. All 209 pictures load through the port.
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and
