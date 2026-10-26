@@ -8991,6 +8991,988 @@ Resolution rows and the mode list: no-ops or window scale (Danik's call); sound 
 the port's sound flags. Unresolved: row+0x24's purpose, 0x4dbff0's meaning (full screen
 or windowed: the FS tick looks inverted if it means windowed), 0x408f30, the '^' glyph.
 
+### 4.20 The race view: cameras, dashboard, drawing order (mapped 2026-10-26)
+
+Moto Racer GOG 3.22 `game.EXE`. Addresses are the program's (base 0x400000).
+Marks: [asm] read from the disassembly, [decomp] from Ghidra's C only, [guess],
+[px] checked against a capture, [test] checked numerically against memory dumps
+in `build/trackcap/` (the headless original, mostly attract mode).
+
+Bike object O(k) = 0x581218 + k*0x3209, k 1-based (player index 0x508834; the
+captures have k = 2). Bikes 1 .. [0x509bac]-1. Camera block CAM = 0x5161c0 +
+i*0x238 (i = [0x4dc0f8], always set to 0 before the camera and drawing steps;
+there is only one camera in use per frame).
+
+---------------------------------------------------------------------------
+#### 1. The frame
+
+##### 1.1 Game_Frame 0x47d660 (the race's App_OnIdle step) [asm]
+
+Order:
+1. One-shot message boxes (0x4e4f00; 0x4e4f08/0x580a58 -> 0x43c4e0).
+2. [0x4f0c4c] = [0x4dc14c]; [0x4dc14c] = 0 (the frame's "new text" flag passed to 0x4841c0 at the end).
+3. 0x4120e0: the clock. ms = now - last, >200 -> 200, <=0 -> 30. Then the text
+   lists' clocks (0x53ba68, 0x53b8e8).
+4. 0x4126a0: the in-race windows (pause/quit, objects 0x4e8904..0x4e8910). If it
+   returns 0: 0x411a10 and the rest of the step is skipped (the window code
+   draws and presents on its own) [asm; the window side not followed].
+5. [0x5429b0] = 1 (keys allowed).
+6. 0x4121e0: demo-story texts; returns 0 -> skip.
+7. race vtable +0x10 (0x47ec40).
+8. [0x4e9810] = ftol(ms); [0x519fec] -= ms.
+9. 0x47dae0: HUD messages and timers.
+10. 0x47df40: dt = ms*0.1 (at least 1.0) into [0x4e9808]; the bike steps
+    (0x45d540 / 0x45e940) - the physics helper's part.
+11. vtable +0x18 = 0x47ecd0(dt).
+12. Link only: 0x457050, 0x456380 (network, out of scope).
+13. 0x48b7a0(0x5f6778, dt): animated decor (AnimDecor).
+14. 0x459000 (rdtsc profiling - ignore; 0x459000/0x459090/0x459130/0x4591b0 all are).
+15. 0x457590(dt).
+16. 0x47e3d0 (laps, checkpoints), 0x47e1e0.
+17. [0x4dc0f8] = 0; **0x4583e0(dt) chooses the camera mode; 0x458620(dt) moves the camera** (§2).
+18. If [0x4dc138]: 0x467b30(O(k), 1) for every loaded bike (LOD + pose, §4.6).
+19. Sounds: 0x4079e0 (if [0x4db65c]), 0x405f30.
+20. Solo: when all have finished: [0x509ba0] = 1 and the voices 0x47/0x48/0x4f/0x50 via 0x404da0.
+21. 0x412a50 race end (the race-rules helper's part); maybe 0x407420.
+22. **vtable +0x20 = 0x47ff90(dt, flags = 0xfffffffe)**: everything drawn (§1.2).
+23. 0x459fd0: frame limiter [asm]: waits (timeGetTime) until 1000/[0x4dc200] ms
+    have passed since the last frame; [0x4dc200] = 30 by default, set by the
+    command-line switch `-FrameRateMax<n>` (21..98 accepted, 0 = no limit; parsed in
+    0x414080 at 0x414c4e). GOG's launcher writes `-FrameRateMax60` into
+    motoracer.ini, so the GOG game runs at most 60 frames a second; the 1997 CD
+    without the switch at most 30. It then keeps the last 24 frame times
+    (0x5809f8..) for an average (the info line).
+24. [0x4e8918] = [0x4e891c] = 0.
+
+Race vtable 0x4d04c8: +0 0x47bf30, +4 0x47b420, +8 0x47bf70, +0xc 0x47d620,
++0x10 0x47ec40, +0x14 0x47d660, +0x18 0x47ecd0, +0x1c 0x47ec50, +0x20 0x47ff90.
+
+##### 1.2 The drawing 0x47ff90(dt, flags) [asm]
+
+flags is always 0xfffffffe from Game_Frame (bit 0 clear, everything else set).
+[0x5dafd8] = the Direct3D flag (0 = software, the port's case).
+
+1. [0x5dbc88] = [0x5ef058] = [0x4dc1e0] = 0 (per-frame counters).
+2. Detail level [0x4dc098] (0..4) picks columns 6..8 of the detail table into
+   [0x6d20c8], [0x62435c], [0x6d20d0] (NOTES §4.13 detail remap).
+3. race+0x18 = 0. (flags & 1 would call 0x499fb0/0x499fd0: never.)
+4. 0x4816c0: the HUD fonts, numbers 20, 7, 4, 5, 11, 14, 6 -> 0x4f0d64 .. 0x4f0d7c.
+5. [0x4f0dc4]++ (frame counter).
+6. D3D only: 0x423870 / 0x4236b0.
+7. Software (flags & 2): **0x402960 the horizon, drawn before the lock** (it writes
+   the whole background).
+8. **0x49a160(0, d3d)**: lock the surface, origin = surface + (top [0x62ebec] *
+   pitch [0x6d1040] + left [0x624374]) * 2; reset the depth buckets and the
+   s-buffer row lists for rows 0 .. [0x62e448].
+9. Which section the camera is in:
+   - if a TV kind ([0x4e9834] || [0x4e8968] || [0x504ea0]) and trackside cameras exist
+     ([0x51a40c] > 0): 0x40c740(campos) (search the whole track);
+   - else 0x40c7e0(hint = O(k)+0x31c1, campos) (search near the bike's section).
+10. 0x46e320(CAM, far = LenBPlane [0x51d1bc], 0.6f [0x4dbfe4]): the frustum planes
+    CAM+0xd4..+0x110 for the visibility tests.
+11. 0x40ce60(track 0x52c108, section, CAM, list 0x5dabd8): the track sections seen,
+    count -> [0x5dabcc] (NOTES §4.13, already in the port as land.c).
+12. flags & 6 == 6 and DrawLand [0x4e9900]: **0x458b80(list, count)**: bikes, their
+    shadows (§4.1).
+13. 0x4575c0 the particles (smoke/dust billboards), 0x4573e0 the skid-mark strips
+    (§4.4).
+14. flags & 8: 0x484810(1), 0x484810(2) (the dials' 3D parts, see §3b), 0x40f2d0,
+    0x486310, 0x47b7a0(race, 0, dt).
+15. Software: **0x49ad90 renders the 3D list** (buckets far to near through the
+    s-buffer, NOTES §4.9).
+16. flags & 0x40: if race+0xc (always 1 in a race): the HUD **0x4806e0** (or
+    0x4804d0 when the window [0x4e8904] has its +0x14 set); else if flags & 0x20:
+    0x418860(0x53ba68) only the text list.
+17. flags & 8: 0x484810(4) (the dials' 2D parts).
+18. [0x4dc124]: 0x483e90 the debug lines ('VERS 3.21 ...').
+19. 0x434ae0: the in-race windows 0x4e8908, 0x4e8904, 0x4e890c, 0x4e8910.
+20. flags & 0x10 && [0x4f15f4] && ![0x4f15f8]: 0x48acd0.
+21. 0x4841c0([0x4f0c4c], ...).
+22. D3D: 0x423590 / 0x49ad90.
+23. **0x49b0e0(0, d3d)**: fill the spans left free with colour [0x65f0d8] - only
+    when [0x625748] is set, and only 0x49a560 (the demo story) sets it - then unlock.
+24. D3D: 0x423940.
+25. 0x471440(0x5d2dd8).
+26. **0x49b1c0: present** (0x419900, the flip/blit).
+27. If [0x4e9ce4] (F2/F3/F4 asked for a new screen): 0x4592a0([0x4dc0c8],
+    [0x4dbff0], [0x4dc0d4], [0x4dc028]) sets the screen up again; [0x4e9ce4] = 0.
+28. [0x4e981c]++.
+
+So the order on screen is: horizon (full background), track + bikes + shadows +
+other 3D through the bucket/s-buffer renderer, then the HUD and texts on top, then
+the windows, then present.
+
+(Screen sizes, viewports and the other draw calls: §1b.)
+
+---------------------------------------------------------------------------
+#### 1b. Screen sizes, viewports, other draw calls
+
+**0x4592a0(mode 0x4dc0c8, FullScreen 0x4dbff0, Mode_169 0x4dc0d4, 0x4dc028)** [decomp + asm]. It is called by 0x410e10 at race load, and by the race draw when 0x4e9ce4 is set (F2/F3/F4 or Alt+Enter).
+- **Sizes:** 320x240, 512x384, 640x480, with 0x4dc0cc = W·H. In fullscreen the size goes through the display-mode table; if the switch fails it falls back to 640x480.
+- **Focal:** 0x49a0e0((float)(W·394/640)) and 0x49a100((float)(H·394/480)), with integer division. That gives 394, 315 or 197.
+  - The raw values go to 0x6d20cc and 0x709360. Multiplied by the zoom 0x6d1f74 they go to 0x6d20c4 and 0x6d104c.
+  - The full height is used even in 16:9.
+- **0x410e10 also sets:**
+  - near plane 0x625774 = 64.0
+  - 0x625788 = 10000.0 and 0x62e438 = 2000.0
+  - far plane 0x6d1f70 from the detail table 0x51d1c0[detail·9]
+- **Viewport, 0x499ba0(0, 0, W, H, wide, dbl)** [asm]:
+  - x0 at 0x624374 is 0; the top is at 0x6d1040.
+  - Width goes to 0x624f58, 0x655d10 and 0x5d93bc; height goes to 0x68b008, 0x624b18 and 0x5d9c20.
+  - Centre: 0x60d3c4 = W>>1 and 0x624f88 = top + (h>>1).
+  - Clip edges: 0x62e448 = W−1 and 0x625784 = top + h − 1.
+  - Row table: 0x62e468[y] = (0x4f1a3c + y)·pitch, with the pitch in 0x62ebec.
+  - 0x473a00 copies x0, top, W and h into 0x5d9a78, 0x5d893c, 0x5d93c8 and 0x5d8948.
+- **F4, 16:9 (Mode_169):**
+  - The picture height becomes ftol((W/16·9) × ((4/3)/(W/H))) = W·9/16, i.e. 360, 288 or 180. The 4/3 is the double at 0x4d1f78.
+  - In the software path the top stays at 0 and 0x4f1a3c stays 0. The centring offset is only set in the DirectDraw path when 0x53c524 is set.
+- **Clearing the screen:** when the draw flags have bit 1, 0x499fb0(1) → 0x476540 restores a lost surface and fills it with black. It fills the whole surface, or only the bands above and below when 0x5d893c is not 0. It then does a GetDC/ReleaseDC pair (0x499fd0). For the port this is just "clear to black".
+- **"Every other line" mode (0x4dc028 → 0x624b14)** would render at half height with double pitch, keeping needles and text on even rows. It is **dead in this build**: 0x4dc028 is 0 in the EXE, and its only writers copy it to or from 0x50487c or set it to 0 [asm].
+- **What depends on the screen size:**
+  - HUD positions measured in pixels from the corners (dials at W−102, bottom−74)
+  - the turn signs, scaled by W/640 and h/480
+  - Font_Get's low-res/hi-res choice
+  - 0x493f20 halving text coordinates unless at 640x480 with SmallFonts 0
+  - the focal
+
+**There is no split screen in this build [asm].**
+- 0x499ba0 is only ever called with (0, 0, full size): from the menu (0x409f70), from 0x4592a0, and from video init (0x4995a0).
+- Four camera blocks (0x5161c0 + i·0x238) are set up in a loop over 0x4dc0f8 = 0..3 at race start (0x47bf70). 0x4dc0f8 is then set back to 0, and the race draw uses block 0.
+- 0x4dc0fc is the one viewed player: 1 in a demo, otherwise the last slot with +4 and +8 set.
+- 0x4ea4c4 is never written; it is a constant 1.
+- Bike field +0x31dd is a camera-block index used for distance to the camera (0x45f160), not a viewport.
+- The string "PLAYERS" (0x4e99b0) has no references.
+- So two players in this build means Link (DirectPlay) only, which conflicts with the CLAUDE.md scope "one or two players on one PC". That needs Danik's decision.
+
+**The other draw calls** [asm unless marked]:
+- **0x4575c0, dust and smoke:** 128 sprite records at 0x52c498 + i·0x104 (active flag at +0xfc), aged by 0x457590, drawn through 0x4b0bec → 0x49b2c0/0x49b7f0 with camera 0. Visible in play; the port needs it.
+- **0x4573e0, tyre marks:** 16 strips at 0x542a28 + i·0x1608.
+  - Each holds up to 62 faces and 128 points; the counts are at +0x1600 and +0x1604.
+  - 0x457200 adds two points per call, on the ground plus 2.0. It is called from the rider routine 0x466d70 through 0x457390.
+  - The port needs it.
+- **0x40f2d0, track map:** controlled by MapMode 0x4dbdac (F9; 4 means off, the GOG default).
+  - It draws the track object's map model (+0x28 faces, +0x2c vertices): first face white, the rest grey (8,8,8) or (16,16,16), plus rider markers of size 50 or 30.
+  - It is placed in camera space, easing toward (−2000, −1200, 4000) for modes 0 and 2 (−500 instead of −1200 in 16:9), or (0, 0, 2000 or 2500) for modes 1 and 3.
+  - Modes 0 and 1 turn with the player's heading.
+  - It is inserted with 0x49c590 flag 2, which means bucket 0x1f3f, the farthest one.
+- **0x486310, dial face and turn signs:**
+  - The face is described in 3b.
+  - Signs: slots 1..6 hold the six sign models, flat-coloured, centred near (319,79) at 640x480.
+  - 0x486240 arms a sign with timer 75.0 from a track section's event code 0..5 (16..21 when racing in reverse).
+  - Each picture the timer drops by dt. The sign shows when ftol(timer·0.1) is even, i.e. it blinks every 100 ms.
+  - Signs are hidden when 0x4e9834 is 1 or 2, when DisplaySignal 0x4f0e14 (F8) is off, or during the victory lap (0x4f15f4).
+- **0x47b7a0, finish-place figure:** the models 1RST, 2ND and 3RD (.3DF/.MAP) from `<track>\FINAL\`, loaded by 0x47b600.
+  - Shown when the mode 0x4dc094 is not practice, the player's place (+0x2f85) is 0..2, and the state (+0x2de5) is 2.
+  - It flies in to a distance of 2500 and then wobbles. The port needs it.
+- **0x48acd0:** steps the victory "generic" sequence 0x48ae40 while 0x4f15f4 is set.
+- **0x434ae0:** draws the four in-race dialog slots 0x4e8904..0x4e8910 (already covered in NOTES part B).
+- **0x484380:** turns on or off a 6-second text in the bottom-left corner, `[ WxH] / [ VIDEO x.xxM TXT x.xxM]`. It appears on every screen set-up and on F1; it is the red text in q14. Optional for the port.
+- **0x483e90 and 0x4841c0:** debug only (0x4dc124).
+- **0x471440:** a timed screenshot/video capture. Drop it.
+- **0x49b1c0:** clears the per-frame flags and calls 0x419900 (the flip/blit to the screen: present), then a pending palette/surface update (0x499ed0) [asm].
+
+**Rough C size:** dials ~250 lines; HUD slots, signs and face ~120; screen set-up and viewport ~100; tyre marks ~80; dust ~60. The drawing itself is r3d's.
+
+##### 1b.1 Open points (screens, dials, extras)
+1. Where the 16:9 picture sits on screen in the software path (top or centred). One F4 capture of the original would settle it.
+2. [guess] font+0x774 is the width of 'O'.
+3. What 0x4e9834 is (it hides the signs).
+4. How the track map, put in the farthest bucket, ends up visible.
+5. The finish figure's float constants (0x4d18e0..0x4d18fc) are not decoded.
+6. Two players on one PC does not exist in the original, only over Link. Danik needs to decide the scope.
+7. The tool has not matched q19 yet: its true speed and gear are unknown, and with a guess of speed 0 and gear 1, 167 pixels still differ.
+
+---------------------------------------------------------------------------
+#### 2. The cameras
+
+##### 2.1 The camera block (0x238 bytes) [asm]
+
+| off | what |
+|-----|------|
+| +0 | B = the followed bike's body sub-object (O(k)+0x24) |
+| +4 | k, the followed bike (−1: none) |
+| +8 | mode: 7 chase, 6 on-board/bike-mounted, 3 look-at from a fixed point, 1 TV director |
+| +0xc | state counter (5, then 2 inside the chase step) |
+| +0x28 | TV orbit angle |
+| +0x34 | finish orbit flag (bike finished: the camera swings round to the front) |
+| +0x38,+0x3c,+0x40 | angles a,b,c (b = yaw +0x3c, set to π by Tab) |
+| +0x50,+0x54,+0x58 | offset (0, 191, −484) |
+| +0x68 | C, 3x3 rotation (world->view rows), +0x8c T (view translation) |
+| +0x98 | position |
+| +0xa4 | target |
+| +0xc0 | roll angle, from 0x490220(C) |
+| +0xc8 | the chase's lerped position (before the distance correction) |
+| +0xd4..+0x110 | frustum planes (0x46e320) |
+| +0x114,+0x118 | MediumZone, HightZone |
+| +0x11c + 12i | 8 preset offsets: (0,−160,1680) (0,160,−20) (−250,150,0) (250,150,0) (−70,120,200) (70,120,200) (0,400,400) (0,500,500) |
+| +0x17c + 12i | 8 preset angles: (0,0,0) (0,π,0) (0,π/2,0) (0,−π/2,0) (0,π,0) (0,π,0) (−π/4,π,0) (−π/4,π,0) |
+| +0x1dc + 4i | 8 floats, all 64.0 (the chase height) |
+| +0x21c | preset index; ≠ 0 = bike-mounted preset camera |
+| +0x220 | chase distance index (F5), 0..3 |
+| +0x224 + 4j | extra distance: 0, 128, 256, 512 |
+
+Reset 0x46d760. Per race 0x410120: 0x46da40 sets angles (0,0,0), offset
+(0,191,−484); the light vector [0x52c228] = (−0.5, −1.0, 0); [0x4dc130] = 1;
+[0x4dc0b4] = Solo. [test] presets, extra distances and 64.0 read identically in all
+dumps.
+
+Helpers [asm]: 0x410010(out, v, M) = v·M + T (row vector times the 3x3, plus T);
+0x40ffc0 add; 0x40ff80 copy; 0x46d590(out, v, d) = v·(1/d); 0x403a80(out, A, B)
+= A then B (A·B); 0x40fd40 builds R(a,b,c); 0x40fe80 rigid inverse; 0x403710
+identity; 0x4039c0 / 0x403a20 copies.
+
+**Look-at 0x46e140(CAM)** [asm][test]: u = unit(target − pos), h = sqrt(ux²+uz²);
+A = [[uz/h,0,ux/h],[0,1,0],[−ux/h,0,uz/h]], Bp = [[1,0,0],[0,h,uy],[0,−uy,h]],
+C = A·Bp (yaw then pitch, no roll); T = 0; +0xc0 = 0x490220(C).
+Checked: C equals this look-at from +0x98 to +0xa4 to 5e-8 in every mode-3 dump,
+and from +0xc8 to +0xa4 in 18 of 19 chase dumps (see §2.5).
+
+**0x490220(M)** [asm]: F = row2 + T, U = row1 + T; returns atan2((Ux·Fy − Fx·Uy)/|F|,
+Fz/|F|) (±π/2 when |F| < 1e-4). For a pure yaw R(0,b,0) it gives −b. Used both
+for the roll at +0xc0 and for the bike's heading in the chase.
+
+Trig: the table COS at 0x5fcb80, index = ftol(angle · 2607.594587618272) (16384
+steps per 2π); R(0,θ,0) is built inline from the table (the compiler factored
+S0·COS0·(1+sin) - same result).
+
+Projection: 0x49a120(z) sets zoom [0x6d1f74] = z and fx [0x6d20c4] = base·z.
+[test] fx = 394·zoom in every 640x480 dump (zoom 1.0 or 3.0).
+
+##### 2.2 Choosing the mode 0x4583e0(dt) [asm]
+
+Every frame:
+- on-board [0x4dc008] = [0x4dc00c] (F6) && the player's bike not crashed (+0x30c1);
+- 0x49a120(1.0) (zoom back to 1);
+- ([0x4dc014] is tested but never written: dead.) Then:
+  - on-board: CAM+4 = player k, mode 6;
+  - else, if the player's O(k)+0x2de5 == 2 (finished): +0x34 = 1, mode 7;
+  - else +0x34 = 0, mode 7.
+  (The Solo [0x4dc0b4] and [0x4dc020] branches are the same; [0x4dc020] is never
+  written, so mode 1 "free debug camera" is dead.)
+- Then, if ([0x4e9830] || [0x504ea0] || [0x4e8968] || [0x4dc134] || [0x4e9834] == 1)
+  and trackside cameras exist ([0x51a40c] > 0): mode 1 and 0x46e9f0(CAM, dt, k), the
+  TV director (§2.6). These flags are the replays/demos/after-finish view
+  ([0x504ea0] is set by 0x412960 when the player has finished a single race [guess]).
+
+##### 2.3 Moving it 0x458620(dt) [asm]
+
+- mode 1: only the dead debug path (0x46dde0) - the TV director already placed it.
+- else, Solo: the yaw +0x3c returns to 0 by dt·0.02454369260617026 (π/128; double
+  at 0x4d0e00 / 0x4d0e08) a frame, from either side, clamped at 0. Then
+  **0x4700e0(CAM, dt)**.
+
+##### 2.4 0x4700e0: the mode dispatch [asm]
+
+**Mode 3** (look from where the camera is at a bike): if k ≥ 0: +0 = B,
+target = P (the bike's position O(k)+0x30); 0x46e140 look-at from the unchanged
+position.
+
+**Mode 6, on-board** (when +0x21c ≠ 0 it goes to the preset path of 0x46f840
+instead). X = the wheelie angle O(k)+0x307d. Let M, T be the bike matrix
+(O(k)+0xbc / +0xe0) and P its position.
+- dirt bikes (PersoAnim [0x509398 + bike·0x124] ≠ 0): new target = (0, 170+10X, 40)·M + T + P,
+  new eye = (0, 170−10X, 0)·M + T + P;
+- road bikes: target (0, 170+5X, 40), eye (0, 170−5X, 0).
+  Floats: 10.0 [0x4d1414], 170.0 [0x4d1418], −10.0 [0x4d1420], 5.0 [0x4d1424],
+  −5.0 [0x4d1428], 40.0 [0x4d141c].
+- x and z are taken straight (written as (new−old)+old); y is lerped:
+  y = old + (new−old)·k with k = 0.5f [0x4d1408] for dirt, 0.7692307692307692
+  (double 10/13 [0x4d1430]) for road; for both eye and target.
+- look-at 0x46e140; then roll r = lean O(k)+0x2e1d · 0.25f [0x4d13e0]:
+  C = C·R(0,0,r) (table sin/cos, inline), T likewise; +0xc0 = 0x490220(C).
+- In this mode 0x458b80 draws the cockpit instead of the player's bike (§4.1).
+
+**Mode 7** -> 0x46f840, the chase camera.
+
+##### 2.5 The chase camera 0x46f840(CAM, dt) [asm, test]
+
+Inputs: k (+4; < 0 -> return), +0 = B; P = O(k)+0x30; the bike matrix M (+0xbc).
+
+1. **Crashed** (O(k)+0x30c1): target = (P + O(k)+0x30b5)/2 (the bike and the saved
+   body point), look-at from the unchanged position. Done.
+2. **Preset** (+0x21c = i ≠ 0; Tab = 1 looks back): C = copy of the drawer's
+   matrix O(k)+0x2e55; pos = P + preset_off[i]·M; C = inverse(R(preset_ang[i]) · Mbike)
+   (0x40fd40, 0x403a80, 0x40fe80). T = 0 in the dumps. [asm]; dumps q6/q12/q24/q35/
+   q36/q45/p7 show presets 3/5/6/7 with T = 0, the bike matrix was not dumped so
+   C itself is unchecked.
+3. **Chase** (preset 0):
+   - old = +0xc8 (last frame's lerped position).
+   - d = extra[+0x220] + (+0x58 = −484), so −484, −356, −228, +28 with F5.
+   - Finish orbit (+0x34): yaw +0x3c += dt·(−0.010471975511965976) (−π/300) while
+     yaw > −2.356194490192345 (−3π/4); and d −= (yaw · −0.4244131815783876 (−4/(3π))) ·
+     (−484 · −0.5) → d goes from −484 to −726 as yaw goes to −3π/4.
+   - ψ = −0x490220(bike matrix): the bike's heading only (lean and pitch ignored).
+   - W = R(0,ψ,0) · R(cam angles +0x38..+0x40).
+   - E0 = (preset_off[0].x = 0, g = +0x1dc[i] = 64.0, d)·W + T_W + P. (Compiled as
+     ((g·W3 + px·W0) + d·W6) + T + P per component.) +0xc = 5.
+   - **pos = old + (E0 − old)·0.2f [0x4d1404]** - per frame, **not** scaled by dt:
+     the lag depends on the frame rate. The GOG copy is limited to 60 frames a
+     second (-FrameRateMax60, §1.1 step 23), so the port's fixed 1/60 s steps
+     give GOG's camera exactly; the CD's default limit is 30 (a looser camera).
+     `tools/race_camera.py demo`: a bike at 2000 units/s turning 1 rad/s - the
+     eye trails 3.8° off the heading at 60 fps, 16.9° at 13 fps.
+   - target: +0x34 ? (0,64,0)·W + P : preset_off[0] (0,−160,1680)·W + P (1680 ahead,
+     160 below). +0xc = 2.
+   - target lerp from the old +0xa4: x 0.5f, y 0.3333333432674408 (float 1/3
+     [0x4d140c]), z 0.5f.
+   - **look-at 0x46e140 from the lerped pos** to the lerped target.
+   - u = unit(pos − P) (length as sqrt((vy²+vz²)+vx²); skipped when 0).
+   - +0xc8 = the lerped pos (kept for the next frame).
+   - final pos = P − u·d... with d negative: P + u·|d|, i.e. exactly |d| from the bike
+     along the lerped direction; pos.y += 191 (+0x54).
+   - finish orbit: pos.y −= (191 · 0.6666666865348816) · (yaw · −0.4244131815783876)
+     (the camera sinks by 191·2/3·(yaw/(−3π/4)): 127 at the end).
+   - So the view direction is from the lerped point, but the eye is pushed back to
+     exactly |d| and lifted 191: C does not look from +0x98, it looks from +0xc8.
+     [test] C = lookat(+0xc8 → +0xa4) to 3e-8 in 18/19 chase dumps (q32 is off by
+     15.8 units, probably dumped mid-frame).
+   - [test] At rest (q44): +0xc8 − P = (0, 64, −484)·Ry and +0xa4 − P =
+     (0, −160, 1680)·Ry exactly, |+0x98 − P| relation: |+0xc8 − pos0| = 4.2 =
+     488.2 − 484.
+   - Moving dumps show |+0xc8 − E0| of 600..1100 because the headless original ran
+     at ~13 fps with the 0.2-per-frame lerp.
+
+The camera never looks from the bike's matrix directly except presets and on-board;
+the chase follows heading only, so the horizon never tilts in the chase view [px:
+all chase captures have a level horizon].
+
+##### 2.6 Keys (0x431250, the VK switch, tables 0x432668 / 0x4325c4) [asm]
+
+| key | effect |
+|-----|--------|
+| Tab down | yaw +0x3c = π, +0x21c = 1 (look back: bike-mounted preset 1) |
+| Tab up (0x4328c7) | both 0 |
+| F2 / F3 | screen mode [0x4dc0c8] down / up (pixel counts 0x12c00 / 0x30000 / 0x4b000 → [0x4dc0cc] = 320x240 / 512x384 / 640x480), [0x4e9ce4] = 1 |
+| F4 | toggle Mode_169 [0x4dc0d4] (16:9: picture height W·9/16, §1b) + screen reset |
+| F5 | replay: next bike [0x508834]; else +0x220 = (+0x220+1) & 3 (chase distance) |
+| F6 | toggle on-board [0x4dc00c] (needs [0x4e8944]; not in a .Sav replay) |
+| F7 | 0x4847f0 ([0x4f0dc8]/[0x4f0dcc]) - see §3b |
+| F8 | toggle [0x4f0e14] with a message for 2000 ms |
+| F9 | [0x4dbdac] = (x+1) % 5 |
+| F11 / F12 | the in-race windows |
+| numpad + / − | detail [0x4dc098] 0..4 |
+| numpad * and / | 0x409720(1) / 0x409720(0) |
+| F1 | [0x4dc124] debug (0x483e90) / 0x484380 info ('[ %dX%d]', '[ VIDEO %4.2fM TXT %4.2fM]', seen in q14) |
+
+0x46d750 sets [0x4dc138] = 1 (the per-frame 0x467b30 pass).
+
+##### 2.7 The TV director 0x46e9f0 (brief) [decomp]
+
+Off if [0x4dc038]. State [0x4ea5a8], timer [0x4dc13c] (−= dt; shots last 250, 600,
+300, 400, 260, 400). Trackside cameras are decor objects named "CAMERA"/"camera"
+(0x473240 counts them into [0x51a40c] and hides them); the nearest by x,z among
+sections s..s+23 (0x40d4f0), checked by 0x470860 (visibility). Choice by the
+game's random stream (Rand_Next):
+- 0: trackside, mode 3, zoom 1;
+- 4: trackside zoom = (W/2) / ((fx·256)/dist), clamped to [1, 3] (the zoom 3.0 seen in dumps);
+- 1: the chase for 600;
+- 2: orbit: angle +0x28 (starts ±π) += dt·(−0.015707963267948967) (−π/200), radius
+  +0x58, y ≥ ground (0x40c8b0) + 260;
+- 3: behind at π, y lerped 0.25 to ground + 560;
+- 5: a bike-mounted preset chosen at random 2..7 (400 frames; −100 for 2/3) with roll.
+0x473370 builds the trackside sign table 0x5d2eb8 from library names counter,
+g_45, d_45, g_90, d_90, g_chica, d_chica (x 320, y 400) [decomp].
+The other replay camera path 0x4583e0's "mode 1" is this; there is no separate
+replay camera.
+
+---------------------------------------------------------------------------
+#### 3. The HUD: texts, countdown, messages
+
+Marks: [asm] read in build/mr.asm, [decomp] Ghidra text only, [px] confirmed on a capture with tools/hud_text.py, [guess].
+
+##### 3.0 Fonts, coordinates, frame counters
+- The HUD fonts are fetched every frame by 0x4816c0 through Font_Get 0x4903d0 [asm]:
+
+  | Global | Font (hi-res / low-res) |
+  |---|---|
+  | 0x4f0d64 | 20 PosHiRes / 19 |
+  | 0x4f0d68 | 7 TimeHiRes / 3 |
+  | 0x4f0d6c | 4 ChronoHiRes / 0 |
+  | 0x4f0d70 | 5 MotoHiRes / 1 |
+  | 0x4f0d74 | 11 SpritesHiRes / 10 |
+  | 0x4f0d78 | 14 GameMsgHiRes / 13 |
+  | 0x4f0d7c | 6 PlayerHiRes / 2 |
+
+- **Small fonts (0x4f0e08), 320x240 and 512x384:** the low-res fonts are used, and every DrawString with noscale 0 halves x and y.
+  - Wrappers with noscale 0: 0x493e20, 0x493e60, 0x493ee0. Wrappers with noscale 1: 0x493f20, 0x493f60, 0x493fe0.
+  - The HUD is written in 640-pixel units. With flags 8 it is right-aligned against the real screen width.
+  - Widths that a routine measures itself are doubled first, wherever a following DrawString will halve them (0x482380, 0x482830).
+  - [px] All the build/trackcap captures are 640x480 with small fonts on: every match below is the low-res fonts with halved positions.
+- **Text objects** (TextList_Add 0x417d20, NOTES §4.8.3.6):
+  - Their x and y are doubled and then halved, so in practice they are not scaled [px q14: "3 LAPS" at y=20 is exact].
+  - Direct and Pal fonts ignore the effect level. FadeIn, FadeOut and BlinkTransp therefore change nothing on fonts 4/7/13/14/20; only lifetime and blinking show.
+- **Blink counters count frames, not time:**
+  - 0x4f0dc4 goes up by 1 each race frame (0x47ff90).
+  - 0x4f0e1c goes up by 1 each call of 0x482380.
+  - In the port these should count 60ths of a second (g_ticks) [guess about the original's frame rate].
+- **Time split 0x481730(ms)**: 0x4f0d80 whole seconds, 0x4f0d84 hours, 0x4f0d88 minutes, 0x4f0d8c seconds % 60, 0x4f0d90 hundredths. 0x482830 and 0x482750 split their own copy into 0x4f0d94..0x4f0da4.
+- **Characters that are pictures** [px, fnt.py sheets]:
+
+  | Font | Character | Picture |
+  |---|---|---|
+  | 4/0 Chrono | `:` | ′ (minutes mark) |
+  | 4/0 Chrono | `;` | ″ (seconds mark) |
+  | 4/0 Chrono | `<` | `/` |
+  | 11/10 Sprites | `A` | red "POS" pill |
+  | 11/10 Sprites | `B` | "LAPTIME" |
+  | 11/10 Sprites | `C` | "BESTLAP" |
+  | 11/10 Sprites | `D` | "TIME" |
+  | 11/10 Sprites | `E` | large "POS" (practice) |
+  | 11/10 Sprites | `F`..`]` | status balls (results table) |
+  | 11/10 Sprites | `^` | "R" (demo mark) |
+  | 11/10 Sprites | `_` | EXTENDED TIME |
+  | 11/10 Sprites | `` ` `` | WRONG WAY |
+  | 11/10 Sprites | `a` | FINAL LAP |
+  | 11/10 Sprites | `b` | CHECK POINT |
+  | 11/10 Sprites | `c` | TIME OUT |
+  | 25/26 FinalPos | `/` | the word "POSITION" |
+  | 25/26 FinalPos | `:` `;` `<` `=` | ST, ND, RD, TH |
+
+  Font 6/2 Player is the name-bar font:
+  - `' '` is a red 16-pixel bar block, `]` the bar's right end, `[` its left end.
+  - Digits, `:` and `A`..`Z` are white on red.
+  - `+0x20` gives the orange set, used for computer riders: `` ` `` is the bar fill, `{` the left end, lower case the letters.
+  - `+0x40` gives black letters on red, used for records: 0x80 is the fill.
+  - `\` is a pill mark and `^` a tick.
+- **Font 5/1 Moto** (rider labels): `)`..`@` are the number pills 1..24, `A`..`Z` the letters, `]` the down-pointer.
+
+##### 3.1 Who draws what, each race frame (0x4806e0; 0x4804d0 is the variant used while the in-race window 0x4e8904 is open) [asm]
+1. 0x4817a0 counts the loaded bikes into 0x4dc100. 0x481730(0x4dc0a8) splits the race clock.
+2. If race+0xc is set and neither 0x509ba0 (everyone finished) nor 0x542a20 is set:
+   - **Time ran out (0x52c238):** remove text 0x4e9884. In Link play only: results table 0x482f00, then GAME OVER through 0x482120.
+   - **Otherwise, while racing (0x4dc0ac):** 0x413410 (profiling probe 'start'). It runs the countdown 0x413030 while 0x4dc0b4 is set, and the racing HUD 0x413180 after that.
+3. When the player has finished:
+   - **Solo:** remove 0x4e987c and 0x4e9880; best-lap panel 0x482830(0, 0x5d25b0); then 0x481970 (finishing position) unless the end-of-race condition (0x51601c > 0, a race mode, rank 0..2, state 2) holds; then the lap panel 0x483860.
+   - **Link:** results table 0x482f00, maybe 0x481970.
+4. While a demo plays (0x4e9834 == 1): 0x486660.
+5. Then the text lists are drawn: 0x53ba68 (only if race+0xc), 0x53b8e8, 0x53b9a8.
+- **0x4804d0 differences:** 0x483860(1) (no split line) and 0x482830(1) (record row only) in time-attack practice. It also calls 0x482750(0, &O(k)+0x2ddd): the TIME sprite `D` (font 11) at (2,5) flags 8, and under it the total race time "%02d:%02d;%02d " (font 4) at (2,30) flags 8.
+
+##### 3.2 The countdown (0x413030, while 0x4dc0b4 = 1) [decomp + asm, px q14]
+- s = 0x4dc0a8 / 1000. The race clock counts down here; q14 has clock 5434, so s = 5.
+- **Laps text**, 0x482220(m, x 0, y 20): "%d LAP" or "%d LAPS" of 0x4dc074.
+  - Text object in 0x53ba68, id 0x4e9868, font 14, align 0x22 (centred, 20 from the top). Own colours red (255,0,0) on black.
+  - m = 0 when s ≥ 4: steady.
+  - m = 1 when s ≥ 2: BlinkTransp with a 1000 ms period. On a Direct font that shows as steady.
+  - m = 2 when s < 2: FadeOut (no visible effect), motion 2 drift with vy = 1 and s = 0.2, lifetime 4000 ms.
+  - Recreated when m changes (0x4f0e18). Off-screen check off (+0xa4 = 1).
+- **Best lap panel** 0x482830(1): the track record row only (3.4).
+- **Countdown number**: n = s/2 + 1, so 03 / 02 / 01, two seconds each.
+  - When n changes (0x542854): "%02d" through 0x4188b0(id 0x4e98d0, lifetime 2000, align 0x42, x 0, y 0, effect 2 FadeOut, font 14, blink 4). Centred both ways. FadeOut shows nothing on a Direct font.
+  - Voice 0x4082f0(n): sound ids 0x33 / 0x32 / 0x31 for 3 / 2 / 1, and 0x30 for 0 (GO). Played only when n changes (0x504564).
+  - While n > 1: "GET READY" through 0x4188b0(id 0x4e98e8, lifetime 0, align 0x42, y 30, effect 3 Blink, font 12 Messages, blink 4). Centred, 30 below the centre line, 4 frames on and 4 off.
+- **0x4188b0(id*, text, life, align, x, y, effect, font, blink):**
+  - First removes the object holding that id, then TextList_Add(0x53ba68, ..., motion 0, steps 5/5, recentre 1).
+  - Always own colours: **red (255,0,0) on black.**
+  - [px] The font colour calls just before it (0x490a30/0x490a60 on 0x4f0d78: (245,255,12)/(200,200,0) for the number, (0,200,0)/(0,180,0) for GO) are overridden by these own colours. "03" is exact in red in q14, so they have no effect.
+- **GO**, in 0x413180 once the countdown has ended (0x47dd5d clears 0x4dc0b4 when the clock goes below 0):
+  - while *(0x4dbe44) > 0 (the countdown set it to 500), and only when 0x4f0d8c/2 changes: "GO" through 0x4188b0(0x4e98e8, lifetime 500, align 0x42, y 15, effect 2, font 14, blink 4); voice 0x4082f0(0); then *(0x4dbe44) = 0.
+  - Result: red GO, centred, 15 below the centre line, for 500 ms.
+
+##### 3.3 Racing (0x413180) [decomp + asm]
+- **Checkpoint passed**: 0x519fec > 0 and the player's short +0x2f79 (0x584191) changed while state (+0x2de5) is 1. The very first crossing is skipped: the rule uses laps done +0x2f7b, reversed when 0x4dc144 is set.
+  - Effects: sound 6; texts 0x4e9874 and 0x4e9878 removed.
+  - Practice without time attack: remove 0x4e985c and 0x4e9860, then CHECK POINT through 0x481f10.
+  - Other modes: remove 0x4e9870 and play sound 0x34.
+- **Rider labels**, Link or time-attack practice: 0x483670 (3.7).
+- **Player out or finished** (state not 0/1):
+  - Link: results table 0x482f00(1, 0, 0, 30).
+  - Then 0x482830(0, 0x5d25b0) and return.
+- **Otherwise:**
+  - Solo practice without time attack: 0x482620 (practice position). All other cases: 0x482380 (TIME + POS).
+  - Then best-lap panel 0x482830(0, 0x5d25b0), lap panel 0x483860(0), and GO (3.2).
+
+##### 3.4 Panels drawn directly (no text objects)
+Format: font (hi-res), x, y in 640-pixel units, flags (8 = from the right edge; 0x21 = left, no measuring).
+
+**Lap panel, top left: 0x483860(flag)** [asm, px q17/p3 100%]
+- Drawn only for the player's bike: when it is the shown bike 0x4ea4c0, or +0x68 && +4 && (+8 or 0x4ea4c4).
+- **Header:** `B` LAPTIME, font 11 (colours set to white), at (2,5) 0x21. Its right edge r is taken from the returned rect.
+- **Lap count:** "%d<%d" = min(laps done + 1, laps) / laps, font 4, at (r+10, 5) 0x21, through the noscale-1 wrapper (not halved).
+  - Hidden when (finished ? 8 : 0) & 0x4f0dc4. After the finish it therefore blinks 8 frames on, 8 off.
+- **Rows**, y = 25 + 16·row:
+  - Racing: laps max(done−2, 0) .. min(done, laps−1), the last 3 laps. Finished: all laps.
+  - Lap time = 0x5db290[bike·8 + lap] in ms. This per-bike table of 8 laps is incremented by dt (0x4e9810) in 0x47dae0.
+  - Text "%02d:%02d;%02d" (or "00:00;00" for a lap not reached yet), font 4, at (60, y) 0x21.
+  - After the finish, with more than one lap: the fastest lap's row is drawn green (0x490a10 on font 4), then the colour is put back.
+- **Lap number:** " %c%c]" with the tens digit (or a space) and the units digit of lap+1, font 6, at (0, y) 0x21. This is the red bar with the white number.
+  - The current lap's number blinks: hidden when 0x4f0dc4 & 4.
+- **Record mark:** after the finish, on the lap that equals the track record (0x5db290 value == 0x5d26a5, and the name 0x5d25b0 equals the bike's +0x2dd4), unless 0x4f0dc4 & 4: "[]" in font 6 at (192, y).
+- **Split line**, when flag == 0, Solo (0x4e984c), 0x519fec > 0 and 0x5dbc70 != 0:
+  - y = rows·16 + 41.
+  - The split string 0x5dbc71 in font 4 at (60, y). Colour by the sign 0x5dbc70: '+' red, ' ' orange, otherwise green.
+  - "  X]" in font 6 at (0, y), where X is `\` (the pill mark) when '+', else a space.
+  - The split is written by 0x412e50 at each checkpoint (from 0x47e3d0): this checkpoint's time minus a reference rider's at the same checkpoint (`+`/`-`/` %02d:%02d;%02d`).
+  - The reference is the bike 0x516ab8 (copied into 0x581018/0x581025: name, 48 checkpoint times). There is none (0x7f) when the player leads [decomp].
+
+**Best lap panel, top right: 0x482830(mode, entry*, -, -, rect*)** [asm, px q17/p3]
+- Starts at y = 27 (0x1b) [asm].
+- In Solo with mode 0 it loops over three cases. Otherwise it runs case `mode` only (the countdown uses 1).
+  - **Case 0, this race's best lap among the bikes:** the bike with the lowest +0x2de1 (0x583ff9), sorted by qsort with 0x4817d0, cached in 0x4f0db8. Name +0x2dd4. A computer rider (+8 == 0) uses letters +0x20 (orange).
+  - **Case 1, the track record:** time 0x58120d, name 0x581118. Letters +0x40 (black on red).
+  - **Case 4, entry 0x5d25b0:** time at +0xf5 (0x5d26a5). Letters +0x40; hidden when 0x4f0dc4 & 4, so it blinks.
+  - (Case 2, bike = param 2: best lap +0x2de1, name +0x2dd4.)
+  - A row is drawn only when its time is not 0x7f7f7f7f.
+- **First row drawn:** header `C` BESTLAP, font 11 (white), at (0,5) flags 8.
+- **Each row:**
+  - The bar "[" + "@"·(8 − len) + name, every character shifted as above, font 6, at (0, y−2) flags 8. It runs into the right edge with no end cap.
+  - The time "%02d:%02d;%02d " (with a trailing space), font 4, at x = bar.left − width − 5 (doubled when halving applies), y, flags 0x21.
+  - y += font 6 height + 4.
+- [px q17] The record name is "DSI" and the time 00′43″32.
+
+**TIME and POS, right side: 0x482380** (single race, championship, time attack, Link) [asm, px q17/p3 100%]
+- **Number:** "%02d" of 0x4f0d80, or "00" when the clock 0x4dc0a8 < 0. Font 7, SetColors(fore, black), at (8, 115) flags 8.
+- **Colour and blinking:** the number is drawn when (++0x4f0e1c & mask) != 0.
+
+  | Condition | Number | Mask | TIME label |
+  |---|---|---|---|
+  | 0x519fec ≥ 4000 (just after a checkpoint) | yellow | −1 | yellow, blinking (mask 2) |
+  | clock < 0 | red | 1 | red |
+  | under 3 s | red | 2 | red |
+  | under 10 s | orange (255,160,0) | 4 | white |
+  | otherwise | green (0,255,0) | −1 | white |
+
+  On frame-count blinking, see 3.0.
+- **Label:** `D` TIME, font 11, at (8, 90) flags 8.
+- **Position**, if 0x459f50(player) + 1 > 0:
+  - `A` POS pill, font 11 (white), at (0, 150) flags 8.
+  - "<%d" of 0x4dc100 (the bike count, shown as "/23"), font 4 (white), at (8, 171) flags 8.
+  - Position "%d", font 20 in its script colour (0,200,0), at (max(pill width, "/n" width) + 1, doubled when halving) + 8, y 150, flags 8. It sits left of the pill. The position is also stored in 0x5f0f4c.
+
+**Practice position: 0x482620** (Solo practice without time attack) [decomp]
+- `E` (large POS) at (8, y+5); "<%d" in font 4 at (8, y+52); position in font 20 at (w+9, y+30); all with flags 8.
+
+**Finishing position: 0x481970** [decomp]
+- Text object in 0x53ba68, id 0x4e9884, added once. Text "%d%c/": the rank, then ':' (1st), ';' (2nd), '<' (3rd) or '=' (other), then '/', giving e.g. "1ST POSITION".
+- Rank = +0x2f85 when finished (state 2), else 0x459f50.
+- Font 25, x 0, y 5, align 0xc2: centred, bottom edge 5 above the centre line (y = H/2 − 5 − h). Lifetime 0, effect 0.
+
+**Results table: 0x482f00** (Link) [decomp, not compared]
+- One row per rider by position: name (font 6), times '%02d:%02d;%02d' (font 4).
+- Header sprites `E`, `D`, `C` (font 11).
+- Status ball: `F` finished (white), `N` out (red), `V`+(frame&7) racing (green, animated), `W` (cyan, state 0).
+- The player's row is cyan. Centred when flag 0. Registers its rect through 0x417b90.
+
+##### 3.5 Messages (text objects in 0x53ba68, each added only if its id is not alive)
+- **0x4dc180 decides the form** [asm]:
+  - 0x472c40 sets it to 1 when the height of Data\Design\Texts\LowRes.RAW (read by 0x45ac10) is 128, or when the command line has `-DataV2` (0x414080).
+  - **GOG 3.22 data: 256x128, so 1: font 11 picture characters.**
+  - **1997 CD data: 256x256, so 0: picture sprites** (handles loaded by 0x480930 from Texts\HiRes.RAW / LowRes.RAW), added through 0x418160 (sprite objects, up to 8 parts).
+- **Font form**, TextList_Add(font 11, x 0, y 0, align 0x42 centred, effect 3 Blink, motion 2 or 4, frame-mask blink, vx 2, ty 90, s 2.0, k 5.0, own colours fore / black):
+
+  | Routine | Message | Character | Life | Blink | Colour | Id | Trigger |
+  |---|---|---|---|---|---|---|---|
+  | 0x481af0 | TIME OUT | `c` | 2000 | 2 | red | 0x4e9858 | 0x47dae0: clock < 0 and > −500 ms, player state 0/1, not practice-without-TA, not 0x4e9830; sound 0x42 every 2000 ms (0x4f0c54) |
+  | 0x481c50 | FINAL LAP | `a` | 1000 | 4 | yellow | 0x4e9864 | 0x47e3d0: player crosses the line with laps done == laps−1; first removes 0x4e9870/5c/60/74/78; sound 0x37 |
+  | 0x481db0 | WRONG WAY | `` ` `` | 4000 | 4 | red | 0x4e986c | 0x47e3d0: the heading test against the track direction is below 0x4d1900 |
+  | 0x481f10 | CHECK POINT | `b` | 1000 | 2 | yellow | 0x4e9870 | 3.3, practice only |
+
+  0x481f10 also calls 0x482030, the sprite form with id 0x4e987c [decomp; arguments lost by Ghidra].
+- Sprite form (CD data): sprite pairs TIME OUT 0x4eaaa4/0x4eaacc, FINAL LAP 0x4eaa9c/0x4eaac8, WRONG WAY 0x4eaab4/0x4eaadc, CHECK POINT 0x4eaab8/0x4eaae0. Same lifetimes; effect 0; blinking only through motion/blink arguments [decomp].
+- **GAME OVER, 0x482120(0)**: a sprite object in **0x53b8e8**, id 0x4e987c, lifetime 3000, align 0x42, effect 4.
+  - Parts: GameOver1/GameOver2 HR (0x4eaa94, 0x4eaa98), or Game over LR (0x4eaac4).
+  - First removes 0x4e9858 and 0x4e986c.
+  - Trigger: 0x47dae0 when the clock goes below −500 ms: sets 0x52c238, plays sound 0x39, sets player state 3. Also from the Link branch of 0x4806e0.
+- **Loaded but never shown in this build** [asm: no reference besides the load]: sprites EXTENDED + TIME (0x4eaaa0, 0x4eaaa8), MISSED (0x4eaabc), R (0x4eaac0). Ids 0x4e9874/78/5c/60 are only ever removed. The `_` EXTENDED TIME character is unused.
+- **DEMO, 0x486660** [decomp]:
+  - While demo id 0x4e9898 is not alive: if 0x4e9830, "DEMO" in font 12, align 0x22, y 10, BlinkTransp with a 500 ms period, lifetime 2000.
+  - Then `^` (the "R" mark) in font 11, align 0x81 (2 from the left, 2 from the bottom), Blink 500 ms, lifetime 2000.
+  - Both go through 0x4188b0 with the same id, so the second call removes the first: "DEMO" itself never stays [decomp, inference].
+
+##### 3.6 Not HUD
+- 0x486240 / 0x486310 (flags 0x5d2edc..) light the track's 3D warning objects: six slots, 75.0 units of time, blinking on ftol parity, drawn through 0x49c590 in the 3D pass. No HUD text.
+- 0x484380 is the "[ %dX%d]\n[ VIDEO %4.2fM TXT %4.2fM]" text after a screen-mode change (the "640X480 VIDEO …" line in q14).
+- 0x483e90 and 0x4841c0 are debug texts (when 0x4dc124 is set).
+
+##### 3.7 Rider labels: 0x483670 (Link, or time-attack practice)
+- For every other loaded bike, projected through 0x4818a0 from camera 0x4dc0f8.
+- Text "%c^%s\\\n]": the number pill (')' + position), the name, and on the next line the down-pointer `]`. Font 5, recoloured per bike (0x459240 → 0x490a90).
+- Placed at (screen x − width/2, screen y − font field +0x286 − 0x5d893c − text height), flags 0x21, noscale [decomp].
+
+##### 3.8 Check: tools/hud_text.py
+`python3 -I tools/hud_text.py CAPTURE racing|countdown OUT.png --small --set k=v …`
+- Draws each text alone with fnt.py's renderer.
+- Counts exact RGB565 matches at the game's position, and the best shift within ±4.
+- OUT.png is the capture with the tool's pixels on top; mismatches are magenta.
+- **q17** (lap 1/3, 00:04;06, record DSI 00:43;32, TIME 31, POS 22/23): **all 12 texts 100% exact at shift (0,0)**, 4,331 pixels in total.
+- **p3**: 11 of 12 texts 100%. The best-lap time is 96.2%: its digits were guessed from the picture.
+- **q14** (clock 5434):
+  - "3 LAPS" 1247/1247 and "03" 578/578 exact, in own red; BESTLAP 100%.
+  - GET READY: 166/510 exact, which is exactly its 166 fully opaque pixels. The rest are see-through blends. Its shape fits best at (0,0).
+
+
+##### 3.9 Open points (HUD)
+1. **The hi-res layout (small fonts off) is unchecked.** Every capture uses small fonts. One 640x480 race capture with small fonts off would check fonts 4/6/7/11/20 at full size and the doubled widths.
+2. **The CD-data sprite messages** (0x4dc180 = 0, through 0x418160) are not mapped: part layout, the 16-byte part records, positions. Most of 0x482030's arguments are lost in Ghidra's output.
+3. **Split reference rider** (0x412e50: 0x516ab8, 0x50dbdc+0x400, 0x457050): who it is exactly, and when 0x5dbc70 is cleared.
+4. **What sets 0x519fec** (the checkpoint display timer, ≥4000 → yellow TIME) and its starting value. (Partly answered: Game_Frame subtracts the frame's ms from it each frame, §1.1 step 8.) Also where the countdown's starting clock (0x4dc0a8, probably 6000) is set.
+5. **The DEMO text** being removed by its own second call needs a demo capture to confirm.
+6. **The frame-mask blinks** (0x4f0dc4, 0x4f0e1c, the text-object masks) depend on the original's frame rate. The GOG copy runs at most 60 frames a second (-FrameRateMax60, §1.1 step 23) and a modern PC holds that, so 60 Hz ticks (g_ticks) give GOG's blink rates; the CD default is 30.
+7. **0x482620** (practice position) and **0x482f00** (results table) are from the decompiled text only; no capture covers them.
+
+---------------------------------------------------------------------------
+#### 3b. The dials
+
+**Switches.** `ShowCounter` 0x4f0dc8 and `CounterType` 0x4f0dcc both come from CONFIG (GOG: 1 and 1). `SmallFonts` 0x4f0e08 (GOG: 1) chooses the layout.
+
+F7 (handled at 0x432107, only when 0x4e8944 is set) cycles through three states [asm]:
+- Show on and Type 1: Type becomes 2 (digits only).
+- Show on and Type any other nonzero value: Type becomes 0 and Show becomes 0 (off).
+- Otherwise: Show becomes 1 and Type becomes 1 (dials).
+
+0x4847f0(n) only stores n in 0x4f0dcc.
+
+**0x484810(param)** runs only when the race draw's flags have bit 8 [asm]:
+- Calls (1) and (2) come before the 3D render 0x49ad90; call (4) comes after it.
+- It returns early if 0x52c0d4 is 0, if [0x52c0d4+0xc] is 0, or if ShowCounter is 0.
+- It reads the viewed player (0x508834), whose object is O = 0x581218 + player·0x3209:
+  - **Speed** is the **int** at O+0x118, not a float. With SpeedUnit 0x4f0dd0 == 1 it is converted to mph as `((v*0x3e800)/0x649)>>8`.
+  - **Gear** is O+0x7c.
+
+**Layout.** It is rebuilt whenever CounterType, ScreenMode or SmallFonts changes; the last values are cached in 0x4f0e34, 0x4f0e30 and 0x4f0e40.
+- Type 2 turns on only the digits (0x5f14e4).
+- Type 1 turns on the needles (0x5f14e0) and the digits.
+
+The constants below are [asm]. **hi** means ScreenMode 2 with SmallFonts 0; **lo** is every other case, including the GOG default at 640x480.
+
+| | hi | lo |
+|---|---|---|
+| speed dial centre / start point / end point, max 0x12c (300) | (205,191) / (187,250) / (242,142) | (227,68) / (219,99) / (249,42) |
+| rev dial centre / start point / end point, max 0x3e80 (16000) | (119,211) / (108,247) / (119,170) | (183,79) / (177,99) / (183,57) |
+| origin subtracted from the points above (only when Type == 1) | (61,116) | (154,30) |
+| speed digits, origin subtracted | (207,210) | (226,79) |
+| gear digit, origin **not** subtracted | (67,106) | (31,51) |
+| shadow offset 0x5dbc60/64 | −3 | −2 |
+| base point (call 1): 0x5dbc80 = W − a, 0x5dbc84 = viewport bottom (0x6d1040 + 0x68b008) − b | a 0xc3, b 0x8c | a 0x66, b 0x4a |
+
+- All values are screen pixels with no scaling, so at 320x240 the lo dashboard is still 102x74 pixels.
+- At 640x480 lo:
+  - speed centre (611,444)
+  - rev centre (567,455)
+  - speed digits at (610,455)
+  - gear digit at (569,457)
+  - all [px exact].
+
+**0x485be0(dial, cx, cy, p1x, p1y, p2x, p2y, min, max, dir)** works in doubles [asm]:
+- It stores cx, cy, min and max at +0, +4, +8 and +0xc.
+- The radius at +0x28 is the distance from the centre to the start point.
+- a1 = atan2(cy−p1y, p1x−cx) and a2 = atan2(cy−p2y, p2x−cx). Each is wrapped into [0, 2π), using the double 0x4d1a48 for 2π.
+- If dir is 0 and a2 > a1, then a2 −= 2π. If dir is not 0 and a2 < a1, then a1 −= 2π.
+- +0x10 = a1, and +0x20 = (a2−a1)/(max−min).
+- The needle angle is v·k + a1; min is not subtracted, but it is always 0.
+- The struct is 0x5ef020 for speed and 0x5f14b0 for revs.
+
+**Call (2): the needles.** They are flat kind-0 triangles in screen space, put straight into the depth buckets with 0x49c590 [asm, px exact].
+- Each corner is the centre plus (along, across) turned by the angle a:
+  - x = cx + ftol(cos·along − sin·across)
+  - y = cy − ftol(sin·along + cos·across)
+  - Then the base point is added.
+- **Speed needle**, with v clamped to 0..max (lo / hi values):
+  - Corners: tail (−5,0) / (−10,0); tip (ftol(radius), 0); sides (0,−3) / (0,−6) and (0,+3) / (0,+6).
+  - Triangle (tail, tip, side−) has colour 0x45a2e0(0x19,0x10,0).
+  - Triangle (tail, side+, tip) has colour 0x45a2e0(0x1f,0x10,0).
+- **0x45a2e0(r,g,b) = r<<11 | g<<6 | b.** Green is shifted by 6, not 5, so the two colours are the oranges (206,130,0) and (255,130,0).
+- **Rev needle:**
+  - The target is ftol(int O+0x11c ÷ float bike[+0x70] × 16000), where bike = 0x50927c + bike number·0x124.
+  - The shown value moves toward the target by at most ±3000 (0xbb8) per drawn picture, stays ≥ 0, and is stored in 0x4f0e10. That limit is per picture, not per 60th of a second.
+  - One triangle with corners (−2,+2)/(−4,+4), the tip, and (−2,−2)/(−4,−4), colour (0x1f,0x10,0).
+- **Depth:** the needles use sort key 4.0 (0x40800000). That puts them in front of the face (15.0) and of all 3D, which starts at Z 64.
+- **Vertex records** are at 0x5f1328 (14 records of 0x1c bytes): Z 2048 (0x45000000), 1/Z 0x3a000000, light 0x3e000.
+- **Shadows** are black copies moved by minus the shadow offset, with key 8.0. The set-up loop at 0x48553d gives their records **Z = 1.0**, which is behind the near plane at 64. So the software renderer never draws them, and q17 confirms it.
+
+**Call (4): the digits**, drawn after the render with 0x493fe0, which does not scale [asm, px]:
+- **Type 1:**
+  - Font 16 SpeedLcdLowRes (15 in hi) draws `"%3d"` at base + speed-digit offset, flags 0x21.
+  - Font 23 MotorLcdLowRes (22 in hi) draws the gear as `chr(gear + 0x30 + 7)`, which are glyphs 55..61, the red ones. Other Types add 0 instead of 7.
+- **Type 2:**
+  - `"%d\n%c"` in font 0x1c (28 Counter; 29 under SmallFonts) at (6,4) with flags 0x90: bottom-right corner, lines right-aligned. The character is ':' for km/h or ';' for mph (the unit glyphs).
+  - Before that, a blinking gear-shift hint bar in font 11 Sprites (font 0x4f0d74; 10 under SmallFonts):
+    - Shown only with the manual gearbox (0x4dc0a0 == 0), with 0x4dc0b4 == 0, and while the picture counter 0x4f0dc4 has bit 2 clear.
+    - The bar is the character `'O' + (0x4f0dc4 & 3)`, repeated max(1, (W/8) ÷ [font+0x774]) times.
+    - It is drawn with 0x493f20 at (0, H/16), centred. The flags are 0x80|2 for change down (near the bottom) or 0x20|2 for change up (top).
+    - Change up: gear < the bike's gear count (float at bike+0x6c), and rpm (float O+0x12c) + 2 > O+0x90+4·gear.
+    - Change down: gear > 1 and rpm < O+0x8c+4·gear.
+    - No bar when the rider is crashed (O+0x30c1), when O+0x13c or O+0x84 is set, when O+0xec ≤ 0, when gear ≤ 0 or above the gear count, or when O+0x94 is 0.
+
+**The dial face is a 3D model, not a picture.** It is the decor-library model **"counter"** in each track's .trk file. It sits next to the six turn-sign models g_45, d_45, g_90, d_90, g_chica and d_chica.
+- At race load, 0x473370 fills 16 HUD slots at 0x5d2eb8 + i·0x18:
+  - Slot fields: +0 library index, +4 x, +8 y, +0xc active flag, +0x14 timer.
+  - Slot 0 is "counter" at (0x5d, 0).
+  - Slots 1..6 are the six signs at (320, 400).
+- Library records are 0x79 bytes, in 0x4dc0d8: +0 faces, +4 vertices (xyz floats), +0x2c face count, +0x30 vertex count, +0x70 name.
+- 0x486310 draws 8 slots. Slot 0 is drawn when ShowCounter is on and its active flag 0x5d2ec4 is set; call (1) sets that flag to (Type == 1).
+- Vertices are placed from the bottom-right corner:
+  - X = ftol(vx·sx + (W−1) − x·sx)
+  - Y = ftol(bottom − y·sy − vy·sy)
+  - For the face, sx, sy are 1.9 and 2.0 (0x3ff33333, 0x40000000) in hi, otherwise 1.0.
+- **Depth and kind:** the face uses key 15.0 (0x41700000). It also sets 0x4f1a18 = 1, which makes 0x49c590 **skip the detail-level kind remap** (0x49c64b). So the face stays kind 38 (texture page 7, texel 0 see-through) at every detail level.
+- In lo at 640x480 the face covers 545..640 × 411..479 [px exact].
+
+##### 3b.1 The tool
+- `python3 -I tools/hud_dials.py draw ILE SPEED RPM GEAR out.png [--bg CAPTURE.png] [--hires]` draws the dashboard.
+- `python3 -I tools/hud_dials.py fit CAPTURE.png SPEED GEAR [ILE]` finds the track and dial value that best match a capture.
+- Results:
+  - **q17:** track ile02, 0 pixels differ.
+  - **q14:** 45 pixels differ. In the capture the speed digits are blank where "  0" was expected, and the gear shows only a small red mark (countdown).
+
+---------------------------------------------------------------------------
+#### 4. Bikes, shadows, level of detail, lighting
+
+##### 4.1 The bikes 0x458b80(list, count) [asm]
+
+For k = 1 .. [0x509bac]−1: O(k)+0 = 0 (drawn flag); skip if not loaded (+0x68).
+- 0x46e8b0(CAM, O(k)+0x30, 512.0): visible if |P − campos| ≤ 2·LenBPlane and the
+  plane tests pass with a margin of −4·512 = −2048 (planes +0xd4 > −2048, +0xe4 < 2048,
+  +0x104 and +0xf4 > −2048).
+- On-board ([0x4dc008]) and k == player: 0x462110(O(k), renderer, CAM, O(k)+0x307d),
+  the cockpit: the handlebar model [0x504ed8] and cockpit model [0x51bf60] placed
+  relative to the view, faces through 0x49bca0. Skipped when CAM+0x21c ≠ 0, in a
+  replay, or in Pocket ([0x4dc078]).
+- Else drawn only if its section O(k)+0x31c1 is in the track's visible list:
+  0x45f290(O(k), renderer, CAM, −1) (the bike drawer, NOTES §4.15), [0x4f0dc0]++,
+  **0x461f70 the shadow** (§4.7), O(k)+0 = 1.
+
+##### 4.2 The level of detail 0x45f160 [asm]
+
+d = |O(k)+0x3c − CAM(O(k)+0x31dd)+0x98| (computed as sqrt((dy²+dz²)+dx²)) /
+zoom [0x6d1f74] → O(k)+0x634. Then (compares made on the float bits as integers:
+0x451c4000 = 2500.0, 0x453b8000 = 3000.0):
+- d ≥ 3000 → LOD 4;
+- 2500 ≤ d < 3000 → 3;
+- else, if [0x4ea4e0] (a "low detail" switch [guess]) → 2 for every nearer bike;
+- 1000 (0x447a0000) ≤ d < 2500 → 2;
+- d < 1000 → 0 (a separate test at 200.0 = 0x43480000 also gives 0: dead split).
+(The zoom comes from 0x49a150, which returns [0x6d1f74].)
+Result in O(k)+0x638. Zoom divides, so a zoomed TV camera keeps the near models.
+
+0x467b30(O(k), flag): crashed or O(k)+0x319d → LOD 1 (the crash model); else
+0x45f160. If LOD ≤ 1: flag → 0x45d810(O(k), PersoAnim) (the rider animation)
+else copy pose #0 of the ROT. Called each step from 0x45d7d8, 0x45f12c, 0x46c783,
+and from Game_Frame when [0x4dc138].
+
+##### 4.3 Where the light comes from
+
+- **0x465d60(obj)** returns the bike's light level [asm]. With no track loaded (0x52c10c == 0) it is 0x1f. Otherwise it reads the rider's section (track sections at 0x52c108, stride 0xfc, index obj+0x31c1) and looks at the section's flag +0xe0: 0 gives **0x1f** (lit), anything else gives **0x10** (dark). It never returns 0, so the drawer's "light ≠ 0" tests always pass.
+- The drawer keeps this value in its local L0x128. 0x49b2c0 (the vertex transform) stores `light << 13` in each output vertex at +0x0c. So 0x1f becomes 0x3e000 (unlit) and 0x10 becomes 0x20000.
+- **0x4dc130** ("race lighting"): starts at 0. 0x410120 (race load) sets it to 1. It is set back to 0 at 0x44e4e7 and 0x44ed16 (page 10 start and end) and at 0x4522b2 (podium 0x452240) [asm]. It is also read by the decor drawer 0x4036a0, which then calls a different lighting routine, 0x422810 (not followed).
+- **0x4ea4d0** starts at 0. Its only writes store 0 (0x44e4f9, 0x44ed11) [asm]. So the skeleton lighting 0x462a40 never runs, and neither does the "kind 3 stays 3" branch of 0x462c30 (SKL face kinds: 3→1, 4→2 always) [decomp]. **Dead code in the shipped game.**
+- **0x4ea4cc** = 0xff is written at 0x45f51d and 0x4619ed and never read [asm]. Dead.
+- The light vector 0x52c228/22c/230 = (−0.5, −1.0, 0.0) is set in 0x410120.
+
+##### 4.4 What the light word does to a pixel: only "< 0x3e000"
+
+No span routine the bikes reach uses the light level itself. Each one draws either the full colour or **half = (c >> 1) & 0x7bef** (mask = word 0x50270c). The levels 8..24 that 0x422540 computes therefore never show [asm]. Which test applies depends on the face's path:
+
+**Paletted path.** A face goes this way when the model is drawn with a skin ≥ 0 through 0x49c110 *and* its page has palettes (page record 0x4f9300 + page·0x338 ≠ 0; in practice page 0 = bnk00_00 of every family). 0x49ca70 puts it in a bucket entry whose +0x10 points to the skin's palette. The dispatcher 0x4aef20 then takes the 8-bit branch (jump tables 0x4af100/0x4af0e0) and switches on face+0x3a, which here holds the **raw kind** [asm]:
+
+| kind | routine | pixel | light |
+|---|---|---|---|
+| 0 | 0x4a3cf0 → 0x4a34f0 | flat: colour < 256 → palette[colour], else the RGB565 value as is | **average of corners 0,1,2 (integer /3) < 0x3e000 → half** |
+| 1 | vertex 0's word ≥ 0x3e000 ? 0x4a7b70 : **0x4a8c70** | 0x4a8c70 → triangle 0x4a85e0 → span 0x4a83d0 → pixel 0x4a8340: **half(palette[texel])**, opaque | the vertex tested is **vertex 0 of the whole transformed array** (bucket +0x0c), not a corner of the face |
+| 2 | ≥ 0x3e000 ? 0x4ab070 : **0x4ac1f0** | both hold the pieces back in deferred batches (0x625790, 0x24 bytes), drawn by 0x4af130 after all buckets. Unlit: batch kind **40** → span 0x4aa6c0, palette[texel], skipped when the palette colour is 0. Lit: batch kind **41** → 0x4ab840: same, but **half(palette[texel])** | same test |
+| 3 | 0x4a6a50 → 0x4a62d0 → 0x4a6080 | the span is **0x4a6070 = `ret`**: draws nothing | — |
+| 4 | 0x4ad410 | batch kind **19** → span **0x4ac9c0 = `ret`**: draws nothing | — |
+| 9 | 0x4ae730 | batch kind **20** → 0x4adbf0: shades along the span (step 0x655d30). Palette colour 0 → screen halved. Otherwise the red channel comes from table 0x4f62f0[red][level] (in BSS: built at run time, or zero) and green and blue are kept | interpolated |
+| 42 | 0x4a9df0 | batch kind **42** → 0x4a9440: **flat colour wherever palette[texel] ≠ 0** (a silhouette of a see-through face), deferred | colour halved when the 3-corner average < 0x3e000 |
+
+The kind table 0x4f1a70 is rearranged at start-up by 0x4a2ea0 → 0x4a2e00 so that row = kind id (0x47 rows, unused rows −1) [decomp]. That is why the batch kinds above index it directly through `0x4f1a7c + kind·16` (its span field).
+
+Kinds 3, 4 and 9 never reach a bike. 0x420a50 makes only kinds 0/1/2/8/0xd/0x10/0x15/0x26/0x27 from a MAP, and 0x462c30 turns SKL kinds 3/4 into 1/2 because 0x4ea4d0 = 0 [asm, decomp]. In the 16-bit table, kinds 3, 18, 4, 9, 8, 29 and 5 are `ret` stubs too (0x4a4bd0/4bd0/5a80/5aa0/5a90/4be0/4bc0).
+
+**16-bit path** (0x49c590, entry +0x10 = 0): spans of kinds 0, 16, 21, 38, 39, 44, 62 … **ignore the light** (NOTES §4.13.2.3). The only darkening there is the wheels' kind swap, **0x4221d0(model, flag)** [asm]:
+- flag ≠ 0: every face of kind 0x10 → 0x15 (21: span 0x4a5e10 = half(texel)) and 0x26 → 0x27 (39: span 0x4a5580 = see-through halved);
+- flag = 0: swaps back.
+- It is called before each wheel with flag = (L0x128 ≠ 0x1f). It is called only on the two wheel models (0x45fcd6, 0x460ce6). Kind-0 wheel faces are never darkened.
+
+**What gets darker, by part** (race, 0x4dc130 = 1):
+
+| part | in a lit section (0x1f) | in a dark section (0x10) |
+|---|---|---|
+| skeleton, LOD 0/1: faces on page 0 (paletted, skin +0x5fc ≥ 0) | full | **half** (word 0x20000 on every vertex) |
+| skeleton faces on page 1 (RGB, kinds 0x10/0x26, 16-bit path) | full | **full** (the light is ignored, no swap) |
+| LOD 2–4 model (0x53a788/7f8/868), faces on page 0 | full | half |
+| **road wheels** (kinds 1/2 on page 0; skin +0x2f4/+0x478 ≥ 0) | **always half** | half |
+| dirt wheels (skin −1 because PersoAnim == 1 → 0x49b7f0, page 1 RGB kinds 0x10/0x26/0) | full | half for 0x10/0x26 through the swap; kind 0 stays full |
+| shadow | 50 % blend, independent of the light (§4.7) | same |
+
+The road wheels are always half because the race always takes the lit wheel drawer **0x48c6d0** (condition: 0x4dc130 alone, 0x45fcb6/0x460cc6). It runs 0x49b2c0 with 0x1f, then **0x422540** overwrites every vertex word with 8..24 (< 31). Its faces then go to 0x49c110 with the skin, or to 0x49b7f0(…, 1) from face index model+0x68 (= 0) without a skin [asm].
+
+**[px] check** (build/trackcap/p1a.png: a road bike, near LOD, lit section). I matched each pixel's RGB565 value against the 8 SPEED liveries, full and halved. The body area (265..335, 165..235) has 3360 pixels that match only a full colour and 90 that match only a halved one. The rear tyre matches mostly halved colours. So the body is unlit and the wheel is halved, as the table says.
+
+##### 4.5 The lighting routines
+
+**0x422540(model; a0, light xyz, M[12], out vertices, pos xyz)**, thiscall, `ret 0x50` [asm]:
+- It returns at once if **model+0x10 (vertex normals) == 0**. Only the wheel models have normals: 0x413450 calls 0x41fa10 on 0x52c240/0x51ac58 (+s·0x70) and nothing else. So for the LOD 2–4 models the drawer's lit branch (0x45f407: 0x4dc130 && light) calls 0x422540 for nothing, and their words stay light << 13 [asm, decomp].
+- M is the model-to-world matrix (L0xdc, translation included). The routine builds the rigid inverse (the transpose, T' = −T·Mᵀ) and moves the **light vector, treated as a point**, into the model frame: P = (light − T)·Mᵀ. It then makes P unit length when it is non-zero (compared with 0x4d0664 = 0.0) and negates it: l = −P/|P|.
+- Per vertex i < model+0x30, with n = model+0x10 + 12i:
+  - d = (n.z·l.z + n.y·l.y) + n.x·l.x
+  - a = trunc(16 − 16·d) (0x4d069c = 16.0, bits 0x41800000)
+  - b = trunc((a + 1)·0.5) + 8 (0x4d06a0 = 1.0 0x3f800000, 0x4d0680 = 0.5 0x3f000000)
+  - b ≥ 32 → 31; out[i]+0x0c = b << 13.
+  - Range 8..24, so always below 0x3e000.
+- a0 and pos are pushed but play no part in the formula as far as I read.
+
+**Vertex normals 0x41fa10** [decomp]:
+- Face normals at model+8 come from 0x41f920 when missing: n = (c−a)×(b−a) per component, in the order the reference writes, scaled by 1/sqrt(x² + z² + y²).
+- Each vertex adds the normal of every face that uses it: 3 corners, or 4 when face+0x34 ≠ 0xffff.
+- The sum is multiplied by 1.0/count, then made unit length unless its length is 0.0.
+- A vertex no face uses would divide by zero (NaN). None does in the wheels.
+
+**0x462a40 (dead).** For the record: light normalised (when its length ≠ 0), then per bone of LOD obj+0x638 rotated by the bone's 3x3 at obj+0x654 + … and negated. Per vertex (normals obj+0x2d60[lod], first index bone+0x690, count bone+0x694): word = min(trunc(20 − 10.666667·d), 31) << 13 (0x4d0f98 = 20.0 0x41a00000, 0x4d109c = 10.666667 0x412aaaab). No +8, no halving step [asm].
+
+Reference: **tools/bike_light.py** (face_normal, vertex_normals, light_words, section_light, half, shadow_pixel). `python3 -I tools/bike_light.py wheels build/bkf SPEED` gives levels 8..24 on all 47 vertices of each wheel, all below 0x3e000.
+
+##### 4.6 Face setup in the race: kind remap by detail
+
+- **0x49c110** (skinned models) [asm]:
+  - a face is skipped if flag bit 0 is set and its kind is 0xd;
+  - key = the farthest corner's Z (no +1024);
+  - back faces are culled with the area test "> 1.0" (an integer compare of the float, 0x3f800000);
+  - a page with palettes goes to 0x49ca70(face, key, verts, skin, clipflags), any other page to 0x49c590(face, key, verts, clipflags, 0).
+- **0x49ca70** (paletted) [asm]:
+  - bucket = ftol(key·0.25) (0x4d1f9c 0x3e800000), clamped to 0x1f3e; a negative bucket is dropped; at most 0x1d4b faces;
+  - face+0x3a = raw kind;
+  - **if the pointer 0x4dc0c4 ≠ 0, *0x4dc0c4 == 0 (the race) and detail 0x4dc098 ≤ 1**: face+0x3a = 0, or **0x2a** when props[kind] & 9 == 9 (textured + see-through: kinds 2, 4, 0x13, 0x26–0x29, …).
+  - So at detail 0/1 a paletted bike is drawn flat (kind 0, colour = the MAP's palette index), and its see-through faces as flat silhouettes (kind 42).
+  - Entry +0x10 = [0x4f9304 + (page·206 + skin)·4] (palette of that skin), +0x14 = skin.
+- **0x49c590** (16-bit; the shadow, dirt wheels, RGB-page faces) [asm]. Its race remap (jump table 0x49ca54 by detail 0..5) runs only when the kind has no 0x40 prop and 0x4f1a18 == 0:
+  - details 0/1: textured faces nearer than 3072.0 (0x45400000) get props |0x20; then props &= ~0x85 (drop textured, half and RGB → flat);
+  - detail 2: the same, except faces with flag bit 3 keep their texture;
+  - detail 3: |0x20 if textured and key < 3072;
+  - details 4/5: |0x20 if textured and key < 6144 (0x45c00000);
+  - then face+0x3a = 0x624b58[props].
+- The props bits come from 0x4995a0's switches [decomp]: 0x01 textured, 0x02 shaded (the stub kinds), 0x04 half, 0x08 see-through (texel 0), 0x10 blended, 0x20 perspective (sub 6), 0x40 not drawn/special, 0x80 RGB page.
+
+##### 4.7 The shadow
+
+**Points (0x461aa0, called each step by 0x45d580/0x45e940/0x46bf80)** [asm]:
+- L54 = (40, 0, 0) through the inverse of R(heading angles); L48 = (0, 0, 40)·bike matrix (+0xbc).
+- p0 = (front + L48) − L54 → +0x2ea9;
+- p1 = front + L48 + L54 → +0x2eb5;
+- p3 = (rear − L48) + L54 → +0x2ecd;
+- p4 = (rear − L48) − L54 → +0x2ed9;
+- p2 = (p3 + p1)/2 → +0x2ec1; p5 = (p0 + p4)·0.5 → +0x2ee5;
+- front = +0x1b4, rear = +0x338.
+- Each point is dropped to the ground (0x40c7e0 section, 0x40c960 height), then y += **4.0** (0x40800000) for p0, p1, p3, p4 and **8.0** (0x41000000) for p2 and p5.
+
+**Faces (built once in 0x45bf70 with 0x422de0(kind, colour, c0..c3, u0,v0 … u3,v3, page))** [asm, pushes followed]:
+
+| face | kind | colour | page | corner: (u, v) |
+|---|---|---|---|---|
+| A, obj+0x2ef1 | 0x2c (44) | 0 | 1 | p0 (114, 1), p1 (114, 35), p2 (57, 35), p5 (57, 1) |
+| B, obj+0x2f31 | 0x2c | 0 | 1 | p5 (57, 1), p2 (57, 35), p3 (1, 35), p4 (1, 1) |
+
+- uv constants: 0x42e40000 = 114, 0x42640000 = 57, 0x420c0000 = 35, 0x3f800000 = 1.
+- uv are then ×1/256 (0x4232e0) and grown back to texels at setup.
+- face+0x38 = 0, so no +1024 on the key.
+- The front of the bike is at u = 114 and the rear at u = 1. v = 1 is the −L54 side, v = 35 the +L54 side.
+
+**Crashed second shadow** (0x52c234 NewMotorEngine && crashed +0x30c1): 4 points at obj+0x30ed and two triangles built with 0x422f80 (kind 0x2c, colour 0, page 1):
+- obj+0x311d = (0: 114,1), (1: 114,35), (2: 1,35);
+- obj+0x315d = (0: 114,1), (2: 1,35), (3: 1,1).
+- So the whole 1..114 × 1..35 picture is used.
+- The quad is centred on the saved body point +0x30b5 and turned by the heading of +0x3085 (0x490220). Half sizes come from R's rows ×2.0 (0x40000000), ×−2.0 (0xc0000000) and ×32.0 (0x42000000); y = ground (0x40c8b0) + 2.0.
+
+**Drawing (0x461f70, after the drawer, from 0x458b80)** [asm]:
+- camera C (+0x68..+0x84), T = (−campos)·C + camera T;
+- 0x49b2c0(matrix, obj+0x2ea9, 6, 0x1f);
+- **0x4dc098 is saved, set to 3**, then 0x49b7f0(verts, obj+0x2ef1, 2, 1), then restored. Forcing detail 3 keeps the texture at every detail setting;
+- the crashed pair: 4 vertices, 2 faces, done the same way.
+- Through 0x49c590 at detail 3, kind 44 (props 0x91) becomes **kind 62** (props 0xb1, span 0x4a5890: perspective-correct, divide every 16 pixels) when key < 3072. Otherwise it stays **44** (affine, span 0x4a57f0).
+- Both spans [asm]: texel = page[(v>>13 & 255)·256 + (u>>13 & 255)]; **texel 0 leaves the screen untouched**; otherwise screen = ((screen >> 1) & 0x7bef) + ((texel >> 1) & 0x7bef).
+
+**The picture**: the family's **BNK00_01.RAW** (24-bit; page 1 in the race, 0x410590), texels (1..114, 1..35):
+- a top view of the bike, pixels 0 (none) or RGB565 **2** (B = 16..23, R = G = 0);
+- texel 2 halves to 1, so each shadow pixel = **half(screen) + 1 in blue**;
+- SPEED/SPEEDPKT: 2351 shadow texels and 1639 empty; KTMCROSS/KTMPKT: 1639 shadow and 2351 empty (different shapes).
+- tools/raw.py reads this 24-bit file as 8-bit (empty palette). Read it as 256×256 RGB after the 32-byte header (model.load_page does).
+
+**[px]** In p1a.png the shadow beside the bike matches exactly. The road (16,32,15) gives (8,16,8), (17,34,16) gives (8,17,9), (14,28,13) gives (7,14,7) and (15,30,14) gives (7,15,8), in 5:6:5 units.
+
+##### 4.8 Particles and skid marks [asm for the loops, decomp for the details]
+
+**Particles 0x4575c0** [asm]: 128 records of 0x104 bytes at 0x52c498 (live when
++0xfc ≠ 0); each live one drawn by 0x4b0be0(record, renderer, CAM). 0x4b0be0
+[decomp]: only when detail [0x4dc098] ≥ 2; a counter [0x4f258c] runs over the calls
+and only every 8th particle is drawn at detail 2 (every one at 3 and 4). Kinds
++0 = 1..4 [decomp]: a camera-facing quad (4 points at +0xc0, 2 faces at +0x40,
+through 0x49b2c0(..., 4, 0x1f) and 0x49b7f0(..., 2, 1)); its matrix is the camera's
+C times a rotation built from the table (the camera roll +0xc0 and the particle's
+own angle), so it stays flat to the screen. Spawned by 0x457620 → 0x4afe90 (from the
+bike post-step 0x466d70 and 0x467c40) and 0x4576a0 → 0x4b00e0 (0x466d70); moved
+each step by 0x457590 → 0x4b0730 (Game_Frame step 15). Which kinds are smoke, dust,
+sparks or water and their pictures: not followed (the post-step helper's
+0x466d70 decides when they are made).
+
+**Skid marks 0x4573e0** [asm]: 16 strips of 0x1608 bytes at 0x542a28: 64 faces
+(0x40 bytes each) at +0, 128 points (12 bytes) at +0x1000, face count +0x1600,
+point count +0x1604. Each strip with faces: world → view (C, T' = −campos·C + T),
+points through 0x49b2c0(..., count, 0x1f), faces 0x49b7f0(..., count, 1).
+Built once by 0x457300 → 0x457120 [decomp]: 32 quads as pairs of triangles
+(points 2i, 2i+1, 2i+2 / 2i+1, 2i+3, 2i+2), kind 0xc, colour 0x45a2e0(8,8,8) (near
+black). 0x457350 starts the next strip (ring of 16, index [0x4e9bd0]);
+0x457390(strip, ...) → 0x457200 adds a point pair; both called from the bike
+post-step 0x466d70 (so: tyre marks laid while braking/sliding [guess, strong]).
+
+##### 4.9 Open points (bike drawer)
+1. Which track sections have +0xe0 ≠ 0 (tunnels? [guess]). A capture in one would confirm the skeleton/LOD halving and that RGB-page faces stay full.
+2. Table 0x4f62f0 (kind 9's red table) has no writer found by its exact address. It does not matter for bikes (kind 9 never reaches them).
+3. 0x422540's a0 and pos arguments: pushed, no use found in the formula. Worth one more read if the exact levels are ever needed (they do not reach pixels).
+4. Decor lighting 0x4036a0 → 0x422810 (also gated by 0x4dc130) was not followed. It could darken decor the same way.
+5. The detail value 0x4dc098 during a race (from Options) decides the flat (0/1) vs textured bikes and the near-perspective threshold. Confirm the default in the original.
+6. The dirt families' wheel skin −1 rests on 0x45bf70's p4 = −1 when PersoAnim == 1 (NOTES §4.15.2.1). Not re-checked in a dirt capture.
+
+##### 4.10 Rough C size (bike drawer race parts):
+- section light and the lit flag ~15 lines;
+- half variants of paletted kinds 0/1/2 plus the kind-42 silhouette and the deferred lit batch ~70;
+- wheel kind swap ~10;
+- 0x49ca70 detail remap ~10;
+- shadow points 0x461aa0 (on top of the existing ground-height code) ~60;
+- crashed quad ~40;
+- shadow faces, uv and draw with detail forced to 3 ~40;
+- blend spans 44/62 ~40 (62 may already exist for the tracks);
+- LOD choice ~30;
+- optional exact 0x422540 + 0x41fa10 ~70 (not needed for pixels: "lit wheel → half" is enough).
+- **Total ≈ 310 lines, ≈ 380 with the exact lighting.**
+
+---------------------------------------------------------------------------
+#### 5. Summary for the port
+
+##### 5.1 How sure
+- Frame order (§1): [asm] throughout, all calls placed. No split screen: one camera
+  block (0) and one full-screen viewport. Two players on one PC exist only as Link
+  (DirectPlay), which goes against the scope in CLAUDE.md; Danik has to decide.
+- Cameras (§2): chase, on-board and look-at [asm]. Their matrices were checked against
+  every dump: 18/19 chase (q32 dumped mid-frame) and all mode-3 dumps to 5e-8;
+  the rest pose q44 is exact; fx = 394·zoom. Bike-mounted presets were read in the asm
+  but not checked (the bike matrix was not dumped). The TV director is from the decomp only.
+- HUD (§3, §3b): q17 is exact in every text and in the whole dial box; p3 and q14 are
+  exact apart from guessed values and see-through edges. All captures use small fonts,
+  so the hi-res layout is unchecked.
+- Bikes (§4): LOD, visibility and shadow [asm]; the shadow blend and "lit wheel = half"
+  were checked on p1a.
+
+##### 5.2 Open points across sections
+1. The chase lerp (0.2) and the rev-needle limit (3000) are applied per frame, and the
+   blink masks count frames. GOG is capped at 60 fps (-FrameRateMax60) and the CD at
+   30, so the port's fixed 60 Hz steps match GOG. A CD mode would need 30 Hz steps for
+   these to match.
+2. The hi-res HUD (small fonts off) and F4 16:9: one capture of each.
+3. Sections with +0xe0 ≠ 0 (dark: tunnels?) and the decor lighting 0x422810.
+4. The CD data's sprite messages (0x4dc180 = 0).
+5. Particle kinds and pictures (0x4afe90 / 0x4b00e0), and when 0x466d70 spawns them.
+6. The finish figure 0x47b7a0's constants; the track map 0x40f2d0 (off by default).
+
+##### 5.3 Rough size of a C port (on top of r3d.c, land.c, text.c, font.c)
+- frame order and draw glue ~150 lines
+- cameras: chase, on-board, look-at, presets, Tab/F5/F6, finish orbit ~300; TV director ~250
+- HUD texts, countdown, messages, panels ~600
+- dials, dial face, turn signs ~370
+- screen set-up and viewport ~100
+- bike visibility, LOD, shadow, lighting halves, kind remaps ~310
+- particles ~60 to ~150, skid marks ~80, finish figure ~100, track map ~120
+- In all, about 2,500 to 2,800 lines.
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and
