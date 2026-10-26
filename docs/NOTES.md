@@ -2187,6 +2187,340 @@ sound a picture): a 30 s run from the logo equals 13.wav sample for sample for 1
 03.wav starts at frame 1201 (the title's start); on page 3 "make your choice" (1061 ms)
 starts on the second frame, as the queue's quirk says; the down arrow plays 0x29.
 
+### 4.11 Page 15, the name entry: the 3D letter grid (mapped 2026-10-26)
+
+
+Start 0x487070, frame 0x487bb0, type-a-letter 0x487a70, end 0x488790.
+Confidence marks: [asm] read from the instructions, [px] confirmed against the running
+original, [decomp] read from Ghidra's C only, [guess] not proven.
+Reference renderer: `tools/model.py name ...` (see the end of this file).
+
+Result: **model.py reproduces the settled page with 0 differing pixels in 4 captures**
+(16-bit comparison, 640x480), and to within 30 and 8 edge pixels in the 2 s ripple-start
+after the intro (sub-millisecond timing). See "Verification".
+
+
+#### 4.11.1 Start 0x487070 [asm]
+
+##### View
+- `0x49a0e0(1024.0)` and `0x49a100(1024.0)`: argument bits **0x44800000**. The focal
+  in x is 1024 × [0x6d1f74] (screen scale, 1.0 at 640x480), in y 1024. Elsewhere in
+  the menu it is 1911 (0x44eee000); the confirm path puts 1911 back.
+- Near plane 256, centre (320,240) unchanged (the menu's), no x flip.
+- `0x5f675c = 0` (the "confirm now" flag, see §4).
+
+##### Models (only when [0x4f1284] == 0; afterwards it is set to 1)
+Each through `0x4794b0(obj, "…3df", "…map", 0, 0, -1)` → `0x420a50(model, 3df, map, -1, 0)`
+then `0x420250` (recentre on the bounding box centre).
+
+| Object | File | Stored at |
+|---|---|---|
+| letters A..Z | `data\menu\font3d\l%c.3df` / `.map` (%c = 'a'..'z') | 0x5f1880[0..25] |
+| delete | `data\menu\font3d\backspac.3df/.map` | 0x5f18e8 (= index 26) |
+| confirm | `data\menu\font3d\valid.3df/.map` | 0x5f18ec (= index 27) |
+| frame | `data\menu\font3d\cadre.3df/.map` | 0x4f1288 |
+| cursor | `data\menu\font3d\curseur.3df/.map` | 0x4f128c |
+
+**Not loaded**: CADRE1..3, CURSEUR2, no texture pages (0x4794b0 with page argument 0).
+
+- `0x420a50` is the same reader as `0x4216a0` (NOTES §4.5) with a last argument. With
+  last argument 0: textured faces get draw kind 1/2 (0x15/0x27 with 0x200000), faces
+  flagged 0x20000 are moved to the end, and the model is mirrored by `0x422070`
+  (x sign + corner order reversed). **Every font3d face is MAP kind 0, flags 0**, so it
+  becomes draw kind 0 = flat colour, colour = the u16 at **MAP + 2** of the face record
+  (not +0x4e as for textured faces). The shading is baked into those colours
+  (e.g. LI: 0x829f, 0x935f, 0x48d8, 0xe55f). [asm, px]
+- vertices are file floats × 96, as elsewhere. [asm]
+
+##### Scales [asm]
+- Cadre: `0x47a960(cadre, 78.0)` (0x429c0000) — fit to 78.
+- `s = 0x47a960(letter A, 62.0)` (0x42780000) — letter A fitted to 62, s returned.
+- Letters 1..27 (B..Z, BACKSPAC, VALID): `0x47abd0(model, s)`.
+- `0x47ad40` (mirror again, same as 0x422070) on all 28 letter models → they end the
+  right way round. The cadre and curseur are **not** mirrored back.
+- Curseur: `0x47abd0(curseur, s)`.
+
+`0x47a960 fit(model, size)`: per axis min/max over the vertices; half = f32((max-min)·0.5),
+0 becomes 1; s = min(size/half) over the three axes; c = f32((max+min)·-0.5)
+(0x4d18c8 = -0.5); every vertex v = f32((v + c)·s). Returns s. `0x47abd0(model, s)` does
+the same with s given. [asm]
+
+##### Objects and their start state [asm]
+Menu object (0x94 bytes, §3). Camera `0x47af50(0x504bc8, angles (0,0,0), pos (0,0,-2400))`
+(-2400 = 0xc5160000) — the identity view apart from 1e-16 terms.
+
+- Wave phase `0x5f6480`: `0x47a340(obj, 0, 0)`, then `0x47a820(obj, (2π,0,0), 1.0 s, mode 2)`
+  (2π = 0x40c90fdb) — the phase turns once a second, unbounded.
+- Wave amplitude `0x5f63e8`: `0x47a340` to zero (x of its angles is the amplitude).
+- Selection spinner `0x5f1690` (static, **not** reset here):
+  `0x47a820((0,2π,0), 1.0, 2)` — its yaw (0x5f1694) is the selected letter's yaw.
+- Cadre: `0x47a820(cadre, (0,2π,0), 1.0, 2)` — spins once a second.
+- Each letter i (0..27): random start
+  angles (A·4π, B·4π, C·4π), position (A·2048, B·512+2250, C·1024+4096),
+  A,B,C = r/32767·2-1 in that call order, r = `0x458cd0()` (= `0x4b1160(1)`, menu random
+  stream 1, 0..0x7ffe). Then rotate to (0,0,0) in 2.0 s mode 1, move to grid[i] in
+  2.0 s mode 1.
+- Grid table 0x5f18f0[28] (x,y,z floats), cell i: c = i % 7, r = i / 7:
+  x = f32(f32(c·(1/6))·1100 - 550), y = f32(f32((3-r)·(1/3))·500 - 250), z = 0.
+  Constants: 0x4d1b18 = 1/6 (double), 0x4d1b20 = 1100, 0x4d1b28 = 550, 0x4d1b00 = 1/3,
+  0x4d1b08 = 500, 0x4d1b10 = 250. So 7 columns × 4 rows, A..G top row, VALID (27)
+  bottom-right, BACKSPAC (26) left of it.
+- Name slots 0x5f6530[8] (new objects, `0x479470`): model = letter k's, position
+  (0,800,500), random angles r·2π/32767·3 (0x4d1b50 = 3.0).
+- Slot positions 0x5f6378[9]: x = f32(k·140 - 490) (0x4d1b30 = 140, 0x4d1b38 = 490),
+  y = -325 (0xc3a28000), z = -600 (0xc4160000). k = 0..8; [8] is where the curseur
+  would sit after the 8th letter.
+- Cursor (selected cell) `0x5f647c = 0`; menu+0xc = 0; `0x5f6528 = 1` (intro running);
+  `0x4dbfc8 = 0` (Alt state).
+- **Prefill** from the stored name 0x5161b0: each char `& 0xdf`, non-letters become 'A',
+  at most 8. Slot k gets that letter's model, position (0,800,500), angles 0. If the
+  length > 0 the cursor = 27 (VALID).
+- Curseur: position (0,800,500), `0x47a820((0,2π,0), 1.0, 2)`.
+- `0x43fa40(picture 0x69 enternam, (0,0))`; `0x5f6524 = 0`, `0x5f652c = 1` (roles
+  not traced [guess]: page-local flags); mouse mode menu+4 = 0.
+- No buttons (`0x40bd40` with an empty list). No music change.
+- Sound: `0x404e10(1, 0x258, 0x36)` — voice sample 0x36 ("enter your name") queued with a
+  600 ms delay. [asm; delay semantics guess]
+
+
+#### 4.11.2 Frame 0x487bb0 [asm, px]
+
+1. `0x49b1c0(1)`, `0x49a160(0,0)`, menu+0x10 = -1.
+2. Background: picture id 2 = `paralax3.lez`, mode 4 (tile 128x128): `0x43fab0(0,1,0,0)`
+   scrolls it **one row a frame**, pixel (x,y) = tile[(scroll+y) & 0x7f][x & 0x7f].
+   Then picture id 0x69 = `enternam.lez` (per language, MENUUS etc.), mode 1 (colour-key)
+   at (0,0). [px]
+3. Update `0x5f1690` (selection spinner).
+4. **Intro** (`0x5f6528` == 1): for i in 0..27: if i == cursor: place the cadre at the
+   letter's *previous-frame* position, update + draw the cadre; update letter i; if
+   i == cursor its yaw = [0x5f1694]; draw letter i. After the loop the cadre is
+   updated and drawn again(**). When letter A's rotation is finished (+0x24 == 0):
+   - amplitude object → (120.0, 0, 0) (0x42f00000) in 2.0 s mode 0 (linear);
+   - every slot → its slot position (1 s mode 1) and → angles 0 (1 s mode 1);
+   - if len < 8: curseur → slot[len] (1 s mode 1);
+   - `0x5f6528 = 0`.
+   (**) draws the cadre a second time at the same place — same pixels, harmless.
+5. **Steady** (`0x5f6528` == 0): update 0x5f6480 (phase) and 0x5f63e8 (amplitude).
+   phase p = [0x5f6480 +0] at the start of each row, for r in 0..3, c in 0..6:
+   - z = f32(cos(p)·amp), amp = [0x5f63f4]; written to grid[i].z;
+   - letter i updated, then its z forced to grid z;
+   - i == cursor: update cadre, cadre position = letter's, draw cadre,
+     letter yaw = [0x5f1694]; else letter angles = (0,0,0);
+   - draw letter i;
+   - p += 0.5235987755982988 per column (π/6), and per row the row's start phase
+     += 0.4487989505128276 (π/7), each step rounded to float. [asm, px]
+   The cosine is the x87 fcos on the float phase (not the COS table). [asm]
+6. The 8 slots: update and draw (only those with a model). Then the curseur.
+7. `0x40c500`, `0x49ad90` (flush the s-buffer; when [0x504e74]==0 and not D3D),
+   pointer `0x442260(0x5049d4)` only if [0x4dbff0] && [0x53c524] (never drawn in the
+   windowed captures), `0x49b0e0` (present).
+8. No buttons, no text list.
+
+So the draw order is: background, title, (per cell: cadre if selected, letter), typed
+letters in slot order, curseur. Each draw is s-buffered and flushed at 0x49ad90, so the
+order only matters for equal depth.
+
+##### How the typed name is shown
+As 3D letters in the slots 0x5f6378[k] along the bottom (y -325, z -600, x -490..+490
+step 140), each object's model being the typed letter's. Typing: the slot object takes the
+letter's model *and* its current angles and grid position, then flies to slot[len] and
+rotates to 0 in 1 s (mode 1 = sine ease). Deleting: the last slot flies to (0,800,500)
+(above the top edge) in 1 s mode 1 while given random angles. The curseur (the small
+spinning marker) moves to slot[len] in 0.2 s linear.
+
+
+#### 4.11.3 The menu 3D object and its routines [asm]
+
+##### Layout (0x94 bytes)
+| Off | What |
+|---|---|
+| +0x00 | angles a,b,c (float) |
+| +0x0c | position x,y,z |
+| +0x18 | model pointer |
+| +0x1c, +0x8c, +0x90 | buffers used only by the glass-shard transition (0x479630/0x479c10) |
+| +0x20 | move active |
+| +0x24 | rotation active |
+| +0x28 | "restart spinner" flag (mode 2: start time reset) |
+| +0x2c | rotation start angles |
+| +0x38, +0x3c | 0 → draw through 0x49b7f0; else 0x49c110 |
+| +0x40 | angle delta |
+| +0x4c | rotation end time; +0x54 duration (ms); +0x58 start time; +0x5c mode |
+| +0x60 | move start position; +0x6c delta; +0x78 end; +0x80 duration; +0x84 start; +0x88 mode |
+
+##### Setters
+- `0x47a340(obj, angles, pos)`: both, clears +0x20 and +0x24.
+- `0x47a380(obj, angles)`: angles, clears +0x24.
+- `0x47a3a0(obj, pos)`: position, clears +0x20.
+- `0x47a820(obj, angles*, float seconds, mode)` / `0x47a8b0(obj, pos*, seconds, mode)`:
+  start = current, duration = ftol(seconds × 1000.0) (0x4d18a8 = 1000.0 double),
+  start time = timeGetTime, end = start + duration. Mode 2: delta = the given vector
+  (a rate per duration); otherwise delta = f32(target - current). Sets the active flag.
+
+##### Update 0x47a3d0 (now = timeGetTime)
+- ratio = f32((min(now,end) - start) / f32(duration)).
+- mode 0: linear, value = start + delta·ratio.
+- mode 1: e = (sin(ratio·π - π/2) + 1)·0.5; constants 0x4d1880 (π), 0x4d1888 (π/2),
+  0x4d1890 (1.0), 0x4d1898 (0.5), all doubles; value = start + delta·e.
+- mode 2: value = start + delta·(now - start)/duration, **not** clamped; each angle then
+  wrapped by subtracting 2π_f (0x4d18a0) while > 2π (negatives through the sign bit test).
+  Never ends. With +0x28 set the start time is reset.
+- Otherwise the animation ends when min(now,end) == end (flag cleared, value = target).
+- Bug: the mode-2 **position** branch uses now - duration instead of now - start (not
+  used on this page).
+Each result is stored as float. Times are integer ms.
+
+##### Draw 0x479eb0
+M = Rz(c)·Ry(b)·Rx(a), the same formula and product order as 0x48c030 (page 25/14).
+With the camera C (0x47af50: V = Rᵀ, Vt = -(R·p)): N = M·C, T = pos·C + Ct, rounded to
+float at every stored partial (T = f32(cc·sb), T2 = f32(sc·sb) in the matrix).
+Then `0x49b2c0(model, N, T, 0x1f)` → `0x49b7f0(…, 1)` (when +0x38 == 0) → faces into the
+s-buffer → `0x49ad90` at the end of the frame. **The same path as 0x48c030 → 0x49b2c0 →
+0x49b7f0 → 0x49ad90**; only the object/matrix building differs. 0x49b2c0 sets the x87 to
+24-bit precision and restores it; outside it the game runs at 53-bit.
+
+##### Flat faces (draw kind 0)
+Kind table 0x4f1a70: kind 0 = {0, sub 0, flag 0, 0x4a3950}; with no sub-kind 0x4aef20
+calls `0x4a3950(vertices, face)` directly.
+- `0x4a3950`: colour through 0x402020 = the 5:5:5 form, i.e. the 565 colour with bit 5
+  cleared (`colour & 0xFFDF`); fan of triangles, near clip as in 0x49e510; only
+  triangles entirely left of / above the screen are rejected.
+- `0x4a34f0`: flat triangle, no area/back-face test (back faces are culled earlier),
+  13-bit fixed-point edges.
+- `0x4a2f10`: span insert into the s-buffer free list (splits a node on reversed spans);
+  `0x4a31d0` is the MMX copy used when [0x4dbcf4].
+No textures, no lighting on this page.
+
+
+#### 4.11.4 Input
+
+##### Mouse (menu+4 set when the mouse moved) [asm, px]
+- The 28 letters' (x, y, 0) are copied to 0x5f1728 and projected through the camera
+  0x504bc8 (focal 1024).
+- The cursor = the cell nearest to the pointer by squared pixel distance, strict `<`,
+  so the lowest index wins a tie. **Clicking anywhere acts on the nearest cell** — there
+  is no rectangle. If the cursor changed, 0x5f16b8 = 1 (spinner restart).
+- [0x5083b8] == 2 (a level: set on button down, cleared on up — a press shorter than a
+  frame is lost): letter → type it (0x487a70); 26 → delete; 27 → confirm if len > 0.
+  Then 0x5083b8 = 0 and sound 3.
+
+##### Keys (menu+0xc) [asm, px]
+- Cleared first (ignored): 0x21-0x24, 0x60-0x6b, 0x6f-0x7b. 0x6c-0x6e are not cleared and
+  reach the letter test as 'l','m','n' (numpad +, separator, - type L, M, N).
+- 0x08 Backspace: delete (no sound, no spinner restart): cursor = 26; the last slot flies
+  to (0,800,500) in 1 s mode 1, angles random r·2π/32767·3; len--; the curseur moves to
+  slot[len] in 0.2 s (0x3e4ccccd) mode 0.
+- 0x0d Return: if not Alt ([0x4dbfc8] & 1) and len > 0: confirm, with sound.
+- 0x20 Space: on a letter type it (sound only if len < 8); on 26 delete (always sound);
+  on 27 confirm if len > 0 (sound).
+- Arrows (set 0x5f16b8 = 1): Left -1 (below 0 → 27); Up -7 (negative → +28);
+  Right +1 (≥28 → 0); Down +7 (≥28 → -28).
+- 0x41-0x5a, 0x61-0x7a: 0x487a70((k|0x20) - 0x61), no sound.
+- Escape: nothing (no way back except confirm).
+- If [0x5f675c] is set the frame goes straight to confirm.
+
+##### 0x487a70 type(i) [asm, px]
+If len < 8: slot[len].model = letter i's model; 0x47a340(slot, letter i's angles, grid[i]);
+slot → slot pos[len] (1 s mode 1) and → angles 0 (1 s mode 1); name[len] = 'A'+i.
+The grid letter is put at (0,800,500) and moves back to grid[i] in 1.5 s (0x3fc00000)
+mode 1. len++; cursor = i (no spinner restart); curseur → slot[len] in 0.2 s mode 0.
+Always: 0x5f675c = 0.
+(i is 0..25 here; 26/27 are handled by the callers.)
+
+
+#### 4.11.5 Exits [asm]
+
+Confirm:
+1. strcpy name → 0x5161b0 (the player name).
+2. `_strcmpi` (0x4bf8f0) against the cheat table 0x4f1250, count [0x4f1248] = 3
+   (entries: string pointer, variable pointer, value):
+
+   | Name | Variable | Value | Effect |
+   |---|---|---|---|
+   | CESREVER | 0x4dc050 | 1 | "reverse" tracks; read by the main menu with 0x4dc040 |
+   | CTEKCOP | 0x4dc054 | 1 | "pocket" bikes; with 0x4dc03c |
+   | CDNALSI | 0x4dc058 | 1 | read by 0x447920 / 0x448110 / 0x44aee0 (track pages) |
+
+3. Focal back to 1911 (0x44eee000) in x and y; `0x40c1e0`.
+4. Cheat matched: `0x409eb0(15)` — page 15 again, no transition; the end routine frees
+   everything and the start reloads, so the intro plays again, prefilled from 0x5161b0
+   (now the cheat word).
+   No match: `0x40c4a0` (capture the screen for the glass transition), `0x409eb0(3)`
+   → main menu.
+
+End 0x488790: frees the slot objects (model pointer cleared first so the shared letter
+models are not freed twice), the 28 letters, the cadre, the curseur; [0x4f1284] = 0.
+
+
+#### 4.11.6 Verification [px]
+
+Captures in `build/ref/name15/` with `tools/orig.sh` (headless). Comparison by
+`model.py name` against each capture, 640x480 16-bit; side-by-side pictures (original |
+model | difference) in `build/png/models/name_vs_orig_*.png`.
+
+| Capture | State | Fitted parameters | Differing px |
+|---|---|---|---|
+| c_idle | DSI typed, cursor 27 | t 904, scroll 76, cadre 905, curseur 899 | **0** |
+| orig_p15_name | DSI, cursor 6 | t 957, t_sel 614, scroll 100 | **0** |
+| d2_bs_settled | DS after Backspace, cursor 26 | t 496, cadre 497, curseur 491 | **0** |
+| d5_q_settled | DSQ after Q, cursor 16 | t 652, t_sel 890, cadre 653, curseur 647, scroll 66 | **0** |
+| b_intro_6 | ripple starting | t 990, t_end 986, scroll 65 | 30 (one column x=472) |
+| b_intro_7 | ripple growing | t 1442, t_end 1438, scroll 123 | 8 |
+
+The fitted times are consistent: the cadre spinner always started 1 ms before the wave
+spinner and the curseur 5 ms after (they are started at those points of the start
+routine); the end of the intro was seen 4 ms after the 2000 ms mark. The residues are
+single edge pixels from sub-millisecond timing. The intro fly-in itself is random and was
+not fitted (needs the random stream's state, see open questions).
+Mouse: nearest-cell selection and click-anywhere confirmed (e1/e2/e3/e4). Keys, Backspace,
+arrows, typing, the Q fly-in confirmed (d0..d5).
+
+
+#### 4.11.7 Open questions
+- Where 0x5161b0's first "DSI" comes from: bestscor.dat holds "DSI"; the load was not traced.
+- Exact semantics of the delay argument of 0x404e10 (voice 0x36, 600).
+- The state of random stream 1 at page entry (needed for an exactly equal intro; the port
+  can use any seed — the fly-in is random by design).
+- Why the pointer is not drawn in the windowed captures (0x4dbff0 / 0x53c524 = fullscreen?).
+
+
+#### 4.11.8 What the port needs, in order
+1. Focal 1024 on entry, 1911 back on exit (menu view setters already needed elsewhere).
+2. Model loading with the "last argument 0" path: MAP kind 0 → flat face with colour at
+   MAP+2; mirror; recentre; then `fit` / `scale` / mirror-back as in §1.
+3. Flat face drawing (kind 0): 0x4a3950 → 0x4a34f0 → 0x4a2f10 into the existing s-buffer.
+4. The menu object (0x94) with set/rotate-to/move-to/update (modes 0,1,2 with the float
+   roundings of §3) and its draw (M·C, pos·C + Ct) into 0x49b2c0's path; camera 0x47af50.
+5. Page 15 start, frame and end as §1/§2/§5, with the grid, wave and slot tables.
+6. Input §4 (nearest-cell mouse, keys, type/delete) and the confirm with the cheat table
+   (three flags) → page 3 through the glass transition, or page 15 again on a cheat.
+7. Voice 0x36 with its delay; sound 3 on clicks/space.
+8. The stored player name 0x5161b0 (load from bestscor.dat — to be traced).
+
+#### 4.11.x model.py
+`python3 tools/model.py name BKF MS out.png [sel=N] [tsel=MS] [name=ABC] [scroll=N]
+[tcadre=MS] [tcur=MS] [tend=MS]` — MS = ms since the wave spinner started; tsel = since
+the selection spinner (re)started; tend = since the intro ended (ripple amplitude and
+name fly-in). Functions: `load_menu_model`, `fit`, `scale`, `mirror`,
+`menu_object_matrix`, `menu_camera`, `menu_draw`, `spin`, `ease`, `grid_xy`, `slot_xyz`,
+`wave`, `name_models`, `name_background`, `name`; the Renderer gained `focal=` and flat
+faces (`face_flat`, `flat_triangle`, `flat_row`).
+
+
+#### 4.11.9 In the port (2026-10-26)
+`page_name.c` (the page), `obj3d.c` (the menu object 0x47a3d0 and its setters), in `r3d.c`
+a settable focal length, flat faces (0x4a3950/0x4a34f0/0x4a2f10) and the menu object's
+matrix, camera and projection, in `model.c` the loader with the last argument 0, the mirror
+0x422070 with its cosine-table constants, fit and rescale. The first name is CONFIG.BPT's
+DefName (0x42af0d reads it into 0x5161b0; `config.c`). The cheat table is read from
+game.EXE; its three variables map to the port's flags by address.
+Checks: against `tools/model.py name` (0 px from the original's captures), the port's
+settled page with DSI (frame 301: t 5000 ms, scroll 45) and after Backspace + Q (DSQ, frame
+501) differ only in the mouse pointer (179 px; the original's windowed captures have none).
+The logo and title pages are unchanged by the renderer's additions (0 px). The chain
+25 → 14 → 15 → glass → 3 runs; CTEKCOP restarts the page and the main menu then shows the
+Pocket switch; a confirmed cheat word restarts the page again each time (as the code does);
+the mouse picks and types the nearest cell. The fly-in is random (stream 1) and not compared.
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and

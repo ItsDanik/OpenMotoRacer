@@ -41,9 +41,11 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
 - Sound (NOTES §4.10, mapped by a helper into build/notes/sound.md, then into NOTES):
   `tools/sfx.py` decodes SFX.BKF; `port/src/sound.c` plays the effects, the voice queues
   and the music as GOG does; a recorded run equals 13.wav sample for sample.
+- Page 15, the name entry, in the port (NOTES §4.11): equal to the original's picture
+  (through model.py) apart from the pointer; the chain logo → title → name → main menu runs.
 - Mapped by helpers, not yet in NOTES: the Solo pages 5, 6, 9, 10, 1 and the race settings
-  (`build/notes/solo_pages.md`, captures `build/ref/orig_p*`). Running: page 15
-  (`build/notes/name15.md`), the track format (`build/notes/track.md`).
+  (`build/notes/solo_pages.md`, captures `build/ref/orig_p*`). The track format
+  (`build/notes/track.md`, part-way).
 - The tracker shows Claude's messages at its bottom ("From Claude", the `messages` dataset)
   and Danik writes from it (comments sent to Claude): keep it watched.
 
@@ -55,16 +57,9 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   the original, or a user folder?
 
 ## Next, in order
-1. (In hand when the session stopped, no code written yet.) Page 15 from
-   build/notes/name15.md (model.py matches the original to 0 px): r3d needs a settable focal
-   (1024 here), flat faces (kind 0, colour MAP+2 & 0xFFDF, 0x4a34f0/0x4a2f10 as model.py's
-   flat_triangle/flat_row), the menu loader (0x420a50 last arg 0, mirror with the cos-table
-   constants), fit/scale, the menu object (0x47a3d0 modes 0/1/2) and its matrix/camera.
-   The track helper was stopped part-way: see build/notes/track.md and tools/track.py.
-   Page 15, the name entry (0x487bb0: 3D letters, `data\menu\font3d`, NOTES §4.8.5),
-   then the 15 -> 3 transition; the title's 30 s demo time-out (Menu_Frame 0x409c00).
-2. The Solo pages from build/notes/solo_pages.md (5, 6, 10, 9, then 1), then 11 options.
-3. Sound: CONFIG.BPT's switches and volumes, pause on losing focus, the race's sounds.
-4. The track (.trk), the race loop, the race renderer (the same r3d with the race's
-   near plane 64 and its face kinds).
-5. The CD's `MOTO.EXE`: line it up with GOG's `game.EXE` (which tables the port reads).
+1. The Solo pages from build/notes/solo_pages.md (5, 6, 10, 9, then 1), then 11 options.
+2. Sound: CONFIG.BPT's switches and volumes, pause on losing focus, the race's sounds.
+3. The track (.trk), the race loop, the race renderer (the same r3d with the race's
+   near plane 64 and its face kinds): build/notes/track.md, track_raster.md/.py,
+   track_horizon.md/.py and tools/track.py (a helper was stopped part-way).
+4. The CD's `MOTO.EXE`: line it up with GOG's `game.EXE` (which tables the port reads).

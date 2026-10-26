@@ -55,6 +55,7 @@ extern int g_mx, g_my;              /* 0x519fe8, 0x519fea */
 extern int g_pocket_unlocked, g_pocket_unlocked2;  /* 0x4dc03c, 0x4dc054 */
 extern int g_reverse_unlocked, g_reverse_unlocked2; /* 0x4dc040, 0x4dc050 */
 extern int g_pocket, g_reverse;                     /* 0x4dc078, 0x4dc068 */
+extern int g_island_unlocked;                       /* 0x4dc058 (CDNALSI), read by the track pages */
 extern int g_quit;                                  /* page 4 asked the program to end */
 
 int menu_start(int page, char *err, int errsize);   /* 0x472c40's part: the first page */
@@ -77,6 +78,7 @@ void menu_end_frame(void);
 
 /* input, as the window procedure hands it on (0x4329a5) */
 void menu_key(int vk);                              /* WM_KEYDOWN → 0x40a0f0 */
+int menu_alt(void);                                 /* Alt held (0x4dbfc8 & 1) */
 void menu_key_up(int vk);                           /* WM_KEYUP → 0x432700 */
 void menu_mouse_move(int x, int y);                 /* WM_MOUSEMOVE */
 void menu_mouse_button(int left, int down);         /* WM_[LR]BUTTON(DOWN|UP) */

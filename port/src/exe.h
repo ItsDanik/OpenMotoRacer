@@ -14,6 +14,8 @@ enum {
     X_SFX_MENU,         /* the sounds' {name, id} tables (NOTES §4.10.2): the menu's, */
     X_SFX_MENU_VOICES,  /* the menu's voices, */
     X_SFX_PODIUM,       /* the podium's */
+    X_CHEATS,           /* the name entry's {name, variable, value} (0x4f1250) */
+    X_CHEAT_COUNT,      /* how many (0x4f1248) */
     X_COUNT
 };
 unsigned exe_addr(int what);

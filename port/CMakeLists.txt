@@ -29,6 +29,9 @@ set(OMR_SOURCES
   src/model.c
   src/rand.c
   src/sound.c
+  src/obj3d.c
+  src/config.c
+  src/page_name.c
   src/script.c
   src/font.c
   src/text.c

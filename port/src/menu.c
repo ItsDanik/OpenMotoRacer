@@ -19,6 +19,7 @@ unsigned g_mouse;
 int g_mx, g_my;
 int g_pocket_unlocked, g_pocket_unlocked2, g_reverse_unlocked, g_reverse_unlocked2;
 int g_pocket, g_reverse;
+int g_island_unlocked;
 int g_quit;
 
 static int g_mods;              /* 0x4dbfc8: 1 Alt, 2 Shift, 4 Ctrl */
@@ -36,6 +37,7 @@ static const struct {
     [3] = { page_main_frame, page_main_start, 0, "main menu" },
     [4] = { page_quit_frame, 0, 0, "quit" },
     [14] = { page_title_frame, page_title_start, page_title_end, "title" },
+    [15] = { page_name_frame, page_name_start, page_name_end, "name entry" },
     [25] = { page_logo_frame, page_logo_start, page_logo_end, "Delphine logo" },
 };
 
@@ -432,6 +434,11 @@ void menu_end_frame(void)
 }
 
 /* 0x40a0f0 */
+int menu_alt(void)
+{
+    return g_mods & 1;
+}
+
 void menu_key(int vk)
 {
     int i;

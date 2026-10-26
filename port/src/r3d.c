@@ -13,7 +13,6 @@
 #define H 480
 #define CX 320.0f               /* 0x60d3c4, 0x624f88: half the 640x480 view (0x499ba0) */
 #define CY 240.0f
-#define FOCAL 1911.0f           /* set by the menu (0x40a003) */
 #define NEAR 256.0f             /* 0x625774, the menu's */
 #define TO_INDEX 2607.5945876176133     /* 0x4d1bf8: 16384 / 2pi */
 
@@ -57,6 +56,12 @@ static int g_nspan;
 static int g_batch[BATCHES + 1];          /* each batch's first span */
 static int g_nbatch;
 static float g_cam[3][3], g_campos[3];    /* the camera block 0x5161c0 */
+static float g_focal = 1911.0f;           /* 0x49a0e0/0x49a100: the menu's 1911 (0x40a003) */
+
+void r3d_focal(float f)
+{
+    g_focal = f;
+}
 
 void r3d_init(void)
 {
@@ -183,6 +188,88 @@ void r3d_object(const Model *m, const float ang[3], const float pos[3])
     r3d_view(m->nv, (const float (*)[3])m->v, m->nf, m->f, (const float (*)[3])n, t);
 }
 
+/* 0x479eb0 / 0x47af50: M = Rz(c) Ry(b) Rx(a), with the partial products cc*sb and sc*sb
+   stored as floats as the code keeps them */
+void r3d_menu_matrix(float m[3][3], const float ang[3])
+{
+    double c[3], s[3];
+    float t, t2;
+    int j;
+    for (j = 0; j < 3; j++) {
+        int i = (int)(ang[j] * TO_INDEX);
+        c[j] = g_cos[i & 0x3fff];
+        s[j] = g_cos[(i - 0x1000) & 0x3fff];
+    }
+    t = (float)(c[2] * s[1]);
+    t2 = (float)(s[2] * s[1]);
+    m[0][0] = (float)(c[2] * c[1]);
+    m[0][1] = (float)(s[2] * c[0] + t * s[0]);
+    m[0][2] = (float)(s[2] * s[0] - t * c[0]);
+    m[1][0] = (float)-(s[2] * c[1]);
+    m[1][1] = (float)(c[2] * c[0] - t2 * s[0]);
+    m[1][2] = (float)(c[2] * s[0] + t2 * c[0]);
+    m[2][0] = (float)s[1];
+    m[2][1] = (float)-(c[1] * s[0]);
+    m[2][2] = (float)(c[1] * c[0]);
+}
+
+static float g_mcam[3][3], g_mcamt[3];    /* the menu's camera object 0x504bc8 */
+
+/* 0x47af50: the view is the inverse of the camera's placement */
+void r3d_menu_camera(const float ang[3], const float pos[3])
+{
+    float r[3][3];
+    double px = pos[0], py = pos[1], pz = pos[2];
+    int i, j;
+    r3d_menu_matrix(r, ang);
+    for (i = 0; i < 3; i++)
+        for (j = 0; j < 3; j++)
+            g_mcam[i][j] = r[j][i];
+    g_mcamt[0] = (float)-((r[0][2] * pz + py * r[0][1]) + r[0][0] * px);
+    g_mcamt[1] = (float)-((pz * r[1][2] + r[1][0] * px) + py * r[1][1]);
+    g_mcamt[2] = (float)-((py * r[2][1] + r[2][0] * px) + pz * r[2][2]);
+}
+
+/* 0x479eb0(object, camera): N = M C, T = pos C + Ct */
+static void menu_nt(float n[3][3], float t[3], const float ang[3], const float pos[3])
+{
+    float m[3][3];
+    int i, j;
+    r3d_menu_matrix(m, ang);
+    for (i = 0; i < 3; i++)
+        for (j = 0; j < 3; j++)
+            n[i][j] = (float)(((double)m[i][0] * g_mcam[0][j] + (double)m[i][1] * g_mcam[1][j])
+                              + (double)m[i][2] * g_mcam[2][j]);
+    for (j = 0; j < 3; j++)
+        t[j] = (float)((((double)pos[0] * g_mcam[0][j] + (double)pos[1] * g_mcam[1][j])
+                        + (double)pos[2] * g_mcam[2][j]) + g_mcamt[j]);
+}
+
+void r3d_menu_object(const Model *m, const float ang[3], const float pos[3])
+{
+    float n[3][3], t[3];
+    menu_nt(n, t, ang, pos);
+    r3d_view(m->nv, (const float (*)[3])m->v, m->nf, m->f, (const float (*)[3])n, t);
+}
+
+/* 0x49b2c0 on one point through the menu's camera: where it lands on the screen */
+int r3d_menu_project(const float v[3], int *sx, int *sy)
+{
+    const float (*n)[3] = g_mcam, *t = g_mcamt;     /* the camera itself (0x488383) */
+    float x, y, z, rz;
+    x = v[0] * (n[0][0] * g_focal) + v[1] * (n[1][0] * g_focal) + v[2] * (n[2][0] * g_focal)
+        + t[0] * g_focal;
+    y = v[0] * (n[0][1] * g_focal) + v[1] * (n[1][1] * g_focal) + v[2] * (n[2][1] * g_focal)
+        + t[1] * g_focal;
+    z = v[0] * n[0][2] + v[1] * n[1][2] + v[2] * n[2][2] + t[2];
+    if (!(z >= NEAR))
+        return 0;
+    rz = 1.0f / z;
+    *sx = (int)nearbyintf(x * rz + CX);
+    *sy = (int)nearbyintf(CY - y * rz);
+    return 1;
+}
+
 /* ---------------------------------------------------------------- transform and sort */
 
 void r3d_begin(void)
@@ -223,12 +310,12 @@ void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[
     if (g_npt + nv > VERTS)
         return;
     for (k = 0; k < 3; k++) {
-        nx[k] = n[k][0] * FOCAL;
-        ny[k] = n[k][1] * FOCAL;
+        nx[k] = n[k][0] * g_focal;
+        ny[k] = n[k][1] * g_focal;
         nz[k] = n[k][2];
     }
-    nx[3] = t[0] * FOCAL;
-    ny[3] = t[1] * FOCAL;
+    nx[3] = t[0] * g_focal;
+    ny[3] = t[1] * g_focal;
     nz[3] = t[2];
     for (i = 0; i < nv; i++) {                          /* 0x49b2c0 */
         Point *p = &g_pt[g_npt++];
@@ -455,11 +542,163 @@ static Corner clip(const Point *b, int ub, int vb, const Point *f, int uf, int v
     return c;
 }
 
+/* 0x4a2f10: [xl, xr) into the row's free pieces, filled where free. A reversed span
+   (xl > xr) fills nothing but splits a piece as the game's list does. */
+static void flat_row(int y, int xl, int xr, uint16_t c)
+{
+    int16_t out[2 * FREE_MAX];
+    uint16_t *o = g_screen + y * g_pitch;
+    int i = 0, n = 0, nf = g_nfree[y], x;
+#define KEEP(a, b) do { if (n < FREE_MAX) out[2 * n] = (int16_t)(a), out[2 * n + 1] = (int16_t)(b), n++; } while (0)
+    while (i < nf) {
+        int a = g_free[y][2 * i], b = g_free[y][2 * i + 1];
+        if (xl > a) {
+            if (xl > b) {
+                KEEP(a, b);
+                i++;
+                continue;
+            }
+            if (xr <= b) {
+                for (x = xl; x < xr; x++)
+                    o[x] = c;
+                KEEP(a, xl);
+                if (xr < b)
+                    KEEP(xr, b);
+                i++;
+                break;
+            }
+            for (x = xl; x < b; x++)
+                o[x] = c;
+            KEEP(a, xl);
+            i++;
+            continue;
+        }
+        if (xr < a)
+            break;
+        if (xr < b) {
+            for (x = a; x < xr; x++)
+                o[x] = c;
+            KEEP(xr, b);
+            i++;
+            break;
+        }
+        for (x = a; x < b; x++)              /* the piece used up */
+            o[x] = c;
+        i++;
+        if (xr == b)
+            break;
+    }
+    for (; i < nf; i++)
+        KEEP(g_free[y][2 * i], g_free[y][2 * i + 1]);
+#undef KEEP
+    memcpy(g_free[y], out, sizeof(int16_t) * 2 * n);
+    g_nfree[y] = n;
+}
+
+/* 0x4a34f0: a triangle of one colour, 13-bit fixed-point edges, no area test */
+static void flat_triangle(Corner c0, Corner c1, Corner c2, uint16_t c)
+{
+    int x0, y0, x1, y1, x2, y2, r, nrow = 0;
+    struct { int y, cnt, xl, sl, xr, sr; } rows[2];
+    while (c1.sy < c0.sy || c2.sy < c0.sy) {
+        Corner t = c0;
+        c0 = c1, c1 = c2, c2 = t;
+    }
+    x0 = c0.sx, y0 = c0.sy, x1 = c1.sx, y1 = c1.sy, x2 = c2.sx, y2 = c2.sy;
+    if (y2 < y1) {                                      /* the bend on the left */
+        int sr, h;
+        if (!(y0 < y1 && y1 >= 0))
+            return;
+        sr = cdiv((x1 - x0) * 0x2000, y1 - y0);
+        h = y2 - y0;
+        if (h >= 1 && y2 >= 0) {
+            rows[nrow].y = y0, rows[nrow].cnt = h;
+            rows[nrow].xl = x0 * 0x2000, rows[nrow].sl = cdiv((x2 - x0) * 0x2000, h);
+            rows[nrow].xr = x0 * 0x2000, rows[nrow].sr = sr;
+            nrow++;
+        }
+        h = y1 - y2;
+        if (h >= 1) {
+            rows[nrow].y = y2, rows[nrow].cnt = h;
+            rows[nrow].xl = x2 * 0x2000, rows[nrow].sl = cdiv((x1 - x2) * 0x2000, h);
+            rows[nrow].xr = x0 * 0x2000 + (y2 - y0 > 0 ? y2 - y0 : 0) * sr, rows[nrow].sr = sr;
+            nrow++;
+        }
+    } else {                                            /* the bend on the right */
+        int sl, h;
+        if (!(y0 < y2 && y2 >= 0))
+            return;
+        sl = cdiv((x2 - x0) * 0x2000, y2 - y0);
+        h = y1 - y0;
+        if (h >= 1 && y1 >= 0) {
+            rows[nrow].y = y0, rows[nrow].cnt = h;
+            rows[nrow].xl = x0 * 0x2000, rows[nrow].sl = sl;
+            rows[nrow].xr = x0 * 0x2000, rows[nrow].sr = cdiv((x1 - x0) * 0x2000, h);
+            nrow++;
+        }
+        h = y2 - y1;
+        if (h >= 1) {
+            rows[nrow].y = y1, rows[nrow].cnt = h;
+            rows[nrow].xl = x0 * 0x2000 + (y1 - y0 > 0 ? y1 - y0 : 0) * sl, rows[nrow].sl = sl;
+            rows[nrow].xr = x1 * 0x2000, rows[nrow].sr = cdiv((x2 - x1) * 0x2000, h);
+            nrow++;
+        }
+    }
+    for (r = 0; r < nrow; r++) {
+        int y = rows[r].y, cnt = rows[r].cnt, xl = rows[r].xl, xr = rows[r].xr;
+        if (y < 0) {
+            xl -= y * rows[r].sl, xr -= y * rows[r].sr;
+            cnt += y, y = 0;
+        }
+        if (cnt > H - y)
+            cnt = H - y;
+        for (; cnt > 0; cnt--, y++) {
+            if (g_nfree[y])
+                flat_row(y, xl >> 13, xr >> 13, c);
+            xl += rows[r].sl, xr += rows[r].sr;
+        }
+    }
+}
+
+/* 0x4a3950: a fan of one colour (the 5:5:5 form: green loses its low bit), cut at the
+   near plane as 0x49e510 cuts */
+static void flat_face(const Face *f, int base)
+{
+    uint16_t c = (uint16_t)(f->colour & 0xffdf);
+    int k;
+    for (k = 1; k < f->n - 1; k++) {
+        int j[3] = { 0, k, k + 1 }, behind[3], nb = 0, i;
+        const Point *p[3];
+        Corner q[3];
+        for (i = 0; i < 3; i++) {
+            p[i] = &g_pt[base + f->idx[j[i]]];
+            q[i].sx = p[i]->sx, q[i].sy = p[i]->sy, q[i].u = q[i].v = 0;
+            behind[i] = p[i]->z < NEAR;
+            nb += behind[i];
+        }
+        if (nb == 0)
+            flat_triangle(q[0], q[1], q[2], c);
+        else if (nb == 2) {
+            int r = !behind[0] ? 0 : !behind[1] ? 1 : 2, a = (r + 1) % 3, b = (r + 2) % 3;
+            flat_triangle(q[r], clip(p[a], 0, 0, p[r], 0, 0), clip(p[b], 0, 0, p[r], 0, 0), c);
+        } else if (nb == 1) {
+            int r = behind[0] ? 0 : behind[1] ? 1 : 2, a = (r + 1) % 3, b = (r + 2) % 3;
+            Corner p1 = clip(p[r], 0, 0, p[a], 0, 0), p2 = clip(p[r], 0, 0, p[b], 0, 0);
+            flat_triangle(q[a], q[b], p1, c);
+            flat_triangle(q[b], p2, p1, c);
+        }
+    }
+}
+
 /* 0x49e510: a fan of triangles, each cut at the near plane */
 static void face(const Face *f, int base)
 {
     const uint16_t *tex;
     int k;
+    if (f->kind == 0) {
+        flat_face(f, base);
+        return;
+    }
     if (f->kind != 0x10 && f->kind != 0x15 && f->kind != 0x26 && f->kind != 0x27) {
         static int told;
         if (!told++)

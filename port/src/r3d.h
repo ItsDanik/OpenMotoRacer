@@ -38,6 +38,11 @@ void model_centre(Model *m);                    /* 0x420250 */
 void model_scale(Model *m, float sx, float sy, float sz);   /* 0x4204b0 */
 void model_page_add(Model *m, int add);         /* 0x422250 */
 void model_free(Model *m);
+/* 0x420a50 with the last argument 0 (the menu's 3D font), then 0x420250 */
+int model_load_menu(Model *m, const char *base);
+void model_mirror(Model *m);                    /* 0x422070, 0x47ad40 */
+float model_fit(Model *m, float size);          /* 0x47a960: largest half extent = size */
+void model_rescale(Model *m, float s);          /* 0x47abd0: centred again, times s */
 
 void r3d_camera(const float pos[3], const float target[3]);  /* 0x46e140 */
 void r3d_camera_pos(const float pos[3]);        /* the block's +0x98 alone, not looked again */
@@ -48,6 +53,13 @@ void r3d_object(const Model *m, const float ang[3], const float pos[3]);
 void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[3][3],
               const float t[3]);
 void r3d_render(void);                          /* 0x49ad90 */
+void r3d_focal(float f);                        /* 0x49a0e0 + 0x49a100 */
+
+/* the menu's 3D objects (0x479eb0) and their camera (0x47af50, the object 0x504bc8) */
+void r3d_menu_matrix(float m[3][3], const float ang[3]);
+void r3d_menu_camera(const float ang[3], const float pos[3]);
+void r3d_menu_object(const Model *m, const float ang[3], const float pos[3]);
+int r3d_menu_project(const float v[3], int *sx, int *sy);      /* 0: behind */
 
 /* 0x48c030's rotation for row vectors, M = Rz(c) Ry(b) Rx(a), from the cosine table at
    index = trunc(angle x k) */

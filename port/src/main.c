@@ -9,6 +9,7 @@
 #include "r3d.h"
 #include "rand.h"
 #include "sound.h"
+#include "config.h"
 #include "video.h"
 #include <SDL.h>
 #include <ctype.h>
@@ -29,7 +30,8 @@ static void usage(void)
          "  OMR_PAGE=N         start on the menu page N (the game's numbers; 25 the logo)\n"
          "  OMR_INPUT=\"F:WHAT ...\"  at frame F: a key (return, escape, space, tab,\n"
          "                     backspace, left, right, up, down, shift, a letter),\n"
-         "                     move:X,Y (the mouse), click (left button down and up)\n"
+         "                     move:X,Y (the mouse), click (left button down and up),\n"
+         "                     down, up (the left button alone)\n"
          "  OMR_TEXT=\"FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT\"  a text object on the\n"
          "                     first page (FORE, BACK: the game's colour numbers, -1 for\n"
          "                     the font's own)\n"
@@ -132,7 +134,8 @@ static void scripted_input(const char *script, int frame)
         else if (strcmp(what, "click") == 0) {
             menu_mouse_button(1, 1);
             menu_mouse_button(1, 0);
-        } else if (strlen(what) == 1 && isalpha((unsigned char)what[0]))
+        } else if (strcmp(what, "down") == 0 || strcmp(what, "up") == 0)
+            menu_mouse_button(1, what[0] == 'd'); else if (strlen(what) == 1 && isalpha((unsigned char)what[0]))
             menu_key(toupper((unsigned char)what[0]));
         else
             for (i = 0; i < sizeof keys / sizeof keys[0]; i++)
@@ -184,6 +187,7 @@ int main(int argc, char **argv)
     }
     if (!exe_load(err, sizeof err))
         fail(err, shot != 0);
+    config_load();
     if (!font_init(err, sizeof err))
         fail(err, shot != 0);
     r3d_init();
