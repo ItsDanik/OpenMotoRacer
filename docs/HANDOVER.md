@@ -38,14 +38,27 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   between them (NOTES §4.9): the logo within ~1100 px of the original, the glass matching
   its captures, the settled title equal to the original. The port now starts on 25.
 
+- Sound (NOTES §4.10, mapped by a helper into build/notes/sound.md, then into NOTES):
+  `tools/sfx.py` decodes SFX.BKF; `port/src/sound.c` plays the effects, the voice queues
+  and the music as GOG does; a recorded run equals 13.wav sample for sample.
+- Mapped by helpers, not yet in NOTES: the Solo pages 5, 6, 9, 10, 1 and the race settings
+  (`build/notes/solo_pages.md`, captures `build/ref/orig_p*`). Running: page 15
+  (`build/notes/name15.md`), the track format (`build/notes/track.md`).
+- The tracker shows Claude's messages at its bottom ("From Claude", the `messages` dataset)
+  and Danik writes from it (comments sent to Claude): keep it watched.
+
 ## Waiting for Danik
-- Nothing. (He allowed the original on his screen, `ORIG_DISPLAY=:1`, and installed xdotool.)
+- The CD's MOTO.EXE (NOTES §1): its text code differs from GOG's; run GOG's logic on the
+  CD's data, or ask for the official 3.22 patch?
+- Music: loop for ever (GOG, now) or the CD's "play a repeating track twice"?
+- Where saves go (bestscor.dat, championship saves, ghosts): the game's data folder, as
+  the original, or a user folder?
 
 ## Next, in order
 1. Page 15, the name entry (0x487bb0: 3D letters, `data\menu\font3d`, NOTES §4.8.5),
    then the 15 -> 3 transition; the title's 30 s demo time-out (Menu_Frame 0x409c00).
-2. The remaining menu pages (5 solo, 6 track choice, 11 options, ...).
-3. Sound: effects (SFX.BKF) and the music (02.wav-13.wav), page 25's track 13, the title's 3.
+2. The Solo pages from build/notes/solo_pages.md (5, 6, 10, 9, then 1), then 11 options.
+3. Sound: CONFIG.BPT's switches and volumes, pause on losing focus, the race's sounds.
 4. The track (.trk), the race loop, the race renderer (the same r3d with the race's
    near plane 64 and its face kinds).
 5. The CD's `MOTO.EXE`: line it up with GOG's `game.EXE` (which tables the port reads).

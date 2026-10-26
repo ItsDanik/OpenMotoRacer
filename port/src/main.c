@@ -8,6 +8,7 @@
 #include "text.h"
 #include "r3d.h"
 #include "rand.h"
+#include "sound.h"
 #include "video.h"
 #include <SDL.h>
 #include <ctype.h>
@@ -31,7 +32,9 @@ static void usage(void)
          "                     move:X,Y (the mouse), click (left button down and up)\n"
          "  OMR_TEXT=\"FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT\"  a text object on the\n"
          "                     first page (FORE, BACK: the game's colour numbers, -1 for\n"
-         "                     the font's own)");
+         "                     the font's own)\n"
+         "  OMR_WAV=FILE       the sound into FILE instead of the speakers, 1/60 s a frame\n"
+         "                     (with --shot: what the run would have sounded like)");
 }
 
 static void fail(const char *msg, int headless)
@@ -188,6 +191,8 @@ int main(int argc, char **argv)
     if (!video_init(shot != 0, err, sizeof err))
         fail(err, shot != 0);
     SDL_ShowCursor(SDL_DISABLE);        /* the game draws its own pointer */
+    if (!shot || getenv("OMR_WAV"))     /* (--shot is silent unless asked for a file) */
+        sound_init(getenv("OMR_WAV"));
 
     /* the front end, from its first page: the Delphine logo (25) */
     if (!menu_start(page, err, sizeof err))
@@ -229,8 +234,10 @@ int main(int argc, char **argv)
             break;
         }
         video_present();
+        sound_frame();
         clock_frame();
     }
+    sound_quit();
     video_quit();
     SDL_Quit();
     return 0;

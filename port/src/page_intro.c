@@ -6,6 +6,7 @@
 #include "menu.h"
 #include "pages.h"
 #include "r3d.h"
+#include "sound.h"
 #include "text.h"
 #include "video.h"
 #include <math.h>
@@ -70,7 +71,7 @@ void page_logo_start(void)
     r3d_camera(g_campos, g_origin);
     memset(g_dsi_prog, 0, sizeof g_dsi_prog);
     g_dsi_done = 0;
-    /* (the music, track 13, with the sound; logodsi.lez is loaded but never drawn) */
+    music_play(13, 0);          /* (logodsi.lez is loaded too, but never drawn) */
     menu_clear_buttons();
     bitmap_place(PIC(P_CONTINUE), -300, -300, 0);       /* off the screen: Escape skips */
     menu_add_button(PIC(P_CONTINUE), 0, 0xffffffffu, VK_ESCAPE, -1, 0, 0, 0, -1, -1, 0);
@@ -138,7 +139,7 @@ void page_logo_frame(void)
 void page_logo_end(void)
 {
     int i;
-    /* (the music stops) */
+    music_stop();
     r3d_free_page(0);
     r3d_free_page(1);
     for (i = 0; i < 5; i++)
@@ -183,7 +184,9 @@ void page_title_start(void)
     bitmap_place(PIC(P_START), 0, 430, 1);
     menu_add_button(PIC(P_START), 0, 0xffffffffu, VK_RETURN, -1, 0, 0, 0, -1, -1, 0);
     g_mr_last = g_now;
-    /* (CD track 3 and sound 0x2d start here: with the sound) */
+    /* (the start draws a first picture here, 0x49b0e0, not yet) */
+    music_play(3, 2);
+    sound_play(0x2d, 0);
 }
 
 void page_title_frame(void)

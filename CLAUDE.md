@@ -88,6 +88,8 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - 3D (NOTES §4.9): `r3d.c` the software renderer (float transform, depth buckets, s-buffer,
   affine triangles), `model.c` 3DF+MAP, `rand.c` the game's random streams (seeds from
   game.EXE). The glass transition is `menu.c`'s.
+- Sound (NOTES §4.10): `sound.c`, the effects by the game's id tables, its queues of
+  delayed voices, the music as GOG plays it (NN.wav, looping). `OMR_WAV=FILE` records it.
 - Text (NOTES §4.8): `script.c` reads BPT, `font.c` the 35 fonts (FONTS.BPT + .FNT),
   `text.c` the 48 text objects (blink, fades, see-through, drift).
 - Test switches: `OMR_PAGE`, `OMR_INPUT="F:key F:move:X,Y F:click"` (input at frame F),
@@ -106,7 +108,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 | .3DF .MAP | model (float vertices x96, faces) + per-face texture mapping | read from 0x4216a0, NOTES §4.5 |
 | .ROT .SKL .PIV | animations, skeletons | to do |
 | .trk | track (`TRK\0`, floats), `data/ileNN/` | to do |
-| .WAV | sound effects in SFX.BKF (headerless?) | to do |
+| .WAV | effects and voices in SFX.BKF: RIFF, enciphered (byte − 4(i+8) per block), mono | `tools/sfx.py`, all 250; NOTES §4.10 |
 | .dem | demo list (text: track, time, picture) | read |
 | data.z | the CD's InstallShield 3 archive (files stored) | `tools/is3.py` |
 

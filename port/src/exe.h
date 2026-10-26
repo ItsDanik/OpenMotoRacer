@@ -11,6 +11,9 @@ enum {
     X_LANG_FOLDERS,     /* "data\\MenuUs\\", ... */
     X_COLOURS,          /* the named colours, R,G,B every 4 bytes (NOTES §4.8.3.5) */
     X_RAND_SEEDS,       /* the 8 random streams' seeds (0x4b1160) */
+    X_SFX_MENU,         /* the sounds' {name, id} tables (NOTES §4.10.2): the menu's, */
+    X_SFX_MENU_VOICES,  /* the menu's voices, */
+    X_SFX_PODIUM,       /* the podium's */
     X_COUNT
 };
 unsigned exe_addr(int what);

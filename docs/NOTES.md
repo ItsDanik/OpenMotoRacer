@@ -1616,6 +1616,577 @@ the pointer (with the pointer on Start, which the original's capture had selecte
   key events did not reach the game in the headless session), the 30 s attract-demo
   timeout.
 
+### 4.10 Sound: effects, voices, DirectSound, CD music (mapped 2026-10-26)
+
+
+game.EXE 1998 GOG build (SHA-1 164b4175..). Addresses are the program's. Confidence:
+[asm] read in build/mr.asm; [decomp] Ghidra only; [test] checked on the data; [guess].
+
+#### 4.10.0 Summary for the port
+
+- All sound effects and voices are **125 RIFF WAVE files in SFX.BKF, twice** (`16_BITS\...`
+  and `8_BITS\...`), **enciphered with a trivial byte-add** (below). Mono PCM, 5000–22050 Hz,
+  16-bit signed or 8-bit unsigned. No other sound files exist in any bank (language banks
+  MENUxx hold only pictures and a .GEN; no speech per language: voices are English only).
+  `tools/sfx.py` decodes them; `build/sfx/` holds all 250 as plain .wav [test].
+- A sound **id (0..255)** maps to a file through **7 tables in the program** of
+  `{char *name, int id}` (8 bytes): see §2. The path is
+  `data\sfx\` + (`16_Bits\` if Wave16Bits else `8_Bits\`) + folder + name + `.wav`.
+- **0x4049f0 play(id, flags)**: ids 0x2f..0x5c are *voices* (switch 0x4db668, volume 0xff),
+  everything else *effects* (switch 0x4db664, volume 0xee). Flags: bit0 loop, bit1 use a free
+  copy (overlap) instead of restarting, bit2 don't play if this id was the last one played
+  in its class. Menu calls all use flags 0 (restart the sound from its start).
+- **Volume** v 0..255 → DirectSound attenuation (v−255)×15.625 hundredths of dB (v=0 →
+  −39.8 dB). **Pan** p −128..128 → ±p×31.25 hundredths of dB on the other side.
+  **Frequency** in Hz, accepted only 1000 < f < 44100.
+- **Queued/delayed sounds**: 8 records of 100 bytes at 0x504240 (menu voice prompts after
+  600 ms) + 1 sequential voice queue at 0x5028c8 (race announcements); updated once a frame
+  by 0x404eb0 (Menu_Frame) [asm].
+- **Music** = CD audio tracks 2..13 through MCI. Real CD: plays the track once, mode 2/3
+  repeats it **once** (a 1 s timer replays it when MCI says "stopped"). GOG's winmm.dll
+  replaces MCI by `PlaySoundA("NN.wav", SND_LOOP|SND_ASYNC)`: **every track loops forever**
+  [asm, both]. Track per page/track in §5.
+
+#### 4.10.1 The files
+
+##### 4.10.1.1 Where they are
+- `data\SFX.BKF` (28 banks total; the others hold no sound): 250 .WAV =
+  2 × (MENU 9, VOICES 31, VOICES\MENU 12, DIVERS 46, KTM 16, NINJA 11). The bank names are
+  `16_BITS\MENU\SELECT.WAV` etc.; the game asks for `data\sfx\16_Bits\Menu\select.wav` and
+  the bank lookup is case-insensitive (dsi_fopen through the banks, NOTES §3.1).
+- `02.wav`..`13.wav` beside game.EXE: the CD's audio tracks (§5). 44100 Hz, 16-bit,
+  stereo, plain PCM RIFF [test: python wave]. `build/cd/NN.wav` (cut from the CD image) have
+  identical format and the same frame counts (e.g. 03: 6325704 frames both).
+- No `data\*.wav` loose files; no per-bike sound bank (the bike sounds are SFX\KTM and
+  SFX\NINJA); no per-language speech.
+
+##### 4.10.1.2 Format and cipher (loader 0x440d30, decipher 0x440d00) [asm-checked decomp + test]
+`0x440d30(path, WAVEFORMATEX *out, void **data, int *size)`:
+1. open (0x42ee60/dsi_fopen mode "rb"), read **0x24 bytes**. If the first byte is `'r'`
+   (0x72), the file is enciphered and **each block read is deciphered from i = 0**:
+   `plain[i] = stored[i] - 4*(i + 8)  (mod 256)`  (0x440d00: `b += (-8 - i) * 4`).
+2. seek `fmtSize - 16` forward (fmtSize = dword at 0x10 of the header), read **8 bytes**
+   (decipher again from i = 0): must be `'data'`, size.
+3. Require `RIFF`/`WAVE`/`fmt `/`data` at their places (else error 2). GlobalAlloc(size),
+   read size bytes, decipher (from i = 0).
+4. WAVEFORMATEX built by hand: tag 1 (PCM), channels and rate and bits from the file,
+   blockAlign = bits/8 × channels, avgBytes = blockAlign × rate, cbSize 0.
+All 250 files are enciphered ('r'), tag 1, mono. 16_BITS = signed 16-bit LE; 8_BITS =
+unsigned 8-bit. Many 8-bit files have the RIFF pad byte (+1 after data); BIRD3 and FETE have
+32/92 junk bytes after the data (ignored).
+
+Test [test]: every 16-bit file correlates with its 8-bit twin (8-bit minus 128) at median
+0.99988 (worst CONTINUE.WAV 0.80: 5 kHz, very coarse 8-bit version); lengths agree to the
+sample; zero-crossing rates are those of sounds, not noise (e.g. SELECT 22050 Hz: 3364/s;
+the voices 11025 Hz: 1300..4000/s). Rates found: 5000, 8000, 11025, 14000, 16000, 19000,
+22050 Hz.
+
+`tools/sfx.py SFX.BKF` lists every file (format, length, peak, zc/s); `-x DIR` writes
+plain .wav. It also takes loose files.
+
+##### 4.10.1.3 8 or 16 bits
+`0x4db670` = Wave16Bits (CONFIG.BPT; 1 on both the GOG and the CD config). Forced to 0 at
+start (0x408720) if the primary buffer did not come out 16-bit. 0x408f30 toggles it and
+reloads everything. The port should simply use 16_BITS.
+
+#### 4.10.2 Ids → files (the tables in game.EXE)
+
+Handles: `int 0x519ff8[256]` = sample handle by id (−1 none). Every loader first fills it
+with −1, then for each record: path as above, `h = 0x423f80(path)` (load), store,
+`0x424030(h, 0xff)` (volume full), `0x424070(h, 0)` (pan centre) [asm].
+
+Two sound sets, never both loaded:
+- **Menu set** — `0x403f90` called from 0x40a9a0 (the menu's resource loader, when the menu
+  becomes active): menu table (7) and, if voices are on (0x4db668) and not loaded yet
+  (0x503554 == 0), the voices-menu table (11); 0x503554 = 1. Freed by 0x4042c0 (from 0x40b1f0,
+  the menu's resource release). Page 24 (podium) adds the podium table in its start routine
+  (0x404310 → ids 4, 5), freed in its end routine (0x404490).
+- **Race set** — `0x4044c0(bikeType)` from 0x410d70 ("Init WAV samples...") at race
+  load: divers (18), then ktm (16) if bikeType != 0 else ninja (11), then the track's
+  ambient samples (0x4059a0, from `Sound.Spt`, ids from 0x5d up: 0x519ff0 = 0x5d), then
+  voices (30) if voices are on. bikeType = `[0x509398 + 0x124*bike]` (bike 0x584499):
+  0 = the "Ninja" road bikes, else KTM (the Go sound on page 10 agrees: type 0 → goninja).
+
+0x504874/0x5028a8/0x5028a4 remember which voice table/count/folder is loaded (for the
+voices toggle 0x408f30 to reload).
+
+**menu (0x403f90, entering the menu)** table 0x4db7d8, 7 records, folder `MENU\`
+
+| id | rec addr | name | 16-bit file | rate | ms |
+|---|---|---|---|---|---|
+| 0x28 | 0x4db7d8 | deplett | MENU/DEPLETT.WAV | 16000 | 671 |
+| 0x29 | 0x4db7e0 | select | MENU/SELECT.WAV | 22050 | 436 |
+| 0x2a | 0x4db7e8 | valide | MENU/VALIDE.WAV | 16000 | 1379 |
+| 0x2b | 0x4db7f0 | goktm | MENU/GOKTM.WAV | 16000 | 839 |
+| 0x2c | 0x4db7f8 | goninja | MENU/GONINJA.WAV | 16000 | 697 |
+| 0x2d | 0x4db800 | title | MENU/TITLE.WAV | 22050 | 1696 |
+| 0x03 | 0x4db808 | continue | MENU/CONTINUE.WAV | 5000 | 592 |
+
+**voices-menu (0x403f90 if voices on)** table 0x4db780, 11 records, folder `Voices\Menu\`
+
+| id | rec addr | name | 16-bit file | rate | ms |
+|---|---|---|---|---|---|
+| 0x36 | 0x4db780 | entrname | VOICES/MENU/ENTRNAME.WAV | 11025 | 1009 |
+| 0x52 | 0x4db788 | slctrans | VOICES/MENU/SLCTRANS.WAV | 11025 | 1273 |
+| 0x53 | 0x4db790 | selerace | VOICES/MENU/SELERACE.WAV | 11025 | 1363 |
+| 0x54 | 0x4db798 | selectmd | VOICES/MENU/SELECTMD.WAV | 11025 | 1229 |
+| 0x55 | 0x4db7a0 | playsolo | VOICES/MENU/PLAYSOLO.WAV | 11025 | 859 |
+| 0x56 | 0x4db7a8 | playlink | VOICES/MENU/PLAYLINK.WAV | 11025 | 855 |
+| 0x57 | 0x4db7b0 | makurchc | VOICES/MENU/MAKURCHC.WAV | 11025 | 1061 |
+| 0x58 | 0x4db7b8 | letsgo | VOICES/MENU/LETSGO.WAV | 11025 | 1322 |
+| 0x59 | 0x4db7c0 | cngrecor | VOICES/MENU/CNGRECOR.WAV | 11025 | 3209 |
+| 0x5a | 0x4db7c8 | cngratim | VOICES/MENU/CNGRATIM.WAV | 11025 | 3064 |
+| 0x5b | 0x4db7d0 | yutrygan | VOICES/MENU/YUTRYGAN.WAV | 11025 | 2818 |
+
+**podium (0x404310, page 24 start)** table 0x4db770, 2 records, folder `Menu\`
+
+| id | rec addr | name | 16-bit file | rate | ms |
+|---|---|---|---|---|---|
+| 0x04 | 0x4db770 | podium1 | MENU/PODIUM1.WAV | 22050 | 3552 |
+| 0x05 | 0x4db778 | podium2 | MENU/PODIUM2.WAV | 22050 | 4502 |
+
+**divers (0x4044c0, race)** table 0x4db810, 18 records, folder `Divers\`
+
+| id | rec addr | name | 16-bit file | rate | ms |
+|---|---|---|---|---|---|
+| 0x01 | 0x4db810 | bip1 | DIVERS/BIP1.WAV | 8000 | 582 |
+| 0x02 | 0x4db818 | bip2 | DIVERS/BIP2.WAV | 8000 | 1360 |
+| 0x06 | 0x4db820 | chckpvox | DIVERS/CHCKPVOX.WAV | 8000 | 628 |
+| 0x03 | 0x4db828 | continue | DIVERS/CONTINUE.WAV | 5000 | 592 |
+| 0x28 | 0x4db830 | deplett | DIVERS/DEPLETT.WAV | 16000 | 671 |
+| 0x29 | 0x4db838 | select | DIVERS/SELECT.WAV | 22050 | 436 |
+| 0x2e | 0x4db840 | pause | DIVERS/PAUSE.WAV | 11025 | 1417 |
+| 0x0a | 0x4db848 | derap | DIVERS/DERAP.WAV | 16000 | 496 |
+| 0x1a | 0x4db850 | brake1 | DIVERS/BRAKE1.WAV | 16000 | 408 |
+| 0x1b | 0x4db858 | brake2 | DIVERS/BRAKE2.WAV | 16000 | 620 |
+| 0x12 | 0x4db860 | crash | DIVERS/CRASH.WAV | 16000 | 870 |
+| 0x11 | 0x4db868 | rouleman | DIVERS/ROULEMAN.WAV | 11025 | 1987 |
+| 0x14 | 0x4db870 | wterdeb | DIVERS/WTERDEB.WAV | 8000 | 1064 |
+| 0x15 | 0x4db878 | wterpas | DIVERS/WTERPAS.WAV | 8000 | 944 |
+| 0x16 | 0x4db880 | wterfin | DIVERS/WTERFIN.WAV | 8000 | 1130 |
+| 0x17 | 0x4db888 | gravier | DIVERS/GRAVIER.WAV | 16000 | 1762 |
+| 0x18 | 0x4db890 | glace | DIVERS/GLACE.WAV | 16000 | 1306 |
+| 0x19 | 0x4db898 | herbe | DIVERS/HERBE.WAV | 22050 | 896 |
+
+**ktm (0x4044c0 arg != 0)** table 0x4db8a0, 16 records, folder `Ktm\`
+
+| id | rec addr | name | 16-bit file | rate | ms |
+|---|---|---|---|---|---|
+| 0x21 | 0x4db8a0 | motostp | KTM/MOTOSTP.WAV | 16000 | 2532 |
+| 0x26 | 0x4db8a8 | Gear5 | KTM/GEAR5.WAV | 16000 | 1517 |
+| 0x25 | 0x4db8b0 | Gear4 | KTM/GEAR4.WAV | 16000 | 1513 |
+| 0x24 | 0x4db8b8 | Gear3 | KTM/GEAR3.WAV | 16000 | 1412 |
+| 0x23 | 0x4db8c0 | Gear2 | KTM/GEAR2.WAV | 16000 | 1607 |
+| 0x22 | 0x4db8c8 | Gear1 | KTM/GEAR1.WAV | 16000 | 1122 |
+| 0x1d | 0x4db8d0 | depart1 | KTM/DEPART1.WAV | 16000 | 710 |
+| 0x1e | 0x4db8d8 | depart2 | KTM/DEPART2.WAV | 16000 | 945 |
+| 0x1f | 0x4db8e0 | depart3 | KTM/DEPART3.WAV | 16000 | 692 |
+| 0x1c | 0x4db8e8 | grince | KTM/GRINCE.WAV | 16000 | 771 |
+| 0x0e | 0x4db8f0 | choc1 | KTM/CHOC1.WAV | 16000 | 480 |
+| 0x0f | 0x4db8f8 | choc2 | KTM/CHOC2.WAV | 16000 | 577 |
+| 0x0b | 0x4db900 | land1 | KTM/LAND1.WAV | 16000 | 349 |
+| 0x0c | 0x4db908 | land2 | KTM/LAND2.WAV | 19000 | 343 |
+| 0x0d | 0x4db910 | land3 | KTM/LAND3.WAV | 16000 | 456 |
+| 0x13 | 0x4db918 | wheel | KTM/WHEEL.WAV | 16000 | 368 |
+
+**ninja (0x4044c0 arg == 0)** table 0x4db920, 11 records, folder `Ninja\`
+
+| id | rec addr | name | 16-bit file | rate | ms |
+|---|---|---|---|---|---|
+| 0x21 | 0x4db920 | motostp | NINJA/MOTOSTP.WAV | 16000 | 2460 |
+| 0x26 | 0x4db928 | Gear5 | NINJA/GEAR5.WAV | 14000 | 9751 |
+| 0x22 | 0x4db930 | Gear1 | NINJA/GEAR1.WAV | 22050 | 666 |
+| 0x1d | 0x4db938 | depart1 | NINJA/DEPART1.WAV | 16000 | 312 |
+| 0x1e | 0x4db940 | depart2 | NINJA/DEPART2.WAV | 16000 | 614 |
+| 0x1f | 0x4db948 | depart3 | NINJA/DEPART3.WAV | 16000 | 687 |
+| 0x1c | 0x4db950 | suspens1 | NINJA/SUSPENS1.WAV | 16000 | 608 |
+| 0x0e | 0x4db958 | choc1 | NINJA/CHOC1.WAV | 16000 | 430 |
+| 0x0f | 0x4db960 | choc2 | NINJA/CHOC2.WAV | 16000 | 661 |
+| 0x0b | 0x4db968 | land | NINJA/LAND.WAV | 16000 | 390 |
+| 0x13 | 0x4db970 | wheel | NINJA/WHEEL.WAV | 14000 | 290 |
+
+**voices (0x4044c0 if voices on)** table 0x4db680, 30 records, folder `Voices\`
+
+| id | rec addr | name | 16-bit file | rate | ms |
+|---|---|---|---|---|---|
+| 0x30 | 0x4db680 | 3 | VOICES/3.WAV | 11025 | 917 |
+| 0x31 | 0x4db688 | 2 | VOICES/2.WAV | 11025 | 896 |
+| 0x32 | 0x4db690 | 1 | VOICES/1.WAV | 11025 | 914 |
+| 0x33 | 0x4db698 | go | VOICES/GO.WAV | 11025 | 895 |
+| 0x34 | 0x4db6a0 | ckckpnt | VOICES/CKCKPNT.WAV | 11025 | 973 |
+| 0x37 | 0x4db6a8 | finlap | VOICES/FINLAP.WAV | 11025 | 1147 |
+| 0x38 | 0x4db6b0 | fuel | VOICES/FUEL.WAV | 11025 | 1067 |
+| 0x39 | 0x4db6b8 | gameover | VOICES/GAMEOVER.WAV | 11025 | 1087 |
+| 0x3a | 0x4db6c0 | lechef | VOICES/LECHEF.WAV | 11025 | 4250 |
+| 0x3b | 0x4db6c8 | newrecor | VOICES/NEWRECOR.WAV | 11025 | 1750 |
+| 0x3c | 0x4db6d0 | onegear | VOICES/ONEGEAR.WAV | 11025 | 2354 |
+| 0x3d | 0x4db6d8 | oouups | VOICES/OOUUPS.WAV | 11025 | 654 |
+| 0x3e | 0x4db6e0 | racecmpl | VOICES/RACECMPL.WAV | 11025 | 1316 |
+| 0x3f | 0x4db6e8 | runlast | VOICES/RUNLAST.WAV | 11025 | 2798 |
+| 0x40 | 0x4db6f0 | running4 | VOICES/RUNNING4.WAV | 11025 | 1853 |
+| 0x41 | 0x4db6f8 | stillrun | VOICES/STILLRUN.WAV | 11025 | 1914 |
+| 0x42 | 0x4db700 | timeout | VOICES/TIMEOUT.WAV | 11025 | 865 |
+| 0x44 | 0x4db708 | tryagain | VOICES/TRYAGAIN.WAV | 11025 | 1105 |
+| 0x45 | 0x4db710 | watarokt | VOICES/WATAROKT.WAV | 11025 | 1754 |
+| 0x46 | 0x4db718 | wrongway | VOICES/WRONGWAY.WAV | 11025 | 1058 |
+| 0x47 | 0x4db720 | youlost | VOICES/YOULOST.WAV | 11025 | 1976 |
+| 0x48 | 0x4db728 | yuralosr | VOICES/YURALOSR.WAV | 11025 | 1701 |
+| 0x49 | 0x4db730 | yurdalst | VOICES/YURDALST.WAV | 11025 | 1752 |
+| 0x4a | 0x4db738 | opopadow | VOICES/OPOPADOW.WAV | 11025 | 2378 |
+| 0x4b | 0x4db740 | ouch | VOICES/OUCH.WAV | 11025 | 796 |
+| 0x4c | 0x4db748 | yeehaaa | VOICES/YEEHAAA.WAV | 11025 | 2689 |
+| 0x4e | 0x4db750 | yeees | VOICES/YEEES.WAV | 11025 | 1465 |
+| 0x4f | 0x4db758 | yeaah | VOICES/YEAAH.WAV | 11025 | 1161 |
+| 0x50 | 0x4db760 | WellDone | VOICES/WELLDONE.WAV | 11025 | 1147 |
+| 0x51 | 0x4db768 | wouaou | VOICES/WOUAOU.WAV | 11025 | 858 |
+
+Files in the bank that no table names: `VOICES\BESTLAP`, `VOICES\MENU\CHSEMSTR`, and most of
+DIVERS (AIGLE1-3, AIRPLANE, BERCY*, BIRD1-3, CORSAIRE, FETE, FOULE, GODZILLA, HELICO, HURRY,
+METRO, MOUET-1..3, RESSAC, SABLE, SAUCER, TERRE, VENT): the latter are the tracks' ambient
+sounds, loaded by name from each track's Sound.Spt (§6.2). No id 0x35, 0x43, 0x4d. No caller
+of 0x52 (slctrans) was found (unused?) [asm: not among the 21 calls of 0x4049f0, 4 of 0x404e10,
+10 of 0x404da0].
+
+For the port: the tables are in game.EXE (.data, initialised): read them at the addresses
+above like the other tables (name pointer → string in .data at 0x4db9xx..). The folder
+strings: 0x4db9b8 `data\sfx\`, 0x4db9ac `16_Bits\`, 0x4db9a4 `8_Bits\`, 0x4db9d4 `Menu\`,
+0x4db9c4 `Voices\Menu\`, 0x4db9e4 `Divers\`, 0x4db9ec `Ktm\`, 0x4db9f4 `Ninja\`,
+0x4db9dc `Voices\`, 0x4db99c `.wav`.
+
+#### 4.10.3 The DirectSound layer ("CfxServer", fx\*.cpp; object 0x103c bytes)
+
+Wrapper object at `[0x516aa0]`: +0 → CfxServer, +4 = "server alive". Thin methods
+(all skip a handle of −1 or a dead server) [decomp, simple]:
+
+| wrapper | server | what |
+|---|---|---|
+| 0x423eb0(hwnd) | 0x441050 ctor | create (new 0x103c) |
+| 0x423f50 | 0x440f30 | destroy |
+| 0x423f80(path) | 0x4415a0 | load → handle |
+| 0x423fb0(h) | 0x441960 | free (h and its copies) |
+| 0x423fd0(h, flags) | 0x441a40 | play → handle of the copy used |
+| 0x424000(h) | 0x441ca0 | stop |
+| 0x424020 | 0x441cf0 | stop everything |
+| 0x424030(h, vol) | 0x441d50 | volume 0..255 |
+| 0x424050(h, hz) | 0x441dc0 | frequency |
+| 0x424070(h, pan) | 0x441e10 | pan −128..128 |
+| 0x424090(on) | 0x441e80 | pause all (1) / resume (0) |
+| 0x4240b0 | 0x441f90 | "paused?" |
+| 0x4240d0(h) | 0x441fa0 | length in ms |
+
+##### 4.10.3.1 Creation 0x441050 [decomp; numbers asm-checked]
+DirectSoundCreate; SetCooperativeLevel PRIORITY (2), falling back to NORMAL (1) on
+DSERR_... 0x88780000a (log "Warning normal cooperative level used"). GetCaps: +0xc = caps
+PRIMARY16BIT, +0x14 = PRIMARYSTEREO, +0x18 = !CERTIFIED?(0x20 bit), +0x10 = has hw mixing.
+Primary buffer (DSBCAPS_PRIMARYBUFFER), and with PRIORITY: SetFormat **22050 Hz (0x5622),
+stereo if the card can, 16-bit if the card can**. Then 0x4413b0 reads the actual primary
+format back: +0x24 rate, +0x28 bits, +0x2c stereo. `-NoSound` (0x4dc1a8) disables it all.
+At start 0x408720 then calls **0x4414c0(stereo=Stereo setting 0x503530, bits16=Wave16Bits,
+rate=ReplayRate 0x504568)** = 22050 in both known configs. 0x409570 (options) toggles
+quality: 22050 ↔ 11025 (0x2b11), 16/8-bit, stereo/mono.
+For the port: a 44100/48000 Hz stereo float mix is fine; the original's software mixer ran at
+22050 Hz (so its output had no content above 11 kHz) [guess on whether this is audible].
+
+##### 4.10.3.2 Samples 0x4415a0 / 0x440af0 [decomp]
+Slot table: CfxServer+0x30 = 1024 pointers to 0x30-byte sample objects; +0x1030 = high
+water mark. A handle is a slot index. Load: new sample object, 0x440af0 creates a secondary
+buffer: DSBUFFERDESC size 0x14, **flags = 0xe0 (CTRLFREQUENCY|CTRLPAN|CTRLVOLUME) | 2
+(STATIC) if the card has more than 4 free hardware static buffers**, size = data size,
+format from the file; Lock/copy/Unlock. Then **4 duplicates** (DuplicateSoundBuffer) are
+made at once, chained through +4 ("next copy"), so every sample has 5 voices ready.
+Sample object: +0x14 frequency (starts at the file's rate), +0x18 last play flags,
++0x1c IDirectSoundBuffer, +0x20 "has buffer", +0x24 "paused by pause-all", +0x28 "is a
+duplicate" (shares data), +0xc data size, +0x10 WAVEFORMATEX copy.
+
+##### 4.10.3.3 Play 0x441a40(h, flags) [decomp; flags path asm-checked at 0x440ec0]
+- **flags & 2**: walk the chain h → next... for the first copy whose GetStatus has no
+  PLAYING bit; if all play, make one more duplicate (no limit but the 1024 slots) and append
+  it. That copy is played and its handle returned.
+- otherwise: the head buffer itself is used (a sound already playing is cut and restarted).
+- 0x440ec0(copy, flags): SetCurrentPosition(0); +0x18 = flags; **Play(0, 0, flags & 1 ?
+  DSBPLAY_LOOPING : 0)** [asm].
+Stop 0x441ca0: IDirectSoundBuffer::Stop, +0x24 = 0 (position not reset; the next play resets
+it). Free 0x441960 releases the whole chain.
+
+##### 4.10.3.4 Volume, pan, frequency, length [asm-checked decomp]
+- 0x441d50(h, v): clamp v to 0..255; `SetVolume(((v*5 - 0x4fb) * 800) / 256)` (C division,
+  truncation towards zero) = (v−255)×15.625 hundredths of dB: 255 → 0 dB, 238 (0xee) →
+  −265 (−2.65 dB, ×0.737), 128 → −1984, 0 → −3984 (−39.8 dB). Gain = 10^(vol/2000).
+- 0x441e10(h, p): clamp −128..128; `SetPan((p*4000)/128)` (trunc.) → ±4000 at the ends
+  (±40 dB on the opposite channel). DirectSound pan: negative attenuates the right channel
+  by |pan|, positive the left.
+- 0x441dc0(h, hz): stores +0x14 = hz always, but calls SetFrequency only if
+  1000 < hz < 44100 (0xac44).
+- 0x441fa0(h): `ms = (size / (bits/8 * channels)) * 1000 / (+0x14)` (unsigned integer
+  arithmetic, using the current frequency).
+- 0x441e80(1) pause-all: every copy that is playing *and was started looping* is stopped
+  and marked +0x24; 0x441e80(0) replays the marked ones (from position 0, as 0x440ec0 resets).
+  Used by the race pause (0x4121e0 / 0x412299) and app (de)activation (0x409700 from
+  0x431250).
+
+##### 4.10.3.5 0x4049f0 play(id, flags) — the game's play call [asm]
+```
+if 0x2f <= id <= 0x5c:                         # voices
+    if !voicesOn(0x4db668) or id == -1: return -1
+    if (flags & 4) and lastVoice(0x502898) == id: return -1
+    lastVoice = id; h = Play(handle[id], flags); Volume(h, 0x4db654 = 0xff); return h
+else:                                           # effects
+    if !effectsOn(0x4db664): return -1
+    if (flags & 4) and lastEffect(0x502710) == id: return -1
+    if id < 0 or id >= 256: log "Invalid sound handle", return -1
+    lastEffect = id; h = Play(handle[id], flags); Volume(h, 0x4db658 = 0xee); return h
+```
+The flags go straight to the server (bit 0 loop, bit 1 overlap; bit 2 only matters here).
+0x4db654/0x4db658 are initialised data (0xff, 0xee) and never written [asm grep]. Stop:
+`0x404af0(h)` = 0x424000. Other race code calls 0x423fd0 directly with the same pattern.
+
+##### 4.10.3.6 Queued and delayed sounds [asm]
+Record (0x64 bytes): +0 mode, +4 idle, +8 state, +0xc current index, +0x10 count (write
+index for the ring), +0x14 handle playing, +0x18 start time, +0x1c play time, +0x20 length of
+the playing copy (ms), +0x24 ids[8], +0x44 delays[8] (ms). Clock = 0x50bbc8 (ms, the menu's
+`now`).
+- **8 records at 0x504240..0x504560** (ctor 0x404b10, reset 0x404d50 at every menu entry:
+  idle, state 0, index 0, count 0; mode stays 0). `0x404e10(n, delay0, id0, delay1, id1, ...)`
+  (cdecl, varargs) takes the first idle record, clears it and appends up to 8 (id, delay)
+  pairs.
+- **Voice queue record 0x5028c8** (mode 1 = sequential; idle; reset by 0x404d50/0x4084e0).
+  `0x404da0(id, delay)` appends one pair to its ring of 8 (dropped if full) and makes it
+  busy.
+- **0x404b30 (update, one record)**, called for the 8 records + the queue by **0x404eb0**
+  from Menu_Frame each frame (after the page's frame), and for the queue only by the race
+  (0x405f30):
+  - idle → nothing.
+  - state 0: start = now − length(handle[ids[i]]); state 1.
+  - state 1: if now − start ≥ delays[i], or mode ≠ 0: play ids[i] (voice/effect rules of
+    0x4049f0, flags 0, no flag-4 test, volumes 0xff/0xee), +0x14 = handle, +0x1c = now,
+    +0x20 = its length (0 if not played); state 2.
+  - state 2: mode 1 waits until now − playTime > delays[i] + length; mode 0 goes on at
+    once. Then i = (i+1) & 7; if i == count → idle, else state 0.
+  So in mode 0 (the menu prompts) the delay counts from (state-0 time − the sound's own
+  length): a 600 ms prompt longer than 600 ms plays on the second update after it was queued
+  (≈ 2 frames). In mode 1 (race announcements) each voice starts `delay` ms after the
+  previous one ended.
+
+#### 4.10.4 The menu's sounds, call by call
+
+All with flags 0 unless noted. "voice" = needs VoicesState; "effect" = needs SoundState.
+
+| where | when | id → file | how |
+|---|---|---|---|
+| 0x4099a0 hover (every menu frame) | the selected button changes to a new one (mouse or arrow keys; not when it becomes −1) | 0x29 select (effect) | play [asm] |
+| 0x40a460 WM_LBUTTONDOWN | a click on a button (mouse mode, selected != −1) | 0x03 continue (effect) | play [asm] |
+| Menu_Frame 0x409d65 | a page starts with the glass transition (0x4dbd00 set by 0x40c4a0) | 0x2a valide (effect) | play [asm] |
+| page 14 title start 0x4465f0 | after its first frame | 0x2d title (effect) | play; music (3, 2) [asm] |
+| page 3 main start 0x4422c0 | — | 0x57 makurchc "make your choice" (voice) | 0x404e10(1, 600, 0x57); music (3, 3) [asm] |
+| page 3 frame 0x442790 | Solo pressed | 0x55 playsolo (voice) | play once (0x53f554), wait 1000 ms [asm] |
+| page 3 frame | Link pressed | 0x56 playlink (voice) | same [asm] |
+| page 5/26 start 0x447250 | — | 0x54 selectmd "select mode" (voice) | 0x404e10(1, 600, 0x54); music (3, 3) [asm] |
+| page 6 start 0x447a30 | unless 0x4dc094 == 2 | 0x53 selerace "select race" (voice) | 0x404e10(1, 600, 0x53); music (3, 3) [asm] |
+| page 6 frame 0x448110 | left / right track arrow | 0x28 deplett (effect) | play [asm] |
+| page 7 start 0x449100, page 8 start 0x44a930 | — | — | music (3, 3) [asm] |
+| page 9 start 0x44cfd0 | if 0x5401c4 != 0 (new record) | bit 0 set: 0x5a cngratim, else 0x59 cngrecor (voice) | play [asm] |
+| page 10 frame 0x44ed30 | bike left / right | 0x28 deplett (effect) | play [asm] |
+| page 10 frame | Go (once, 0x53f554) | 0x2c goninja if bike type 0, else 0x2b goktm (effect), then 0x58 letsgo (voice) | presses held until now > 0x53f78c = now + length(letsgo) (or of goXXX if voices off) [asm] |
+| page 15 start 0x487070 (call at 0x487a32) | — | 0x36 entrname (voice) | 0x404e10(1, 600, 0x36) [asm] |
+| page 15 frame 0x487bb0 | each accepted key | 0x03 continue (effect) | play [asm] |
+| page 24 podium start 0x452240 | player not in the first 3 | 0x5b yutrygan (voice) | play; music (11, 0); else music (12, 0) [asm] |
+| page 24 frame 0x452f80 | — | podium1/podium2 crowd loops | 4 "sound objects" (§6.2) [decomp] |
+| page 25 logo start 0x4537d0 | — | — | music (13, 0) [asm] |
+
+Silent: Return/Space/hotkey presses (only the mouse click sounds), Escape, page changes
+without the glass transition, the quit page. Race-set ids used by the in-race menus
+(0x4354e0 0x28, 0x4358b0 0x44 tryagain after stopping everything, 0x436150 0x29, 0x436420
+and 0x437b70 0x03) and the race pause 0x4121e0 (0x424090(1) pause-all, CD pause, then
+**0x2e pause.wav with flags 1 = looping**, handle in 0x4dbe40; 0x412299 stops it and resumes).
+
+#### 4.10.5 Music: CD audio through MCI
+
+##### 4.10.5.1 The calls
+- **0x404990(track, mode)** [asm]: if the CD object `[0x503528]` exists: 0x4b18e0(track)
+  (choose), obj+0x1c = mode, and if CD audio is on (0x4db66c): 0x4b19f0(−1, mode) (play).
+- **0x4049e0()** = 0x4b1720 stop (only caller: the logo's end routine 0x453bf0).
+- 0x4096e0(p) / 0x409670(p): pause (1) / resume (0) through 0x4b1660 (MCI_PAUSE; resume =
+  MCI_PLAY from the current position to the saved end, no notify). 0x409670 is called on app
+  (de)activation (0x4329a5); 0x4096e0 by the race pause and 0x457bf0.
+- 0x409410: toggle CD audio (0x4db66c; on: replay obj+0x14, or the level's AudioTrack if
+  none). 0x4db66c starts as AudioState (0x504870) if the CD device opened.
+
+##### 4.10.5.2 The CD object (0x503528; ctor 0x4b11f0, open 0x4b1460/0x4b13b0) [decomp, asm where noted]
++0 MCI device id, +4 timer id, +8 open, +0xc repeat, +0x10 MCI "to" (TMSF end of track),
++0x14 current track (−1 none), +0x18 cached mode (0x20c not ready, 0x20d stopped, 0x20e
+playing, 0x211 paused, 0x212 door open), +0x1c play mode, +0x20 CD labelled `moto_rac`
+found, +0x24 hwnd. Open: MCI_OPEN "cdaudio" on each CD-ROM drive (GetDriveType 5... in the
+loop the test is type 3? [decomp says 3; not checked]), volume label compared with
+`moto_rac` (8 chars). A **1000 ms Windows timer** (SetTimer, callback 0x4b1330 → 0x4b12e0)
+is the only looping mechanism: MM_MCINOTIFY reaches 0x4b1340, which does nothing [asm].
+
+- **0x4b18e0(track)** choose [asm]: −1 → nothing. Not ready / door open → nothing. Query
+  MCI_STATUS_NUMBER_OF_TRACKS = n. **track 0 → Rand_Next(1) % n + 1** (0x458cd0 =
+  Rand_Next stream 1); else track must be 1..n. Then MCI_CDA_STATUS_TYPE_TRACK: audio
+  (0x440) → +0x14 = track; else +0x14 = −1 and error 0x128 (so a random pick of the data
+  track 1 gives silence: 1 chance in 13).
+- **0x4b19f0(track, mode)** play [asm]: +0x1c = mode; read status. Skip if not ready / door
+  open. **Skip if mode is 1 or 3, the drive is playing, and (track == −1 or track ==
+  current)** — "keep the music going across pages". Else choose(track) (−1 keeps +0x14),
+  get the track's length (MSF), MCI_PLAY with NOTIFY|FROM|TO from (track,0:0:0) to
+  (track, length) (TMSF), +0x18 = playing, **+0xc = 1 if mode is 2 or 3** (repeat).
+- Timer 0x4b12e0 [asm]: if repeat && cached mode == playing && track != −1: status; if not
+  ready / door open → cached mode = stopped; **if stopped → 0x4b19f0(−1, 0)**: the same track
+  again, but with mode 0, which clears +0xc. So on a real CD a "repeating" track is played
+  **twice** and then stops; a later page start with mode 3 finds it stopped and starts it
+  again.
+- Mode meanings: 0 once; 1 once, don't restart if playing; 2 repeat (once), always restart;
+  3 repeat (once), don't restart if playing.
+
+##### 4.10.5.3 GOG's winmm.dll (proxy, 73728 bytes, 2010) [asm of the DLL]
+Its mciSendCommandA (0x100011f0) handles: MCI_PLAY → builds `"0%d.wav"` / `"%d.wav"` from
+dwFrom (TMSF from = the track number) and calls **PlaySoundA(name, 0, 0x2000b =
+SND_FILENAME|SND_LOOP|SND_NODEFAULT|SND_ASYNC)**; MCI_STOP (and similar) → PlaySoundA(NULL,
+0, 1). MCI_STATUS: number of tracks → 13; track type → audio (0x440) for 2..13, other
+(0x441) for the rest; mode → playing/stopped/paused/not ready from its own flags; length
+items go to the real winmm. So under GOG **every music loops forever** and the timer never
+sees "stopped"; the music volume is the wave volume; MCI pause stops the sound (resume
+restarts the file? not checked).
+
+##### 4.10.5.4 Track use (both the CD and the GOG files: 02..13.wav, 44.1 kHz stereo 16-bit)
+
+| track | length | used by | mode |
+|---|---|---|---|
+| 1 | data | — (random pick → silence) | |
+| 2 | 252.8 s | race ROCK_FOREST (ile03); also the copy check: 0x442740 wants track 2's length = MSF 0x3e0c04 = 4:12:62 = 252.83 s [asm + test] | 0 |
+| 3 | 143.4 s | **menu**: title (mode 2), main 3, 5/26, 6, 7, 8 (mode 3) | 2 / 3 |
+| 4 | 187.4 s | race SPEED_BAY ile01, ile10 | 0 |
+| 5 | 185.9 s | race SNOW_RIDE ile05 | 0 |
+| 6 | 263.2 s | race RED_CITY ile08 | 0 |
+| 7 | 187.9 s | race WEST_WAY ile02 | 0 |
+| 8 | 194.6 s | race LOST_RUINS ile04 | 0 |
+| 9 | 207.9 s | race DIRT_ARENA ile09, ile11 | 0 |
+| 10 | 190.7 s | race GREAT_WALL ile06 | 0 |
+| 11 | 57.7 s | podium, player not in the top 3 (with voice 0x5b) | 0 |
+| 12 | 159.5 s | podium, player in the top 3; also at the race's end (0x412a50 → 0x48aca0) | 0 |
+| 13 | 20.3 s | Delphine logo (page 25); stopped by its end routine | 0 |
+
+Race music: 0x47bf70 at race start (stops all sounds 0x424020, race sound init 0x4084e0,
+then **0x404990(AudioTrack 0x4db67c, 0)**). AudioTrack is read from the level's LEVEL.BPT
+(field "AudioTrack", 0x428b4c; missing → 0 = random) [asm]; values from the banks: ile01 4,
+ile02 7, ile03 2, ile04 8, ile05 5, ile06 10, ile08 6, ile09 9, ile10 4, ile11 9 [test].
+
+##### 4.10.5.5 Volume settings
+MasterVolume / CDVolume / WaveVolume (CONFIG.BPT) go to the **Windows mixer** (object
+0x5d2958, 0x470cf0(line 0/1/2, value)): value 0..32 (0x5d2dbc[line] = 32 steps) scaled
+onto the mixer control's range with MulDiv; restored at exit (0x470970). In-game hotkeys
+(0x409720 from 0x431250) and the options page 11 step them (0x470d90 up / 0x470e90 down) and
+draw a gauge. CD config: 19/19/19; GOG config: Master 0, CD 32, Wave 32. For the port: a
+music gain = CDVolume/32 and an effects gain = WaveVolume/32 (ignore Master, or treat it
+as overall) [guess on what feels the same; the original changed system volumes].
+
+#### 4.10.6 Settings and race sounds (for later)
+
+##### 4.10.6.1 Switches [asm]
+CONFIG.BPT order (0x42ae30..): ... AmbiantState 0x50354c, MotoState 0x5028a0,
+SoundState 0x504208, VoicesState 0x50355c, AudioState 0x504870, Wave16Bits 0x4db670,
+Stereo 0x503530, ReplayRate 0x504568, MasterVolume, CDVolume, WaveVolume (mixer).
+GOG CONFIG.BPT: 0 0 1 1 1 1 1 22050 0 32 32; CD: 1 1 1 1 1 1 1 22050 19 19 19.
+Live switches: **effects 0x4db664** (= SoundState at start), **voices 0x4db668** (=
+VoicesState), **engine 0x4db65c**, **ambience 0x4db660**, **CD audio 0x4db66c** (=
+AudioState if the CD opened). 0x408720 (start) clears AmbiantState/MotoState and both live
+flags; 0x4084e0 (race sound init) sets engine and ambience to 1 when effects are on and both
+are off — so AmbiantState/MotoState are effectively ignored and follow SoundState.
+Toggles: 0x408b30 effects (also creates the server if there was none; sets engine = ambience
+= effects), 0x408f30 voices (loads/unloads voice sets), 0x408900 engine, 0x408800
+ambience, 0x409410 CD audio, 0x409570 quality. Messages via 0x4188b0 with strings
+0x53b7c8.. (language).
+
+##### 4.10.6.2 Sound objects: ambience and the podium (0x405030, 0x404ee0) [decomp, partial asm]
+A "soundDesc" (0x50 bytes; from `data\ileNN\Sound.Spt` = SOUND.BPT in the track bank,
+parsed by 0x42e850: `soundDesc id count name... "FLAGS" 15 numbers`, plus `ambiance n ids`
+and `signal`; static ones for the podium at 0x4e9128/0x4e9178/0x4e91c8/0x4e9218):
++0 id, +4 first sample id, +8 number of samples (random pick), +0xc flags (LOOPED 1, PAN 2,
+RANDPAN 4, VOL 8 = distance attenuation, FADEIN 0x10, FADEOUT 0x20, FADEFREQ 0x40,
+INFPLAY 0x80, SINVOL 0x100, SINFREQ 0x200), +0x10/+0x14 start delay base/random ms,
++0x18/+0x1c play time base/random (also SINVOL period and depth), +0x20 fade-in ms, +0x24
+fade-out ms, +0x28/+0x2c repeat count base/random, +0x30/+0x34 frequency base/random
+(base < 1 → added to the sample's own rate), +0x38 FADEFREQ / SINFREQ depth, +0x3c volume,
++0x40 fixed pan, +0x44/+0x48 floats near/far distance.
+Object (0x40 bytes) state machine (+0x2c): 0 wait delay → 1 play (LOOPED → flags 3, else
+2), set frequency, volume 0 if FADEIN (state 2) else full (state 5), pan fixed or RANDPAN
+(rand&0x7f)−64 → 2 fade-in: `vol = ftol(sin(min(v, t·v/fadeIn)/v · π/2) · v · att) >> 8`
+→ 5 hold (until play time unless INFPLAY; SINVOL/SINFREQ: sin(t/period · 2π)) → 4 fade-out
+(mirror of 2) → 3 stop; repeat−−; at 0 re-randomise (0x404ee0); back to 0. All gated by
+effects 0x4db664.
+Podium (page 24): objects 0x540080/0x5400c0 = podium1 (id 4) looped forever with fade-in
+1000 ms, pans +20 and −20, the second at the file's rate − 1000 Hz (a stereo chorus);
+0x540100/0x540140 = podium2 (id 5) the same after 7000 ms [decomp; field meanings above].
+
+##### 4.10.6.3 Engine (0x406290, per bike, from 0x4079e0 in the race) [asm for the formula, decomp
+for the rest]
+Gear sound id by gear (bike+0x7c): KTM table 0x4db638 {0, 0x22, 0x23, 0x24, 0x25, 0x26, 0x26},
+Ninja 0x4db618 {0, 0x22, 0x22, 0x26, 0x26, 0x26, 0x26}; played looping (flags 3) on a gear
+change, the old one stopped. Every frame
+`hz = lo[g] + (hi[g] − lo[g]) · r` with (lo, hi) per gear from 0x4db5e0 (KTM: (9000,29000)
+(1000,26000) (1000,26000) (1500,16000) (1000,16000) (1000,16000)) or 0x4db5a8 (Ninja:
+(8000,48000) (10000,48000) (2000,40000) ×4), r = bike+0x11c / maxRpm(type) clamped
+[0.05, 1]; then: sometimes + 2000 + rand%3000 (a misfire, 1 in 4 when flag bit 0), − a
+0..3000 ramp (+0x4c, ±1000 a frame in state 3), + bike[+0x307d]·4000, − ftol((bike+0x1b8 −
+bike+0x33c)/(X+0x38 · 48) · 1800), + obj+0x70, all × the pitch factor (arg 5, clamped
+0.5..1.5) → SetFrequency (ignored above 44099 Hz). Volume = arg 2 · k >> 8, pan = arg 3.
+Also skid/surface loops (ids 0x17 gravier, 0x18 glace, 0x19 herbe, 0x0a derap with set
+frequencies 18000/20000/8000/5000), landings 0x0b..0x0d, brakes 0x1a/0x1b, start 0x1d..0x1f,
+random "oouups"/"ouch" voices on crashes. Not finished: what the bike fields are.
+
+##### 4.10.6.4 Start countdown (0x4082f0) [decomp]
+state 0: bip2 (2) + "go" (0x33); 1/2/3: bip1 (1) + "1"/"2"/"3" (0x32/0x31/0x30); once per
+state change.
+
+#### 4.10.7 Open questions
+- 0x4b1460: the drive-type test (decomp shows 3 = fixed disk; the cdaudio device is opened
+  per letter anyway) — irrelevant for the port.
+- What GOG's proxy does on MCI_PAUSE/resume (stop + restart from 0, or nothing).
+- Page 6's 0x4dc094 == 2 (which game mode skips "select race").
+- slctrans (0x52) has no caller; chsemstr / bestlap have no table entry.
+- 1997 CD MOTO.EXE: same scheme expected, tables at other addresses (not looked up).
+- Whether the original sounded duller (22050 Hz primary buffer): could be checked by
+  recording the original under wine (tools/orig.sh) — not done.
+
+#### 4.10.8 What the port needs, in order
+1. **sfx.c**: read SFX.BKF entries through files.c, decipher (`b − 4(i+8)` per block, three
+   blocks), keep mono s16 + rate. Read the 7 id tables from game.EXE (addresses in §2; the
+   CD build needs its own). Load the menu set on menu entry, podium set on page 24, race set
+   at race load (§2).
+2. **mixer (SDL audio callback)**: N voices, each {sample, pos (fixed point), step =
+   rate/outRate, loop, gain = 10^((vol−255)·15.625/2000) as truncated hundredths, pan as
+   DirectSound}. Per sample: a head voice + copies (5 at load, grow on demand). Lock around
+   the game-thread calls.
+3. **play(id, flags)** exactly as 0x4049f0 (voice/effect classes, last ids, volumes 0xff /
+   0xee, flags 1/2/4), stop, stop-all, pause-all/resume, length(ms) as 0x441fa0.
+4. **Queues**: the 8 records + voice queue, `queue_n(...)` = 0x404e10, `queue_voice` =
+   0x404da0, update all from the menu frame after the page (0x404eb0) with the menu clock.
+5. **Menu hooks** (§4): hover 0x29, click 0x03, transition 0x2a, title 0x2d, page start
+   prompts via the queue, Solo/Link voices + the 1000 ms wait, page 6/10 arrows 0x28, Go.
+6. **music.c**: stream `NN.wav` (or the CD image's tracks for the CD version) with
+   0x404990 semantics (modes 0..3, skip-if-playing). Decide looping: GOG loops forever
+   (what Danik hears today); the real CD plays repeat tracks twice. Pause on focus loss as
+   0x409670.
+7. Settings: SoundState / VoicesState / AudioState / CDVolume / WaveVolume from CONFIG.BPT.
+8. Race: engine (§6.3), ambience objects (§6.2), countdown, voice queue (later).
+
+
+#### 4.10.9 In the port (2026-10-26)
+`sound.c`: the effects decoded as above (16-bit set), slots of 1024 buffers with 4 copies
+each, play/stop/volume/pan/length as §4.10.3, 0x4049f0's classes, the 8 queues and the
+voice queue stepped once a menu frame after the page; the menu set loaded with the menu's
+resources, the queues reset at the menu's first entry. Mixed at 44100 Hz stereo with linear
+interpolation (the original's primary buffer ran at 22050). Music as GOG's winmm.dll plays
+it: NN.wav looping, read ahead half a second, 0x404990's modes 1/3 keep a track going.
+Hooked: logo music 13 and its stop, title music (3, 2) + 0x2d, main menu (3, 3) + the
+queued 0x57 when `Data\champA.spt` opens, hover 0x29, click 0x03, glass 0x2a, Solo/Link
+voices. Not yet: CONFIG.BPT's switches and volumes (all on, full), pause on losing focus,
+the CD version's tables and audio tracks, the race's sounds.
+Checks (`OMR_WAV=FILE` with `--shot`: what the run sounds like, 735 or 736 frames of
+sound a picture): a 30 s run from the logo equals 13.wav sample for sample for 19 s, and
+03.wav starts at frame 1201 (the title's start); on page 3 "make your choice" (1061 ms)
+starts on the second frame, as the queue's quirk says; the down arrow plays 0x29.
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and

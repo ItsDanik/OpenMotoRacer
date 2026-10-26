@@ -6,6 +6,8 @@
 #include "menu.h"
 #include "pages.h"
 #include "r3d.h"
+#include "script.h"
+#include "sound.h"
 
 #define PIC(id) (&g_pics[id])
 enum {
@@ -26,6 +28,7 @@ static int reverse_unlocked(void) { return g_reverse_unlocked || g_reverse_unloc
 
 void page_main_start(void)
 {
+    Script champ;
     int y, next = 4;
     bitmap_place(PIC(P_TITLE), 0, -80, 0);
     bitmap_place(PIC(P_SOLO), -140, 116, 0);
@@ -57,8 +60,14 @@ void page_main_start(void)
         menu_add_button(PIC(P_REVERSE), PIC(P_REVERSE_HL), 0xffffffffu, -1, -1, 0, 0, 0, -1, -1, 0);
         g_reverse_button = next;
     }
-    /* (it also looks for the championship's save, and if there is one plays CD track 3:
-       with the music) */
+    /* the championship's script (Data\champA.spt for the difficulty 0x4dc060 = 0; champA01
+       when 0x4dc048 is set): when it opens, the music goes on and "make your choice" is
+       said after 600 ms */
+    if (script_open(&champ, "Data\\champA.spt")) {
+        script_close(&champ);
+        music_play(3, 3);
+        sound_queue(1, 600, 0x57);
+    }
 }
 
 /* a switch's two labels: "off" and "on" pictures side by side */

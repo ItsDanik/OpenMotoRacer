@@ -28,6 +28,7 @@ set(OMR_SOURCES
   src/r3d.c
   src/model.c
   src/rand.c
+  src/sound.c
   src/script.c
   src/font.c
   src/text.c

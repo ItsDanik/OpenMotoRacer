@@ -81,6 +81,5 @@ void menu_key_up(int vk);                           /* WM_KEYUP → 0x432700 */
 void menu_mouse_move(int x, int y);                 /* WM_MOUSEMOVE */
 void menu_mouse_button(int left, int down);         /* WM_[LR]BUTTON(DOWN|UP) */
 
-int sound_play(int id, int flags);                  /* 0x4049f0; -1: not played */
 
 #endif

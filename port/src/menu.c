@@ -1,6 +1,7 @@
 /* The front end's machinery (menu\menu.cpp, menuTools.cpp; NOTES §4.4): the menu object,
    its pages, the page change, the buttons and how the keyboard and mouse work them. */
 #include "menu.h"
+#include "sound.h"
 #include "clock.h"
 #include "pages.h"
 #include "files.h"
@@ -45,13 +46,6 @@ static const char *const page_names[MENU_PAGES] = {
     "19", "championship saves", "championship saves", "22", "23", "podium",
     "Delphine logo", "solo (26)"
 };
-
-int sound_play(int id, int flags)
-{
-    (void)id;
-    (void)flags;
-    return -1;                  /* no sound yet: as the original with the effects off */
-}
 
 /* the pane of glass (0x504c70, NOTES §4.4.2.4): vitre.3df's 99 triangles, each turned
    into a piece of its own about its centre (0x479630) */
@@ -171,6 +165,7 @@ static int load_resources(char *err, int errsize)
 {
     int id;
     load_glass();
+    sound_menu_load();          /* 0x403f90 */
     for (id = 0; id < MENU_PICS; id++)
         if (!g_pics[id].pix && !bitmap_load_id(&g_pics[id], id)) {
             snprintf(err, errsize, "The menu picture %d could not be read.", id);
@@ -188,6 +183,7 @@ static void set_page(int page)
         g_menu.active = 1;
         g_menu.sel = g_menu.prev_sel = g_menu.pressed = -1;
         g_menu.mouse_mode = 0;
+        sound_queue_reset();    /* 0x404d50 */
     }
     g_menu.last_input = g_now;
     g_menu.started[page] = 0;
@@ -277,6 +273,7 @@ void menu_frame(void)
     }
     if (pages[page].frame)
         pages[page].frame();
+    sound_update();             /* 0x404eb0 */
     /* (the title's 30 s demo time-out goes here, with the title page) */
     /* a held left button presses a repeating button every frame */
     if ((g_mouse & 2) && (g_menu.prev_mouse & 2)) {
