@@ -47,6 +47,15 @@ Every claim carries its address and its proof. Dead ends are written down too.
   lists. Banks of equal size still differ as files: the junk after each name's zero
   differs. So the CD's program reads data the GOG program also reads, nearly all of it
   the same; its own tables (MOTO.EXE, 1997-07-21) are at other addresses (to line up).
+- **MOTO.EXE's tables against game.EXE's** (2026-10-26, pefile images, `build/moto.asm`):
+  the menu pictures 0x4d9840 (209 records, as GOG's 0x4e3e20), the language folders
+  0x4da8a8 (GOG 0x4e8b60), the random seeds 0x4d2bb8 (GOG 0x4f2590; the first 7 equal,
+  **the 8th is 0** where GOG has 0x73616c43). **No table of named colours** (GOG 0x4f0dd4):
+  the 1997 build pushes R, G, B as three immediates before its colour call (e.g. 0x46723c:
+  255,255,255 then 0x423620), a different font interface. So the CD's program is not
+  GOG's with tables moved: its text code differs (and 22 of its 34 fonts). Open: run the
+  CD build as GOG's logic with the CD's data (colours from GOG's values?), or ask CD
+  players for the official 3.22 patch (whose game.EXE may be GOG's own, to check).
 
 ## 3. Formats
 
