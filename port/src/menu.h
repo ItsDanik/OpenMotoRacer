@@ -13,7 +13,7 @@ enum {
     VK_BACK = 8, VK_TAB = 9, VK_RETURN = 0xd, VK_SHIFT = 0x10, VK_CONTROL = 0x11,
     VK_MENU = 0x12, VK_ESCAPE = 0x1b, VK_SPACE = 0x20, VK_PRIOR = 0x21, VK_NEXT = 0x22,
     VK_END = 0x23, VK_HOME = 0x24, VK_LEFT = 0x25, VK_UP = 0x26, VK_RIGHT = 0x27,
-    VK_DOWN = 0x28, VK_INSERT = 0x2d
+    VK_DOWN = 0x28, VK_INSERT = 0x2d, VK_ADD = 0x6b, VK_SUBTRACT = 0x6d
 };
 
 typedef struct {                /* 0x58 bytes in the game, at menu + 0x44 + i * 0x58 */

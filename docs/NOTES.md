@@ -2535,6 +2535,899 @@ The logo and title pages are unchanged by the renderer's additions (0 px). The c
 Pocket switch; a confirmed cheat word restarts the page again each time (as the code does);
 the mouse picks and types the nearest cell. The fly-in is random (stream 1) and not compared.
 
+### 4.12 The Solo pages: mode, track, bike, top 5, loading (mapped 2026-10-26)
+
+Mapped 2026-10-26 from build/mr.asm (numbers) with build/decomp as a guide, and checked
+against captures of the running original (build/ref/orig_p*_*.png). Confidence marks:
+**[asm]** read in the machine code, **[decomp]** Ghidra's text only, **[guess]**, **[test]**
+seen in the running original. Picture ids are those of the table 0x4e3e20 (NOTES §4.7);
+`L` after a name = language folder (data\MenuUs\...), else data\menu\bitmap\.
+Call shorthands (NOTES §4.4): 0x40bef0(menu; pic, hl, neighbours, hotkey, group, value,
+varptr, blink, x, y, flags) = picture button; 0x43fa40(pic, pt, align) = place;
+0x43f9a0(pic, target, seconds, kind, align) = slide; 0x43fab0(pic, dx, dy, 0, 0) = step
+(tile scroll); 0x43ede0(pic, surface, mode, pct_h, pct_w) = draw; 0x40c4a0 = glass
+capture; 0x409eb0 = ChangePage. Neighbour bytes: Left, Right, Down, Up (0xff none).
+
+#### 4.12.1 The graph
+
+Every 0x409eb0 call in the program was listed with its page argument (79 sites, plus the
+three `push N; jmp` sites of page 11 at 0x4445a5/0x44497f/0x44498a) and the condition
+that leads to it. Pages reached from page 3 by Solo (0x4dbffc = 1):
+
+```
+ 3 main menu --Solo: voice 0x55, 1000 ms, 0x4dbffc=1, glass, CD check 0x442740--> 5
+                                                   (CD check fails --> 26 = page 5's routines)
+ 5/26 SELECT MODE   Practice / Single / Championship --(0x4dc094 = 0/1/2, glass)--> 6
+                    Back (Esc) --(glass)--> 3
+ 6 SELECT RACE /    Continue (Return; only if the track is available) --> 10
+   CHAMPIONSHIP     Top 5 (modes 0/1) --> 9          Load (mode 2) --> 20
+                    Back (Esc) --> 5, or 9 in a championship once page 9 was shown (0x4e90c8)
+                    (all with the glass)
+10 CHOOSE BIKE      Start --> 1 (Solo) [8 in Link]        Back (Esc) --> 6
+ 9 TOP 5            (from 6, and after a race) see §5          --> 6, 5, 3, 21
+20 championship load --> 6          21 championship save --> 9
+ 1 loading          one frame: draws load.lez, tears the menu down, loads the race
+                    (load fails --> 3)
+   race end         event flags 0x4e8918 via 0x4587e0: 0x200 --> 9 (TOP 5), 0x100 --> 5,
+                    0x400 --> 6, 0x800 --> 1 (restart), 0x8000000 --> 24 (podium);
+                    championship: 0x4580f0 --> 9 (Solo) / 24, then unlock pages
+                    17 (pocket), 16 (reverse), 18 (championship over); 16/17/18 --> 24 --> 9
+```
+
+Seen in the original [test]: 3 → 5 → 6 → 10 → 1 → race (Single Race, Snow Ride); race →
+Escape → QUIT RACE → 9 (TOP 5 SNOW RIDE) → Continue → 6; 6 → Top 5 → 9; Practice on 6
+(laps −/+ and the time-attack switch); Championship 5 → 6 (CHAMPIONSHIP, Continue/Load/
+Back) → 10 → 1 → race → QUIT RACE → 9 (TOP 5 with Save / Abort / Next race) → Next race → 6.
+
+Not on the Solo path (Link only, [asm/decomp]): 7 session list, 8 Link lobby
+(smallmap.lez), 22 network wait; 2 network. 5 → 7 only when 0x4dbffc == 0; 9 → 7/8 and
+10 → 8 only in Link; 0x449560 (→ 7/8) is called only by page 7 and by 0x444cd0, which is
+dead code (no pointer to it anywhere in the image; it looks like an old CD-retry page:
+0x442740 → 5/26, else 3/7/8).
+
+**Options** (main menu button 2 → 11 with the glass): page 11 (start 0x443000, frame
+0x443200) is a list of text buttons (bitmap font, NOTES §4.8; capture
+build/ref/orig_p11_options.png): DIFFICULTY (button 0: 0x4dc060 cycles 0 EASY, 1 MEDIUM,
+2 HARD), CONTROLLER (1: 0x4e90d0 cycles KEYBOARD/JOYPAD/JOYSTICK), "config" (2: → page
+**12**, the controls, after setting 0x4dc11c = 1/4/2 from 0x4e90d0 and saving the config
+0x4311c0), DETAIL LEVELS (3: 0x4dc098 0..4), OPPONENTS (4: 0x4dbfdc ^= 1, "24"/"12"), D3D
+(5), VOICES/SOUNDS/MUSIC (6/7/8: 0x408f30, 0x408b30, 0x409410), SCREEN MODE (9:
+0x504bc4 0..2), 16/9 MODE (10: 0x504e80 ^= 1), WAVE OUTPUT (11: 0x409570), MASTER/WAVE/CD
+volume −/+ (12..17: 0x470e90/0x470d90 on 0x5d2958 channel 0/2/1), SESSIONS REFRESH RATE
+−/+ (18/19: 0x4dc044 0..30), Accept (20: config saved, → **3**), Info (21: → **13**, 3D
+card/system info), Data disk (22: → **23**, the data-disk track list; reloads list%02d.spt
+via 0x428d60). 12 → 11 (button 0; buttons 1..7 set 0x53f790 = i−1, the key being
+redefined), 13 → 11, 23 → 11 [asm for the push values, decomp for the cases]. The
+difficulty and the opponents count are race settings (§7).
+
+#### 4.12.2 Page 5 / 26: game mode (Practice / Single race / Championship)
+
+Page table rows 5 (0x4dbb88) and 26 (0x4dbcd8): frame 0x447710, start 0x447250, no end
+routine. 26 is the same page reached when the main menu's CD check 0x442740 fails; nothing
+in the program tests the page number 26 [asm grep], so it looks and acts exactly like 5.
+No texts (no 0x417d20), no 3D, and the frame does not even run the text list.
+
+Calling convention reminders: 0x40bef0(menu; pic, hl, neighbours, hotkey, group, value,
+varptr, blink, x, y, flags); 0x43fa40(pic, int pt[2], align) places; 0x43f9a0(pic, int
+target[2], float seconds, kind, align) slides; 0x43fab0(pic, a1, a2, 0, 0) steps (for the
+tile, a1/a2 = the scroll per frame); 0x43ede0(pic, surface, mode, pct_h, pct_w) draws.
+Neighbour bytes: byte0 Left, byte1 Right, byte2 Down, byte3 Up (0xff none).
+
+#### Start 0x447250 [asm]
+Pictures (all loaded at menu start, ids from the table 0x4e3e20; `L` = language folder):
+
+| id | name | var | use |
+|----|------|-----|-----|
+| 0x00 | paralax1.lez (128x128 tile, mode 4) | 0x504880 | background |
+| 0x08 | selmode.lez L (640x81) | 0x5048a0 | title bar "SELECT MODE" |
+| 0x09 / 0x0a | practic2.lez / practice.lez L (190x293) | 0x5048a4 / a8 | Practice normal / highlighted |
+| 0x0b / 0x0c | single2.lez / single.lez L | 0x5048ac / b0 | Single race |
+| 0x0d / 0x0e | champio2.lez / champion.lez L | 0x5048b4 / b8 | Championship |
+| 0x0f / 0x10 | Grdprix2.lez / Grdprix.lez L | 0x5048bc / c0 | instead of 0x0d/0x0e in the GP edition (0x4dc1c4 != 0) |
+| 0x51 | Btback.lez L (121x40) | 0x5049c4 | Back |
+
+Order:
+1. Place practic2 (-242,115), single2 (229,595), champio2|Grdprix2 (700,115),
+   Btback (270,430). All align 0.
+2. 0x40bd40 (clear buttons).
+3. **Solo (0x4dbffc != 0)**:
+   - button 0: Btback, no hl, nb 0x02ffffff (Up -> 2), hotkey **Escape (0x1b)**, group -1,
+     value 0, var 0, blink 0, x,y -1, flags 0.
+   - slides, 1.0 s (0x3f800000), kind 1 (eased), align 0: practic2 -> (18,115), single2 ->
+     (229,115), champio2|Grdprix2 -> (440,115). (So Practice comes from the left, Single
+     rises from below, Championship from the right.)
+   - button 1: practic2 / hl practice, nb 0xff0002ff (Right 2, Down 0), hotkey -1.
+   - button 2: single2 / hl single, nb 0xff000301 (Left 1, Right 3, Down 0).
+   - button 3: champio2 / hl champion (GP: Grdprix2 / Grdprix), nb 0xff00ff02 (Left 2,
+     Down 0).
+   - all other fields as button 0 (group -1, no var, no blink, flags 0), no hotkeys.
+4. Link (0x4dbffc == 0), one sentence: Back (nb 0x01ffffff, Escape), Single placed
+   (-263,115) sliding to (121,115), Championship placed (715,115) sliding to (331,115),
+   buttons 1 = Single, 2 = Championship; Practice is placed but never drawn.
+5. selmode placed (0,-80), slides to (0,0) in 1.0 s, kind 1.
+6. **0x404990(3, 3)**: CD track 3 (the menu music; the second argument's meaning is the
+   sound helper's business).
+7. **0x404e10(1, 600, 0x54)**: queue one sound, id **0x54**, 600 ms later (0x404e10(n,
+   {delay, id}...) takes the first channel record of 0x504240.. whose +4 is set, clears
+   its +4..+0x10 and appends up to 8 (id -> +0x24[i], delay -> +0x44[i]) [asm]; the id
+   being a voice ("select mode"?) is a [guess]). The main menu, page 6 and the name entry
+   use the same call.
+8. **0x4e90c8 = 0** (see page 6: "the championship table has been shown").
+
+#### Frame 0x447710 [asm]
+1. 0x49b1c0, 0x49a160(0,0) (present + begin, hover).
+2. Tile: 0x43fab0(paralax1, **-1, +1**, 0, 0) (scrolls the other way from the main menu),
+   draw mode 5 (= its own mode 4, tiled), 100, 0.
+3. Title: 0x43fab0(selmode, 0,0,0,0) (slide step), draw mode 5.
+4. 0x40c1f0 buttons (the slides of the three big pictures are stepped here, as button
+   pictures), 0x40c500 glass.
+5. 3D list 0x49ad90 (only the glass shards; skipped while 0x504e74), pointer (id 0x55 at
+   the mouse), 0x49b0e0, 0x49ad70 if 0x504e74.
+6. Press (0x40c1b0) — the whole decision is after the frame is finished:
+   - **1..3**: 0x40c1e0; **0x4dc094 (game mode) = pressed − 1**; 0x40c4a0 (glass
+     capture); if the mode is neither 0 nor 1 (Championship in Solo): **0x4dc068
+     (reverse) = 0, 0x4dc078 (pocket) = 0, 0x4dc08c (track index) = 0, 0x509ba8
+     (championship race number) = 0**; then ChangePage(**6**) either way.
+   - **0** (Back / Escape): 0x40c1e0, 0x40c4a0, ChangePage(**3**) in Solo, (7) in Link.
+   No sound of the page's own (the core plays 0x29 hover / 3 click).
+
+**0x4dc094, the game mode** [asm]: Solo: 0 = Practice, 1 = Single race, 2 =
+Championship (verified: button i -> i − 1). In Link the two buttons give 0 = Single, 1 =
+Championship (so the numbers mean something else there). Initial value 0 (data).
+
+#### 4.12.3 Page 6: track choice (map, photo, laps, time attack)
+
+Row 6 (0x4dbb98): frame 0x448110, start 0x447a30, end 0x4480d0. No texts created (the
+frame runs the text list, which is empty), no 3D, no TextList_Add.
+
+#### The track list behind it [asm + data]
+- Loaded by **0x428d60** (fastcall, script object) from `Data\list.spt` (`Data\list%02d.spt`
+  when 0x4dc048, the data-disk list number, is non-zero; GOG has LIST.BPT and LIST01.BPT).
+  Called at start-up (0x472c40 at 0x472d6e), by 0x4329a5 and by page 23 (0x4514e0).
+- Keys: `ListName` (31 chars -> 0x504eb8; "PLUGIN"), `PocketAvailable` -> **0x4dc03c**,
+  `ReverseAvailable` -> **0x4dc040**, `NumberIslande` -> **0x51d298** (track count, 8),
+  `IslandeList` then per track: name, folder, ON/OFF, laps.
+- **0x4dc088** = new(count × 0x130); record:
+
+| off | field |
+|-----|-------|
+| +0x000 | menu: "pictures not loaded" (page 6 start sets all to 1; 0 after map+photo are loaded; Bitmap_Load 0x43e7f0 always returns 1) |
+| +0x004 | name, 31 chars + 0 ("SPEED_BAY"; championship scripts refer to tracks by it) |
+| +0x024 | folder, 0x103 chars ("data\ile01\") |
+| +0x128 | **available**: 1 if the script says "ON" (strcmpi with 0x4e1dbc "ON"), else 0 |
+| +0x12c | **default laps** |
+
+- LIST.BPT: SPEED_BAY ile01 ON 4, SNOW_RIDE ile05 ON 2, ROCK_FOREST ile03 OFF 4,
+  LOST_RUINS ile04 OFF 2, WEST_WAY ile02 ON 4, GREAT_WALL ile06 OFF 3, RED_CITY ile08 OFF 3,
+  DIRT_ARENA ile09 ON 2. (LIST01.BPT "TWO_NEW_ISLANDS": FUN_FAIR ile10, SEA_OF_SAND ile11
+  first, both ON.)
+- **0x4dc058**: the name-entry cheat "CDNALSI" (cheat table 0x4f1250: CESREVER -> 0x4dc050,
+  CTEKCOP -> 0x4dc054, CDNALSI -> 0x4dc058, each = 1) makes every track selectable.
+
+Championship list (for mode 2) [asm 0x429a00 + data]: `NumberEntry` -> **0x5083b4** (race
+count), `LevelList` -> **0x508934** = new(n × 0x50), per race: +0 track name (31), +0x20
+**reverse**, +0x24 **pocket**, +0x28 ?, +0x2c ? (ints), +0x30 a track name to unlock or
+"NONE". From `Data\champ%c.spt` (CHAMPA/B/C.BPT; the letter is chosen elsewhere). CHAMPA:
+12 races, the 6 tracks then the same 6 reversed. **0x509ba8** = current race number.
+
+Per-track pictures: **0x4e90ec** = new(count × 2 picture objects of 0x74 bytes; ctor
+0x43e7e0, dtor 0x43e170); track i: map at 0x4e90ec + i×0xe8, photo at + i×0xe8 + 0x74.
+Loaded with Bitmap_Load(obj, sprintf("%smap.lez" / "%sphoto.lez", folder), mode **1**)
+(strings 0x4e950c / 0x4e9500) -> e.g. `data\ile01\map.lez` (208x315) and `photo.lez`
+(237x258), from ILE01.BKF. Only the current track's pair is loaded at start; others on
+demand in the frame.
+
+#### Helper 0x447920(int *track) — choose a legal track [asm]
+- If mode == 2: if 0x509ba8 >= 0x5083b4 (championship finished): 0x509ba8 = 0, **mode =
+  1**, *track = 0. Else *track = the first i whose name (+4) equals race[0x509ba8].name
+  (strcmp) (unchanged if none).
+- Then, starting at *track, while the track is not usable, *track++ (wrapping), at most
+  one full turn. Usable = +0x128 == 1, or 0x4dc058, or (+0x128 == 0 and 0x4dbffc == 0 and
+  0x4dbff8 == 0) (the last case is Link only).
+
+#### Start 0x447a30 [asm]
+1. Allocate the 0x4e90ec array (fatal "Aborting game" if new fails); every track +0 = 1.
+2. 0x542380 = 0 (the main menu's "rise" flag; not used here).
+3. 0x447920(&0x4dc08c).
+4. Mode 2: **0x4dc068 (reverse) = race.+0x20, 0x4dc078 (pocket) = race.+0x24**.
+5. Load the current track's map, place (-200,133); photo, place (740,91); track +0 = 0;
+   **0x5409ac = 0x4dc08c** (the track whose pictures are on screen).
+6. Pictures placed (align 0), then slides (kind 1, align 0):
+
+| id | name | placed | slides to | time |
+|----|------|--------|-----------|------|
+| 0x19 | selrace.lez L (640x81) | (0,-100) | (0,0) | 1.0 |
+| 0x73 / 0x72 | CHTITRE.lez / CHTITREG.lez (GP) L | (0,-100) | (0,0) | 1.0 |
+| — | track map | (-200,133) | (78,133) | 1.0 |
+| — | track photo | (740,91) | (320,91) | 1.0 |
+| 0x28 | moin.lez (62x53; hl 0x29 moin_l, flash 0x2a moiflach) | (266,580) | (266,404) | 1.0 |
+| 0x2b | plus.lez (67x54; hl 0x2c plus_l, flash 0x2d pluflach) | (328,580) | (328,404) | 1.0 |
+| 0x2e | laps.lez L (81x36) | (740,351) | (412,351) | 1.0 |
+| 0x1a | left.lez (63x114; flash 0x1b left_l) | (-100,148) | (6,148) | 0.7 |
+| 0x1c | right.lez (59x112; flash 0x1d right_l) | (740,146) | (578,146) | 0.7 |
+| 0x51 | Btback.lez L | (740,438) | (516,438) | 0.7 |
+| 0x4d | continue.lez L (120x40) | (740,356) | (514,356) | 0.7 |
+| 0x56 | BtHiscor.lez L | (740,397) | (514,397) | 0.7 |
+| 0x4f | BtLoad.lez L | (740,397) | (514,397) | 0.7 |
+| 0xab | timeatak.lez (183x128) | (342,128) | — (drawn relative to the photo) | |
+| 0xac / 0xad | attackon.lez / attackof.lez L (115x74) | (395,393) both | — | |
+
+   (0.7 = 0x3f333333 -> 699 ms after the ×1000.0 truncation, as on the main menu.)
+   Both titles are slid; only one is drawn (mode 2 -> CHTITRE[G], else selrace).
+7. 0x404990(3,3) CD track 3; unless mode 2: **0x404e10(1, 600, 0x53)** (sound 0x53 in
+   600 ms).
+No buttons are made here: the frame rebuilds them every frame.
+
+#### Frame 0x448110 [asm]
+Locals: the button indices, all −2 (= none) at entry; `leaving` = 0.
+1. 0x49b1c0, 0x49a160(0,0).
+2. If Solo and mode != 0: **0x4dc074 (laps) = track.+0x12c** (every frame: only Practice
+   chooses its laps).
+3. 0x40bd40, then the buttons (all group −1, value 0, var 0, blink 0, x,y −1, flags 0):
+   - **Mode 2**: 0 Btback (nb 0x02ffffff, Escape); 1 continue (nb 0xff02ffff, **no
+     hotkey**); 2 BtLoad (nb 0x0100ffff).
+   - **Modes 0/1**: 0 Btback (nb 0x04ffffff, Escape); 1 continue (nb 0xff04ffff, hotkey
+     **Return 0xd**); 2 left (nb 0xff01ffff, hotkey **VK_LEFT 0x25**); 3 right (nb
+     0xff01ffff, hotkey **VK_RIGHT 0x27**); 4 BtHiscor (nb 0x0100ffff).
+     **Mode 0 only**: 5 moin / hl moin_l (nb 0x01010101, hotkey **0x6d numpad −**);
+     6 plus / hl plus_l (nb 0x01010101, hotkey **0x6b numpad +**); then if
+     track.+0x12c < laps: **0x4dc148 = 0** and no button; else 7 = time attack: pic = hl =
+     attackon if 0x4dc148 else attackof, nb −1, no hotkey.
+   (Left/Right being hotkeys, the arrow keys turn the tracks instead of moving the
+   selection; Up/Down still move it.)
+4. Tile 0x43fab0(paralax1, **+1, −1**), draw mode 5.
+5. Title: mode 2 -> CHTITRE (GP: CHTITREG), else selrace; step + draw mode 5.
+6. **0x5420d4 (word) = 1**, then 0 if any loaded track (+0 == 0) has its map or photo
+   sliding (+0x10) ("no slide running").
+7. If the current track's +0 == 1 (not loaded): load map + photo (mode 1), map placed
+   (-200, **90**), photo (740,91), +0 = 0.
+8. If 0x5420d4 == 1 and 0x5409ac != 0x4dc08c (the track changed and nothing is moving):
+   new map placed (-200,133) and slid to (78,133); new photo placed (740,91) slid to
+   (320,91); old map slid to (78,−400) (up and away); old photo slid to (320,580) (down);
+   all **0.5 s** (0x3f000000), kind 1; 0x5409ac = 0x4dc08c. (If the player turns again
+   while pictures move, the change waits until they stop; meanwhile the new map sits at
+   (-200,90), 8 pixels of it on screen — the original's own quirk.)
+9. For every track i: if (its map is sliding or i == current) and loaded: step + draw map
+   (mode 5 -> its mode 1, colour 0 transparent), then **maptxt.lez (0xbb, 208x43, L)** at
+   (map.x, map.y − 43). Same for the photo; and if **0x4dc148 and mode 0**: timeatak.lez
+   at (photo.x + 22, photo.y + 37).
+10. Laps digits: **num<laps % 10> at (330,334)**, **num<laps / 10> at (275,334)** (ids
+    0x1e+d, num0..num9 53x62; the tens digit is drawn even when 0: "03"); then laps.lez
+    (step + draw).
+11. 0x40c1f0 buttons.
+12. Press (0x40c1b0, != −1), in this order of tests:
+    - **left**: 0x40c1e0; track−− (wrap to count−1) until usable (+0x128 == 1 or
+      0x4dc058) or back to the start; **laps = track.+0x12c**; draw left_l (0x1b) at
+      (6,148) (one-frame flash over the button); **sound 0x28**.
+    - **right**: same forwards (wrap to 0); flash right_l (0x1d) at (578,146); sound 0x28.
+    - **minus**: 0x40c1e0; if laps > 1: laps−−, 0x409bf0 (redraw), flash moiflach (0x2a)
+      at moin's place. No sound.
+    - **plus**: if laps < **8**: laps++, 0x409bf0, flash pluflach (0x2d) at plus's place.
+    - **back**: 0x40c1e0, leaving = 1, ChangePage(**9** if mode 2 and 0x4e90c8, else
+      **5**).
+    - **continue**: 0x40c1e0; only if track.+0x128 == 1 or 0x4dc058: leaving = 1,
+      ChangePage(**10**).
+    - **hiscores**: leaving = 1, ChangePage(**9**).
+    - **load** (mode 2): leaving = 1, ChangePage(**20**, championship saves).
+    - **time attack**: flash attakfla (0xae, 0x504b38) at attackof's place, 0x40c1e0,
+      **0x4dc148 ^= 1**. No sound.
+    (ChangePage runs in the middle of the frame: the rest of this frame is still drawn.)
+13. Text list: 0x418790, 0x417840, 0x418860.
+14. 0x40c500 glass; 0x49ad90; pointer; 0x49b0e0; **if leaving: 0x40c4a0** (glass
+    capture of this finished frame); 0x49ad70 if 0x504e74.
+
+#### End 0x4480d0 [decomp]
+Destroys the 0x4e90ec picture array (each object's destructor 0x43e170, then delete) and
+sets 0x4e90ec = 0. The track list and the choices stay.
+
+#### Globals these pages set (the race reads them; readers listed for the next helper)
+| addr | meaning | set by |
+|------|---------|--------|
+| 0x4dc094 | game mode: Solo 0 Practice, 1 Single, 2 Championship (0x447920 turns 2 into 1 when the championship is over) | page 5 [asm] |
+| 0x4dc08c | track index into 0x4dc088 | page 5 (0 for championship), 0x447920, page 6 arrows [asm] |
+| 0x4dc074 | laps, 1..8 (Practice), else the track's default (+0x12c) | page 6 [asm] |
+| 0x4dc148 | **time attack** on/off (initial 1 in the data); offered in Practice only, and forced 0 when laps > the track's default; read by the race at 0x411205, 0x412d4f, 0x413248.., 0x47b439, 0x47bfe0, 0x47de93.., 0x4805d0, 0x48197e | page 6 [asm; "time attack" from the picture names] |
+| 0x4dc068 / 0x4dc078 | reverse / pocket (championship: from the race record; else the main menu's toggles; cleared by page 5 for a new championship) | pages 3, 5, 6 [asm] |
+| 0x509ba8 | championship race number (0 for a new championship) | page 5, 0x447920 [asm] |
+| 0x4e90c8 | 1 after page 9's start (0x44d4fc), 0 at page 5's start: Back on page 6 in a championship returns to page 9 | [asm] |
+| 0x5409ac | the track whose pictures are shown (page 6 only) | [asm] |
+| 0x5420d4 | word: no track picture is sliding (page 6 only) | [asm] |
+| 0x4dc058 | all tracks selectable (cheat CDNALSI) | name entry [asm] |
+
+Exits: 5 -> 6 (mode chosen), 5 -> 3 (Back). 6 -> 10 (continue; the bike page), 6 -> 9
+(hiscores; or Back during a championship), 6 -> 5 (Back), 6 -> 20 (Load, championship).
+All with the glass transition.
+
+#### What is drawn differently
+- Championship: CHTITRE title, only Back / Continue / Load, no arrows, no laps buttons, no
+  hiscores, no time attack; the track is imposed by the race list (with its reverse /
+  pocket); laps = the track's default (digits still shown).
+- Single race: arrows + hiscores, laps shown but fixed to the default.
+- Practice: + the − / + laps buttons and the time-attack switch (and timeatak.lez over the
+  photo when on).
+- GP edition (0x4dc1c4): Grdprix pictures on page 5, CHTITREG on page 6.
+- Link: page 5 has Single/Championship only (modes 0/1), Back goes to page 7; laps not
+  forced in page 6.
+
+#### Checked against the captures [test]
+build/ref/orig_p5_mode.png: Practice / Single Race / Championship cards at x 18 / 229 / 440,
+top y 115, Back at (270,430), SELECT MODE bar at y 0 — as read. orig_p6_track.png (Single
+Race): MAP label (maptxt) at y 90 = map.y 133 − 43, map at x 78, photo card at (320,91),
+"04" digits at x 275 / 330 y 334, Laps at (412,351), Continue (514,356), Top 5 = BtHiscor
+(514,397), Back (516,438), arrows at (6,148) / (578,146) — as read. No −/+ and no time-attack
+switch in Single Race, as the code says: they exist in **Practice (mode 0) only**.
+
+#### 4.12.4 Page 10: CHOOSE BIKE (start 0x44e480, frame 0x44ed30, end 0x44ecf0)
+
+Reached from page 6's OK (and back from 8 in Link). Shows the race bike + rider of the
+chosen track's family, turning on a "turntable" (the camera orbits it), Left/Right arrows to
+change bike (8 per family), four FEATURES bars (Acceleration, Max speed, Grip, Brakes) that
+animate to the bike's values, TRANS A-T / M-T (gearbox), Start and Back.
+Captures: build/ref/orig_p10_bike_a.png, orig_p10_bike_b.png, orig_p10_manual.png (the
+settled positions below match them).
+
+Calling conventions used below: `place(pic, x, y)` = 0x43fa40 align 0; `slide(pic, x, y,
+s, kind)` = 0x43f9a0 (all slides here: 1.0 s, kind 1 = eased); `draw(pic, pct_w)` =
+0x43ede0(pic, surf, 5, 100, pct_w) (mode 5 = the picture's own; pct_w = % of columns cut
+off on the right). Button args in 0x40bef0 order: pic, hl, neighbours (bytes L,R,D,U),
+hotkey, group, value, var, blink, x, y, flags. [asm for all numbers]
+
+#### Start 0x44e480 [asm]
+1. Bike number **0x584499** (= field +0x78 of player 1's bike object 0x584421): -1 → 0
+   (first visit); otherwise kept from the last visit.
+2. Zeroed: mouse deltas 0x519ff4/0x519ff6; look-at target **0x53f540/0x53f544/0x53f548**
+   (x, y, z); voice-played flag 0x53f554; 0x53f78c = -1 (wait-until time); bike object
+   position 0x584451/55/59 (= obj+0x30..0x38: the turntable is at the origin);
+   0x5420d0 (switch direction) = 0; 0x5420dc (displayed-bike offset) = 0; 0x4dc130 = 0;
+   0x4ea4d0 (lighting from the camera) = 0.
+3. **0x40a4d0(track 0x4dc08c)** loads the bike to show (bike number saved around the call):
+   reads `<track dir>Level.Spt` (track record 0x4dc088 + n*0x130, +0x24 = dir), takes its
+   bike-family script (7th string `data\motoSpd.spt` etc., or the 8th, the Pocket one
+   `data\PktSpeed.spt`, when Pocket 0x4dc078 is on), reads the family's 8
+   `carac1..8.spt` (0x42a580 → bike table, below), loads the family's two texture banks
+   (0x401d90; the second chosen by PersoAnim == 1), then the bike+rider object 0x584421
+   (0x45bf70(obj,0,1,1,0), 0x45bdf0, 0x45b480(name 0x51d678, obj, 0), 0x45c7c0(obj,0,0,0),
+   0x45c700(obj, texture page)). Families on disc: MOTOSPD (road: data\speed),
+   PKTSPEED, MOTOKTM (dirt: data\ktmcross), PKTKTM. Which one a track uses is in its
+   Level.Spt (Snow Ride → dirt bikes). [asm for the calls, decomp for the reading]
+4. Light 0x52c228/0x52c22c/0x52c230 = (-0.5, -1.0, 0.0); 0x52c230 = 0.
+5. Camera (block 0x5161c0 + 0x4dc0f8*0x238): 0x46da40(cam, angles (0,0,0) → +0x38..+0x40,
+   offset (0,0,1500) → +0x50..+0x58); position +0x98..+0xa0 = (0, 0, 1500.0);
+   0x46e140(cam, (0,0,0)); 0x49a120(1.0).
+6. Pictures (id, name: start → slide target):
+
+| ptr | id | file | placed at | slides to |
+|-----|----|------|-----------|-----------|
+| 0x504940 | 0x30 | choosemo.lez (title bar "Moto Racer / CHOOSE BIKE") | (0,-80) | (0,0) |
+| 0x5048e8 | 0x1a | left.lez | (-100,148) | (6,148) |
+| 0x5048f0 | 0x1c | right.lez | (740,146) | (578,146) |
+| 0x504944 | 0x31 | features.lez (panel "FEATURES: ... TRANS", the four words) | (27,530) | (27,322) |
+| 0x5049b0 | 0x4c | start.lez | (740,373) | (512,373) |
+| 0x5049c4 | 0x51 | Btback.lez | (740,417) | (512,417) |
+| 0x504948 | 0x32 | featacc.lez (green bar) | (145,568) | (145,360) |
+| 0x50494c | 0x33 | featspe.lez (yellow bar) | (145,595) | (145,387) |
+| 0x504950 | 0x34 | featgri.lez (orange bar) | (145,621) | (145,413) |
+| 0x504954 | 0x35 | featbra.lez (red bar) | (145,647) | (145,439) |
+| 0x504958 | 0x36 | auto.lez (A-T lit) | (401,564) | (401,356) |
+| 0x504960 | 0x38 | autosha.lez (A-T dark) | (401,356) | — |
+| 0x50495c | 0x37 | autofla.lez (A-T highlight) | (401,564) | — |
+| 0x504964 | 0x39 | manu.lez (M-T lit) | (401,407) | — |
+| 0x50496c | 0x3b | manusha.lez (M-T dark) | (401,615) | (401,407) |
+| 0x504968 | 0x3a | manufla.lez (M-T highlight) | (401,615) | — |
+
+   Background 0x50493c id 0x2f `choosefo.lez` is not placed (drawn where it is, 0,0
+   [guess]). Not created here but drawn on a press: left_l (0x5048ec id 0x1b), right_l
+   (0x5048f4 id 0x1d).
+   Note: when the gearbox is Manual at entry, A-T dark and M-T lit are *not* slid (they
+   appear at once at their final places); in Automatic, A-T lit and M-T dark slide up
+   with the rest. [asm]
+7. Feature bars: targets 0x540cc4 / 0x53f670 / 0x53f4c8 / 0x5420f8 = `(v*-100)/100 + 100`
+   = 100 − v (ints) of the bike's Gfx_acc / Gfx_spe / Gfx_gri / Gfx_bra; previous values
+   0x53f4c4 / 0x540af8 / 0x540990 / 0x5420d8 = 0 (so at entry the bars start **full** and
+   shrink to their value); shown values 0x53f4e4 / 0x540078 / 0x53f780 / 0x53f54c = 0.
+   Animation clock: 0x540cc0 = now, 0x540cbc = now + 1000, 0x53f84c = 1 (running).
+8. Buttons (0x40bd40 first):
+
+| # | pic | hl | neighbours | hotkey | blink | does |
+|---|-----|----|-----------|--------|-------|------|
+| 0 | left.lez | – | 0xff0201ff (R→1, D→2) | **Left (0x25)** | 0 | previous bike |
+| 1 | right.lez | – | 0xff02ff00 (L→0, D→2) | **Right (0x27)** | 0 | next bike |
+| 2 | start.lez | – | 0x0103ff00 (L→0, D→3, U→1) | **Return** | 0 | go |
+| 3 | Btback.lez | – | 0x02ffffff (U→2) | **Escape** | 0 | back |
+| 4 | auto.lez if 0x4dc0a0 == 1 else autosha.lez | autofla.lez | 0xffffffff | – | **1** | Automatic |
+| 5 | manusha.lez if 0x4dc0a0 == 1 else manu.lez | manufla.lez | 0xffffffff | – | **1** | Manual |
+
+   All group -1, var 0, x,y = -1 (pictures stay where placed), flags 0. Since Left/Right are
+   hotkeys, the arrow keys change the bike directly (the arrow navigation never runs for
+   them). Buttons 4/5 blink (drawn plain every other frame while highlighted).
+   No texts, no TextList_Add, no sounds or CD call in the start routine (the music of
+   page 5 keeps playing).
+
+#### Frame 0x44ed30 [asm]
+Order:
+1. 0x49b1c0(1), 0x49a160(0,0) (hover).
+2. draw choosefo.lez (the whole background).
+3. **Camera orbit**: 0x46dab0(cam, bike+0x24): rotation from the camera angles (+0x38 a,
+   +0x3c **θ**, +0x40 c) combined with the bike's angles (bike+0x24..); camera position =
+   bike position (+0x30..) + cam+0x8c.. + 1500 × the matrix's third row (distance
+   +0x58). Then cam y (+0x9c) += 200.0 (0x4d0c44); 0x46e140(cam, target 0x53f540);
+   cam y += 40.0 (0x4d0bac) (so the view is aimed from y+200 but rendered from y+240).
+4. c = fcos θ, s = fsin θ (real FPU sin/cos), a = 250.0·c (0x4d0c48), b = 100.0·c
+   (0x4d0c50).
+5. **Turntable / bike switch** (dir = 0x5420d0, T = target x 0x53f540, Z = target z 0x53f548;
+   tests on c are on its sign bits; nothing happens if c == 0):
+   - dir == 0 (idle): dt = now − 0x4e9118, at most 1000; 0x4e9118 = now; θ += dt ×
+     0.0006135923 (0x4d0c58 = 2π/10240: one turn in 10.24 s). (0x4e9118 is not updated
+     while switching, so after a switch, and on the first frame of a visit, θ jumps by up
+     to 1000 ms worth.)
+   - (dir == −1 and c > 0) or (dir == 1 and c < 0): if |a| > T: T += |b|, Z += (|b| / −c)·s;
+     else T = −|a|, Z = (−|a| / −c)·s, **0x5420dc = 0** (the new bike appears).
+   - (dir == 1 and c > 0) or (dir == −1 and c < 0): if −|a| < T: T −= |b|, Z −= (|b| / −c)·s;
+     else T = |a|, Z = (|a| / −c)·s, 0x5420dc = 0.
+   The look-at point slides sideways by 100|c| a frame (frame-rate dependent), the bike
+   whips off one side (3 frames), the index changes, it comes back from the other side.
+6. Displayed bike = (0x584499 + 0x5420dc) & 7 → written to bike+0x2f4, +0x478, +0x5fc
+   (0x584715, 0x584899, 0x584a1d: the skin index of the three detail levels [guess]). One
+   model + rider for the 8 bikes; they differ by texture.
+7. If 0x4ea4d0 (never in the menu): light vector from the camera — skipped.
+8. **0x45f290(bike 0x584421, renderer, cam, 0)** queues the bike+rider polygons (the race
+   bike drawer).
+9. Switch end (only when 0x5420dc == 0): if (dir == 1 and c > 0 or dir == −1 and c < 0) and
+   T ≤ 0, or (dir == −1 and c > 0 or dir == 1 and c < 0) and T ≥ 0 (float sign bits): T =
+   0x53f544 = Z = 0, dir = 0.
+10. Step+draw choosemo.lez, step+draw features.lez, step the 4 bars.
+11. Bar targets recomputed from the current bike (100 − Gfx). If 0x53f84c: t = min(now,
+    0x540cbc); f = (t − start)/(end − start); e = (sin(f·π − π/2) + 1.0)·0.5; shown =
+    ftol(prev + (target − prev)·e) for each bar; when t == end, 0x53f84c = 0.
+12. Draw the 4 bars at full height with pct_w = shown value (bar length = Gfx %).
+13. Press (0x40c1b0 → p):
+    - p == 2 (Start) and voice not played (0x53f554 == 0): play sound **0x2c** if the bike's
+      PersoAnim (0x509398 + bike*0x124) == 0 (road family) else **0x2b** (dirt) — an effect
+      id (< 0x2f: engine roar [guess]); if played, 0x53f78c = its length in ms (0x4240d0 →
+      0x441fa0: bytes / (bits/8 × channels) × 1000 / rate); then voice **0x58** (if
+      played, 0x53f78c = its length instead); 0x53f78c += now; 0x53f554 = 1.
+    - If 0x53f78c != −1 and now ≤ 0x53f78c: nothing else this frame (the press stays
+      pending; Left/Right/Back are blocked too).
+    - 0 Left: clear press; if bike != 0: sound 0x28, 0x5420dc = 1, bike −= 1, dir = −1;
+      left_l.lez placed at (6,148) and drawn this frame; prev bars = old targets, new
+      targets, bar clock restarted (1000 ms, 0x53f84c = 1). At bike 0 nothing (no wrap).
+    - 1 Right: same with bike != 7, sound 0x28, dir = 1, 0x5420dc = −1, right_l.lez at
+      (578,146).
+    - 2 Start: clear press; Solo (0x4dbffc != 0): **ChangePage(1)** (loading) **without**
+      the glass transition; Link: glass + ChangePage(8) (and, if 0x4dbff8, 0x456db0 sends the
+      bike to the others).
+    - 3 Back: clear press, ChangePage(6), glass (0x40c4a0 after the frame is finished).
+    - 4 A-T: clear; the 6 buttons rebuilt with auto.lez / manusha.lez for 4/5;
+      **selected = 2** (Start); **0x4dc0a0 = 1**.
+    - 5 M-T: same with autosha.lez / manu.lez; selected = 2; **0x4dc0a0 = 0**.
+14. 0x40c1f0 buttons, text list (0x418790/0x417840/0x418860; empty here), 0x40c500 glass,
+    **0x49ad90** (the bike is rasterised now, over all the 2D), pointer, 0x49b0e0, glass
+    capture if leaving to 6/8, 0x471440(0x5d2dd8) (a timed screenshot/video capture
+    tool — nothing for the port).
+
+#### End 0x44ecf0 [asm]
+0x401ab0 on the texture-bank objects 0x4f92f8 and 0x4f9630 (frees the bike textures),
+0x4db1c0 = 0, 0x4ea4d0 = 0, 0x4dc130 = 0; if bike+0x68 (0x584489, "loaded"): clear it and
+0x45be60(0x584421) (free the model). Page 1 loads the race bikes itself.
+
+#### The bike table (0x509278 + i*0x124, i = 0..7, filled by 0x42a580 from carac<i+1>.spt)
+Field +0 MotoType (2 road, 1 dirt), **+4 Gfx_acc, +8 Gfx_spe, +0xc Gfx_gri, +0x10
+Gfx_bra** (the four bars, ints 0..100), then the physics floats (MoteurVitesseMax,
+MotoMasse, ..., RapportDeBoite1-6, materials...), **+0x120 PersoAnim** (0 road rider, 1
+dirt rider). The page reads +4..+0x10 and +0x120. Values in the GOG data:
+
+| family | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| SPEED | 75 75 75 75 | 50 75 100 100 | 100 50 75 100 | 50 100 75 75 | 100 75 75 50 | 100 85 45 70 | 75 100 50 75 | 100 75 50 100 |
+| SPEEDPKT | 75 75 75 75 | 50 75 100 100 | 100 50 100 75 | 50 100 75 75 | 100 75 75 50 | 100 75 50 75 | 75 100 50 75 | 100 75 50 100 |
+| KTMCROSS | 75 75 75 75 | 50 75 100 75 | 100 50 75 75 | 50 100 100 50 | 100 75 75 50 | 100 75 50 75 | 75 100 50 75 | 50 100 75 75 |
+| KTMPKT | 75 75 75 75 | 50 75 75 100 | 100 50 75 75 | 75 100 50 75 | 50 100 100 75 | 100 75 50 75 | 100 75 75 50 | 50 75 100 50 |
+(acc spe gri bra; PersoAnim 0 for SPEED*, 1 for KTM*.) [test: tools/bpt.py on the banks]
+
+#### What the race reads from page 10
+- **0x584499** bike number 0..7 = player 1's bike object +0x78; the race uses it as the
+  carac index (0x45c56c: `[obj+0x78]` → table) [asm].
+- **0x4dc0a0** gearbox: 1 automatic, 0 manual. 0x4110f1: in Solo player 1's bike field
+  +0x88 (0x5844a9) = 0x4dc0a0, computer bikes get 1; 0x45c58b: manual adds 2.0 to the
+  bike's carac float at record +0x48 (a top-speed value [guess]). The loading page saves
+  it with the other choices (0x40b8f0 → 0x542880) [asm].
+
+#### 4.12.5 Page 9: TOP 5 (start 0x44cfd0, frame 0x44d540, end 0x44d510)
+
+Two pages in one routine: **Solo (0x4dbffc != 0)** = the TOP 5 hi-score page of the
+current track/laps/options (title bar "TOP 5   <TRACK NAME>", "2 LAPS [REVERSE] [POCKET]",
+"Best RACE" with up to 5 rows, "Best LAP"), shown from page 6's Top-5 button and after a
+race (single race / practice / championship); **Link** = the race results with points
+(results.lez, Totalpts, Coupe, rows from 0x5d0d61) — out of scope here. Capture:
+build/ref/orig_after_race_top5.png (Snow Ride, 2 laps; four rows, best lap 01'15''50).
+
+#### Start 0x44cfd0 [asm]
+1. 0x519ff4/6 = 0; 0x5401c4 (new-record row bits) = 0; 0x540cb8 (new best lap) = 0; the
+   best-lap record 0x540230 (0xf9 bytes) filled with 0x7f; 0x542380 (second slides
+   started) = 0; 0x51a414 = 0; typed char 0x51be90 = 0.
+2. Font 12 (Messages): SetColors(white 0x4f0dd4, white 0x4f0dd4).
+3. **0x464e80(0)**: loads the track's 5..8 race records into 0x5cf500 (8 × 0xf9 bytes)
+   from `Data\bestscor.dat` (blocks: 0x20-byte key, one 0xf9 best-lap record, 8 race
+   records; key = track name (track record +4) + "POC" if Pocket + "REV" if Reverse +
+   "TRA<laps>" in practice mode 0x4dc094 == 0; not found → all 0x7f) [decomp].
+   Record layout (base 0x5cf500 + i*0xf9): +9 name (string, 3 letters), +0xf1 race time ms,
+   +0xf5 (row shown when != 0x7f7f7f7f; best lap of that race [guess]).
+4. Solo pictures:
+
+| ptr | id | file | placed | slides to |
+|-----|----|------|--------|-----------|
+| 0x5048c8 | 0x12 | toptitle.lez (bar "Moto Racer / TOP 5") | (0,-80) | (0,0), 1.0 s, kind 1, at start |
+| 0x5048d0 | 0x14 | bestRace.lez ("Best RACE") | (-150,135) | (430,135), 0.7 s, kind 1 (later) |
+| 0x5048cc | 0x13 | bestlap.lez ("Best LAP") | (30,400) | — |
+| 0x5049b4 | 0x4d | continue.lez (single/practice) | (840,429) | (496,429), 0.7 s |
+| 0x504ba4 | 0xc9 | resetTA.lez (practice only) | (640,429) | (296,429), 0.7 s |
+| 0x5049c8 | 0x52 | BtNextRa.lez (championship) | (840,437) | (496,437), 0.7 s |
+| 0x5049c0 | 0x50 | BtAbort.lez (championship) | (640,437) | (296,437), 0.7 s |
+| 0x5049b8 | 0x4e | Btsave.lez (championship) | (640,437) | (150,437), 0.7 s |
+
+   Background: 0x504884 id 1 `paralax2.lez` (the green chequered tile, mode 4), scrolled
+   (−1, +1) a frame.
+5. Buttons:
+   - mode != 2 (practice 0 / single race 1): **0 Continue** (continue.lez, nb 0xffffff01:
+     Left → 1, no hotkey — Escape does nothing); **1 Reset** (resetTA.lez, nb 0xffff00ff:
+     Right → 0) only if mode == 0 and laps 0x4dc074 ≤ the track's default laps
+     (track record +0x12c).
+   - mode == 2 (championship): 0 Next race (BtNextRa, nb 0xffffff01) only if race 0x509ba8 <
+     race count 0x5083b4; then Abort (BtAbort, nb 0xffff0002, **Escape**); then Save
+     (Btsave, nb 0xffff01ff) only if 0x509ba8 < 0x5083b4. (So when the championship is over
+     Abort is button 0 — and button 0 then means "continue" in the frame: see exits.)
+6. New records: for i = 0..4, record i +9 == 'TINI' (0x494e4954, written by the race end
+   when the player enters the table) → bit i in 0x5401c4, the marker cleared (name empty).
+   If any: sound 0x5a if row 0 (first place) else 0x59 (voices). 0x4656c0(0x540230) loads
+   the best-lap record (bestscor.dat, magic "00.1"); if it returns 1 and its name (+9,
+   0x540239) is 'TINI': 0x540cb8 = 1, name cleared.
+7. 0x4e90c8 = 1 (page 6's Back then returns to 9 in a championship).
+
+#### Frame 0x44d540 [asm]
+1. Once toptitle's slide has ended (pic+0x10 == 0) and 0x542380 == 0: start the 0.7 s
+   slides of bestRace and the buttons (table above); 0x542380 = 1.
+2. 0x49b1c0(1), 0x49a160(0,0); step paralax2 (−1, 1) and draw.
+3. Draw toptitle, bestRace, bestlap (each stepped).
+4. Title: track name (track record +4, '_' → ' ') in font **31 DataDiskMenu**, SetColors(black
+   0x4f0dd8, yellow 0x4f0de8), at (toptitle.x + 450, toptitle.y + 56) (follows the bar's
+   slide), 0x493ee0 style 0.
+5. Options line: sprintf "%d %s " (laps, text[17] "Lap" if 1 else text[18] "Laps"), +
+   "Reverse" if 0x4dc068, + " " if Reverse and Pocket, + "Pocket" if 0x4dc078; uppercased;
+   font 31 with 0x490a30(255,255,0) and 0x490a60(0,139,89), slot 1 (1,0xff), at (33,103).
+   (Captured: "2 LAPS" yellow.)
+6. Blink counter 0x4e9114 = (0x4e9114 + 1) mod 5.
+7. Rows i = 0..4, y = 182 + 44 i, only if record +0xf5 != 0x7f7f7f7f:
+   ligne.lez (0x504a20 id 0x68, mode 3 in the table) at (30, y − 12); number<i+1>.lez
+   (0x504a00 + 4i, ids 0x60..) at (28, y − 14); name in font **12 Messages** at (110, y) —
+   for a new-record row: if the name is empty the cursor 0x540070 = 0, and the name is
+   shown as "%s_" while 0x4e9114 < 3 (3 frames of 5), else "%s"; time at (480, y) as
+   `%02d'%02d''%02d` = (s/60)%60, s%60, (ms%1000)/10 with s = ms/1000 (record +0xf1).
+8. Best lap (if 0x540325 != 0x7f7f7f7f): name (0x540239; "%s_" blinking when 0x540cb8 == 1)
+   in font **9 MenuLink** at (330, 400); time (0x540325) same format at (180, 400).
+9. 0x40c1f0 buttons, text list, 0x40c500, 0x49ad90, pointer, 0x49b0e0.
+10. **Name typing** (only in keyboard mode menu+4 == 0, Solo, a WM_CHAR in 0x51be90):
+    Backspace (8): cursor −1 (not below 0), the new rows' (and new best lap's) name[cursor] =
+    0. Return (0xd): if 0x5401c4: clear it and save (0x464b70); if 0x540cb8: clear it and
+    save the best lap (0x4658b0(0x540230)). Any other char while cursor < 3: upper-cased,
+    stored at name[cursor] of every new row (and the new best lap), name[cursor+1] = 0,
+    cursor += 1. Then 0x51be90 = 0. (The mouse moving puts the menu in mouse mode and
+    typing stops until a key is pressed.)
+11. Press (0x40c1b0):
+    - 0: clear, glass; mode != 2 → Solo: **ChangePage(6)** (Link: 8). Championship: if
+      0x4dc07c == 0 → 5 (Link 7), else 6 (Link 8) [0x4dc07c meaning not read: probably
+      "championship finished"; guess].
+    - 1: clear, glass; Solo: championship → **ChangePage(3)** (Abort); otherwise (the Reset
+      button) build `<prefix 0x4e8380><track dir>\timatak` + ("R" if Reverse else "_") +
+      ("_" if not Pocket; with Pocket the "P" goes to the wrong buffer 0x53f3c0, so nothing is
+      added — a bug of the original [asm]) + "<laps>.bin", delete it (0x4b5190), ChangePage(6).
+      (Link: 0x456380 message, 0x4e90b0 = 1, page 7.)
+    - 2: clear, glass, ChangePage(21) (championship Save).
+
+#### End 0x44d510 [decomp]
+If 0x5401c4 still set: save the table (0x464b70); if 0x540cb8: save the best lap
+(0x4658b0(0x540230)). So leaving with the name half typed saves it as typed.
+
+#### Globals
+Reads 0x4dbffc (Solo), 0x4dc094 (mode), 0x4dc08c/0x4dc088 (track), 0x4dc074 (laps),
+0x4dc068 (Reverse), 0x4dc078 (Pocket), 0x509ba8/0x5083b4 (championship race / count),
+0x4dc07c, 0x4dc1c4 (GP edition). Writes 0x4e90c8 = 1, the hi-score tables and
+bestscor.dat, deletes the timatak file. Nothing the next race reads.
+
+#### 4.12.6 Pages 20/21: championship Load / Save [decomp, medium]
+- **20 Load** (start 0x450600, frame 0x450800): CHTITRE.lez (id 0x73; CHTITREG 0x72 for
+  the GP edition) at (0,0), CHBARRE2 (0x75) at (129,158), CHLOADA/CHLOADB (0x76/0x77) at
+  (168,164), CHLIGNE1/2/3 (0x7a-0x7c) at (129,158)/(129,180)/(129,212), cancel.lez (0x47)
+  at (270,411) [decomp positions]; reads the first 0x1e bytes (the save's title)
+  of `%sData\Champ<n>.sav` for 8 slots into 0x5409c8 (0x20 each), lists them in font 12
+  (x 137, rows every 22 px up to y 374). Button 0 → glass, page 6; a slot → 0x429a00 reads
+  the save (a script) and, on success, page 6 (with the championship loaded). Reached from
+  page 6's Load button.
+- **21 Save** (start 0x450d20, frame 0x450f40): the same list; button 0 → page 9; buttons
+  1..9 → write `Data\Champ<i-1>.sav` ("w" mode): a title made of the player name 0x5161b0
+  and the current race's name (+ "P"/"R" flags, '_' → ' ') in 0x1e bytes, then the state;
+  then back to 9. Reached from page 9's Save (championship only).
+
+#### 4.12.7 Page 1: loading (frame 0x40b3f0; no start, no end routine)
+
+Page 1 has no start routine, so Menu_Frame calls its frame routine once with `0x504e74`
+still 1. That one call does all the work: it draws the loading screen once, tears the menu
+down, and loads the race. The program then blocks until the race is loaded. Nothing
+animates while it waits. [asm 0x40b3f0..0x40bbf9]
+
+**Pictures** (each is a new 0x74-byte picture object 0x43e7e0, kept in the shared scratch
+slots 0x4e90e8..0x4e90f8, freed at the end) [asm]:
+| slot | picture | placed at | drawn |
+|------|---------|-----------|-------|
+| 0x4e90e8 | `sprintf("%sload.lez", track.dir)` (0x4dbd88; track.dir = record +0x24 of the track table, e.g. `data\ile05\` → `data\ile05\load.lez`, in ILEnn.BKF), loaded by 0x43e7f0(path, 0). **In replay playback** (0x4e9830 != 0 and 0x542891[0] != 0) the path is the string at 0x542891 instead | as loaded (0,0), 640x480 | yes, mode 5 |
+| 0x4e90ec | id 0xaf `lodanim.lez` (lang 0) | (498, 381) align 0 | **never** (loaded and placed only; no reader draws it in this build [asm grep of 0x4e90ec]) |
+| 0x4e90f0 | id 0xb0 `loadtxt.lez` (lang 1, "Loading...", 235x34) | (0, 408) | yes, mode 5. Not created during replay playback with a name |
+| 0x4e90f8 | id 0xba `smallpok.lez`, only if Pocket 0x4dc078 | (4, 460) | only if `menu+0 == 0` |
+| 0x4e90f4 | id 0xb9 `smallrev.lez`, only if Reverse 0x4dc068 | (4, 470) | only if `menu+0 == 0` |
+
+The menu is still active at this point (`menu+0 == 1`, because Menu_Frame refuses to run
+otherwise), so the two "small pocket/reverse" badges are **never drawn** [asm 0x40b6d2,
+0x40b6fc: `cmp DWORD PTR [menu],0`]. The capture build/ref/orig_p1_loading_snowride.png
+shows the same thing: load.lez, a full-screen picture with the black strip, the vertical
+track name and the Moto Racer logo all part of the picture, and "Loading..." at the bottom
+left. No text objects and no fonts are used. No sound or CD call is made here: the music
+keeps playing until the race changes it.
+
+**Order** [asm]:
+1. The pictures are built as in the table above.
+2. Draw: 0x49a160(0,0) (frame begin; note there is no 0x49b1c0 before it). Then load.lez
+   and loadtxt (mode 5), then the two badges (skipped, see above). Then 0x49b0e0(0,0) and
+   **0x49b1c0 with argument 1** (`push 1`; present now). The screen stays like this while
+   the rest runs.
+3. Menu teardown, an inline copy of 0x409eb0: cursor = arrow (0x45a190(0x4dbf84)), clear
+   the text list 0x53b8e8, free the unpacked pixels of every picture, selected = -1,
+   0x504e78 = 0, mouse mode = 1, 0x504e74 = 1, the current page's end routine (page 1 has
+   none), and the D3D flags. Then **SetPage 0x409f70(menu, 0)** and, as in the quit page,
+   the end routine of every page whose started flag is set (started = 0). Then
+   **0x40b1f0(menu)**: menu+0 = 0, free the 3D meshes 0x504c70..0x504e70 and every menu
+   picture 0x504880..0x504bc4 (plus the GP-edition copies). Then `menu+0 = 0` once more.
+   From here App_OnIdle runs the race, not Menu_Frame.
+4. **Race parameter block** 0x542860 (0x139 bytes; it is also the header of `.Sav` replay
+   files, see 0x4579b0 / 0x457bf0):
+   - Not a replay (0x4e9830 == 0): the menu choices are saved into it: +0x08 track
+     0x4dc08c, +0x0c laps 0x4dc074, +0x10 mode 0x4dc094, +0x18 reverse 0x4dc068, +0x1c
+     pocket 0x4dc078, +0x20 transmission 0x4dc0a0, +0x28 player name (strcpy from
+     0x5161b0); +0x14 rider count = 0x4dbf78 if 0..24 (a start-up override set in
+     0x414080), else 23 (0x17), or 1 for practice (mode 0) [asm 0x40b924]. Then the whole
+     0x139 bytes are copied to 0x580830 (`rep movs` 0x4e dwords + 1 byte).
+   - Replay: the reverse. The menu globals and the name are restored from the block.
+5. Level script: script object 0x427d90; `sprintf("%sLevel.Spt", track.dir)` (0x4dbd60);
+   open with 0x4246a0(path, 1); parse with 0x427e80(0,0,0); close with 0x4246e0. **If the
+   parse fails, it returns at once**: the menu is gone and no race is loaded (an edge case;
+   the port can report the error instead).
+6. Race object: 0x52c0d4, or if 0 the static object 0x52c478 (vtable 0x4d04c8: slot 0
+   0x47bf30, 1 0x47b420 load, 2 0x47bf70, 3 0x47d620 unload, 5 0x47d660 Game_Frame).
+   0x401f90 frees the 0x2e texture pages at 0x4f92f8. 0x41e560 runs 0x41e4c0(i) for
+   i = 0..19 on 0x624afc (texture surfaces) [decomp, guess]. Cursor 0x4dbf88 (the second
+   cursor loaded at 0x45a0f8: the busy one [guess]). The display globals saved on the
+   menu's first entry are put back: 0x4dc0d4 = 0x504e80, **0x4dc0c8 (screen mode) =
+   0x504bc4**, 0x4dc028 = 0x50487c.
+7. **`race->vtable[1]` = 0x47b420(track 0x4dc08c, kind 0x4e9834)**, the whole race load:
+   - Two 0x4191a0 resets. If time attack (0x4dc148): 0x4136a0 loads the ghost
+     `<track.dir>timatak` + (`_` or `R` for reverse) + (`_` or `P` for pocket) + laps
+     digit + `.bin` (`%s%1d.bin`) into 0x581018.
+   - 0x4dc144 = reverse; 0x4dc140 = 1 if not reversed, else -1. Some counters are cleared.
+   - 0x4100f0. Then 0x410120: race state; 0x4dc08c = track; 4 cameras; 0x4dc0ac = solo;
+     0x4e9834 = kind.
+   - 0x410270 loads the track (`%sLevel.Spt` again). 0x410450 loads the bikes: the folder
+     table depends on pocket (0x51d068 normal, 0x51d0a8 pocket; the KTMPKT/SPEEDPKT
+     banks [guess]). 0x410590, 0x40d650 (the track's data), checkpoints counted into
+     0x4e9844. 0x410350 loads the horizon `%sBank\Horiz{Hi,Med,Low}.raw`. 0x410a10.
+   - **Rider count 0x542874**: Link = the number of network players (type 3 in
+     0x508048..); Solo practice = 1; Solo otherwise = 23, or **11 when the option
+     "OPPONENTS" 0x4dbfdc = 1 ("12")** [asm 0x47b542..0x47b5af]. This overrides step 4.
+   - 0x410a50 sets up the riders (the grid; 0x47bc60 applies the difficulty, see below).
+     0x410d70 "Init WAV samples...". Then 0x47b600, 0x410e10, 0x40faf0, 0x4020b0, 0x410ee0,
+     and 0x4100a0 "initRace" (whose result is the result of the load).
+8. **Load failed** (0): vtable[3] 0x47d620 unloads, the same inline teardown, then
+   **SetPage(3)**. The menu becomes active again with a full first-entry setup (§4.4.2.2),
+   and the player is back on the main menu.
+9. Either way: cursor = arrow; the five pictures are freed and their slots cleared.
+
+So the hand-over is: menu+0 = 0, page 0, all started flags 0, the menu's resources freed,
+and the race object loaded. App_OnIdle's next call goes to the race. **Timing:** a single
+frame; the picture shows for as long as the load takes (no minimum time) [asm: no timer].
+
+#### 4.12.8 The menu's choices the race reads
+
+| Address | Meaning | Set by (menu) | Read by (race) |
+|---------|---------|---------------|----------------|
+| 0x4dbffc | **1 = Solo, 0 = Link** | page 3 (Solo/Link), demo 0x409a30 | everywhere: 0x47b420 (rider count), 0x47bc60 (grid speeds), 0x410120 (0x4dc0ac), Game_Frame 0x47d660, race end 0x412a50, 0x4580f0 [asm] |
+| 0x4dc094 | **mode: 0 practice, 1 single race, 2 championship** (page 5 buttons 1..3 → 0..2 in Solo; in Link the two buttons give 0/1 [decomp]) | page 5 0x447710, 0x447920 (page 6), 8, 22 (Link), 0x455280 (load championship); default 1 (0x47bf30) | 0x47b420 (1 rider in practice), 0x412a50 (end of race per mode), 0x4580f0, 0x4587e0, HUD 0x47dae0/0x47e3d0 [asm] |
+| 0x4dc088 | pointer to the **track table**, records of 0x130 bytes: +0x04 name (e.g. `SNOW_RIDE`, 0x20 chars), +0x24 folder (`data\ile05\`), +0x128 available (1 = ON), +0x12c default laps. Built from `List*.bpt` (`IslandeList`, `NumberIslande` = count in **0x51d298**, `ReverseAvailable`, `PocketAvailable`; 0x428e69/0x4291f0). LIST.BPT holds 8 tracks: SPEED_BAY ile01 ON 4, SNOW_RIDE ile05 ON 2, ROCK_FOREST ile03 OFF 4, LOST_RUINS ile04 OFF 2, WEST_WAY ile02 ON 4, GREAT_WALL ile06 OFF 3, RED_CITY ile08 OFF 3, DIRT_ARENA ile09 ON 2 | start-up | page 1 (paths), 0x410270, 0x4136a0, 0x4580f0 (unlocks +0x128) |
+| 0x4dc08c | **track index** into that table | page 6 0x448110 (Left/Right, skipping unavailable tracks unless 0x4dc058) | page 1, 0x47b420 → 0x410120, 0x4136a0 [asm] |
+| 0x4dc074 | **laps**, 1..8 (page 6 -/+); reset to the track's +0x12c when the track changes | page 6; default 3 | race HUD/end 0x47e3d0, 0x483860, ghost file name; in the 0x542860 block |
+| 0x4dc068 | **Reverse** on (track run backwards) | main-menu switch (only when unlocked); page 5 resets it to 0 for championship | 0x47b420 via 0x542878 → 0x4dc144, 0x4dc140 = -1; ghost name `R` |
+| 0x4dc078 | **Pocket** on (pocket bikes) | main-menu switch; page 5 resets it for championship | 0x410450 (bike folders), 0x47bc60 (opponents' speed × 1/2.0 = 0.5 [asm 0x4dbfd8 = 2.0, 0x4d1908 = 1.0]), ghost name `P` |
+| 0x4dc0a0 | **transmission: 1 automatic, 0 manual** (page 10 buttons 4 auto / 5 manual) | page 10 0x44ed30; default 1 (0x47bf30, demo) | 0x411010, 0x45bf70 (gearbox), 0x484810 [decomp] |
+| 0x584499 | **bike** 0..7 of the local player (= player record 1, 0x581290 + 1×0x3209, field +0; the current player index is 0x4ea4c0). Bike table 0x50927c, 0x124 bytes a bike (4 ints = the features bars, +0x11c chooses voice 0x2b/0x2c) | page 10 (left/right; -1 → 0 on start) | 0x410a50, 0x410d70, 0x408b30/0x408f30, podium 0x452240 |
+| 0x584715 / 0x584899 / 0x584a1d | `(bike + 0x5420dc) & 7`, written by page 10's frame to three records (the colours of the other riders' bikes [guess]) | page 10 | the riders' set-up [guess] |
+| 0x4dc148 | **time attack** on (attackon/attackof, toggled on page 6) | page 6 only | 0x47b420 (loads the ghost), 0x412a50 (practice: saves the ghost when the run counts, 0x4138c0), HUD |
+| 0x4dc060 | **difficulty: 0 easy, 1 medium, 2 hard** (texts 25-28 "DIFFICULTY : EASY/MEDIUM/HARD", options page 11 0x443200 at y 100) | page 11; config 0x42b1c9; championship load 0x455280 | 0x47bc60: opponents' top speed × 0.9 / 1.0 / **1.05** in Solo (× 1.1 in Link) [asm 0x4d1928, 0x4d1930, 0x4d1940]; 0x47dae0: time bonus table 0x515fe0[diff] |
+| 0x4dbfdc | **opponents: 0 = "24" riders, 1 = "12"** (text 34 "OPPONENTS : ", strings 0x4e92e0/0x4e92e4) | page 11 (toggle at 0x444602); config | 0x47b420 (23 or 11 opponents) [asm] |
+| 0x4dc058 | **all tracks unlocked** (cheat name CDNALSI; the cheat table 0x4f1250 also has CESREVER → 0x4dc050, CTEKCOP → 0x4dc054) | name entry cheat | pages 6/8 (track choice), 0x447920 |
+| 0x4dc03c / 0x4dc040 (with 0x4dc054 / 0x4dc050) | Pocket / Reverse **unlocked** (show the main-menu switches) | 0x4580f0 after a championship race (from the championship table 0x508934, +0x2c / +0x28), the cheats | main menu |
+| 0x509ba8 | championship: index of the current race; 0x5083b4 = races in the championship; 0x508934 = championship table (0x50 a race; +0x30 the track to unlock) | page 5 resets it to 0 (championship); 0x4580f0 increments it | 0x4580f0, pages 6/9 |
+| 0x4e90c8 | "a championship is in progress / standings exist" | page 5 start (0), page 9 start | page 6 (Back → 9 instead of 5) |
+| 0x4dc07c | result of 0x4580f0: 1 = the championship goes on, 0 = finished | 0x4587e0 | page 9 (where its Back leads) |
+| 0x4dc1c4 | GP edition (titleGP, Grdprix pictures instead of champion) | start-up 0x414080 | menu pages only |
+| 0x4e9830 / 0x4e9834 | replay playback / race kind (0 normal, 1 a `.Sav` replay, 2 demo by track name) | demo 0x409a30, event 0x4587e0 | the race throughout; page 1 |
+| 0x542860.. | the race parameter / replay header (layout above), copy at 0x580830 | page 1 | 0x457bf0 (replay check), 0x47bc60, 0x410a50 (0x542874) |
+
+**Cross-check against the demo path** (0x457bf0, when no .Sav file but a track name
+matches): it sets exactly mode = 1, reverse = 0, pocket = 0, transmission (0x4dc0a0) = 1,
+bike 0x584499 = 0, laps = 3, riders 0x542874 = 23, track index, kind 0x4e9834 = 2,
+0x4ea4c0 = 1, and the name. The defaults in race-object slot 0 (0x47bf30) are the same
+(track 0, laps 3, reverse 0, pocket 0, auto, single race, bike 0). So, before going to
+page 1, a race needs: **0x4dbffc, 0x4dc094, 0x4dc08c, 0x4dc074, 0x4dc068, 0x4dc078,
+0x4dc0a0, 0x584499, the name 0x5161b0, plus the options 0x4dc060 and 0x4dbfdc, and 0x4dc148
+for time attack** [decomp, consistent with the asm of 0x40b8b9 and 0x47b420].
+
+**After the race** (the race asks for a page through the event flags 0x4e8918, which
+Menu_Frame step 3 hands to 0x4587e0; bit 4 = unload the race, then one page bit) [decomp,
+the flag values in the asm of 0x437602]: bit 0x100 → page 5, **0x200 → page 9** (the
+"TOP 5" results; build/ref/orig_after_race_top5.png, reached after QUIT RACE in a single
+race; its Continue goes to page 6), 0x400 → 6, 0x1000 → 7, 0x800 → 1 (restart: reload),
+0x2000 → 14 (the end of a demo), 0x4000 → 8, 0x8000000 → 24 (podium). In a **championship**,
+bits 0x200 and 0x8000000 call 0x4580f0 instead. It goes to page 9 (Solo) or 24 (Link, or
+0x587206 == 2). It then unlocks: Pocket → 0x4dc03c and page 17, Reverse → 0x4dc040 and page
+16, a track → its +0x128 = 1. It advances 0x509ba8, and after the last race goes to page 18
+(championship end). Each later 0x409eb0 call overrides the page, so the last unlock page
+wins. It returns "goes on" into 0x4dc07c. The race-end routine 0x412a50 itself only shows
+the in-race results (0x437b70) in Solo, or goes straight to page 24 in Link. In practice
+with time attack it saves the ghost.
+
+#### 4.12.9 Pages 7, 8, 22 (Link)
+
+None of them can be reached on the Solo path. Every 0x409eb0 that leads to them depends on
+Link: 5 → 7 only when 0x4dbffc == 0 [asm 0x4478f2]; 9 → 7/8 and 10 → 8 only when
+!solo [decomp]; 0x449560 → 7/8 is called only by page 7's frame and by the unreferenced
+0x444cd0 (dead code, no pointer to it in the image); 22 is reached only from 7 (0x44a35b);
+2 → 7 (network page).
+- **Page 7 (0x449100 / 0x449680 / 0x44a370): the network session list.** SS* pictures
+  (SSFOND1, SSSCROL1, SSBARRE*, SSFLECH* arrows, SSCURSE*, SSTITRE*), `session.lez`, the
+  buttons `newgame.lez` (create), `join.lez`, `Btupdate.lez` (refresh), `Btback.lez`. It
+  uses the DirectPlay object 0x50dbdc and CD track 3 (0x404990(3,3)). Exits: → 2 (back to
+  the connection page), → 22 (waiting), → 8 (lobby), → 26 (CD check).
+- **Page 8 (0x44a930 / 0x44aee0 / 0x44aeb0): the Link race lobby.** LK* pictures
+  (LKBARRE, LKFEATUR, LKAUTO/LKMANUEL, LKPOCON/OFF, LKREVON/OFF, LKLED, LKCOMPU, LKLOCK),
+  `smallmap.lez` of the chosen track, accept/cancel. The host sends track name
+  (0x456df0), mode/reverse/pocket/difficulty (0x456e50), laps (0x456eb0) to the others. →
+  1 (loading) when everybody is ready (or 0x51a414), → 7 on leaving.
+- **Page 22 (0x44a390 / 0x44a4f0 / 0x44a4e0): the network "please wait" page.** The
+  paralax2 tile, one text in font 9, a Back button (Escape), and 0x4569b0 polling the
+  session. → 7 (failed / back) or → 8 (joined).
+
+#### 4.12.10 What the port needs, in order
+
+Checked against port/src as it stands (menu.c, bitmap.c, font.c, text.c, script.c, r3d.c,
+main.c). Already there and enough: picture buttons with neighbours/hotkeys/blink, slides,
+tile scroll with any (dx, dy), pct_w drawing (the feature bars), the glass, the text list,
+fonts with SetColors, BPT scripts, 3DF+MAP models, the camera look-at.
+
+Pages in the order to write them, each with what it needs first:
+
+1. **Page 5/26** (SELECT MODE): nothing new but (a) the mode/settings globals and (b) the
+   delayed-sound call 0x404e10 (voice 0x54 after 600 ms) and CD track 3 — left to the sound
+   work, a no-op until then. Tile scrolled (−1, +1). Page 26 = the same functions (the port
+   never fails the CD check, so 26 is never reached; keep the row anyway).
+2. **The race settings** (one struct for §8's globals: solo, mode, track, laps, reverse,
+   pocket, time attack (initially 1), gearbox (1), bike (−1 = first visit → 0), difficulty,
+   opponents, name, championship race number, 0x4e90c8, 0x4dc058 cheat) with the defaults
+   of 0x47bf30 (track 0, laps 3, single race, automatic, bike 0).
+3. **The track list**: LIST.BPT / LIST01.BPT through script.c (ListName, PocketAvailable,
+   ReverseAvailable, NumberIslande, IslandeList: name, folder, ON/OFF, laps); the
+   championship lists CHAMPA/B/C(.01).BPT (NumberEntry, LevelList: name, reverse, pocket,
+   2 ints, unlock name), and helper 0x447920 (legal track; mode 2 → 1 when a championship
+   is over).
+4. **Menu core additions** (small): numpad −/+ in vk_of (SDLK_KP_MINUS → 0x6d,
+   SDLK_KP_PLUS → 0x6b); buttons rebuilt every frame without losing the selection or a
+   pending press (page 6 does 0x40bd40 + 0x40bef0 each frame; only the count is reset);
+   setting the selection from a page (page 10: selected = 2 after A-T/M-T); a page change
+   in the middle of a frame (page 6 goes on drawing after 0x409eb0); a typed-character
+   input (WM_CHAR → 0x51be90, SDL_TEXTINPUT) for page 9; text buttons (kind 1, 0x40bd60)
+   only for the Options page 11.
+5. **Page 6** (SELECT RACE / CHAMPIONSHIP): pictures outside the 209-entry table loaded by
+   path from the track's folder/bank (`data\ileNN\map.lez`, `photo.lez`; bitmap_load_lez
+   exists) and freed by the end routine; the two laps digits (num0..num9, ids 0x1e..0x27);
+   the one-frame "flash" pictures; the track-change slides (0.5 s; the change waits while
+   pictures move); effect 0x28 on a track change.
+6. **Page 9** (TOP 5): strings drawn directly (0x493ee0) in fonts 31, 12, 9 with
+   SetColors / 0x490a30 / 0x490a60; `Data\bestscor.dat` read and written (0x20-byte key
+   = track name + POC + REV + TRA<laps> in practice; one best-lap record and 8 race records
+   of 0xf9 bytes; name at +9, time ms at +0xf1); name typing with the blinking "_"; deleting
+   the time-attack ghost (Reset). **Decision for Danik**: the original writes
+   bestscor.dat, Champ<n>.sav and the timatak ghosts into the game's own data folder; the
+   port may prefer a user folder (as the config). The race-end insertion with the 'TINI'
+   marker is race code, not read yet: until then page 9 only shows the table.
+7. **Page 10** (CHOOSE BIKE), in two steps:
+   a. Everything 2D now: choosefo background, panel and title slides, the four bars eased
+      over 1000 ms (pct_w = 100 − Gfx value, from the carac*.spt bike tables: a small
+      reader for 4 ints + PersoAnim of the 8 bikes of the family), arrows (hotkeys Left/
+      Right, no wrap at 0 and 7), A-T/M-T blinking radio pair setting the gearbox, Start
+      (effect 0x2c road / 0x2b dirt then voice 0x58, waits their length in ms → page 1
+      **without** the glass), Back (Escape → 6 with the glass). The family comes from the
+      track's Level.Spt (and Pocket): MOTOSPD / PKTSPEED / MOTOKTM / PKTKTM.
+   b. **The 3D bike on the turntable** — the biggest missing piece, and the race needs it
+      too: the bike+rider object (0x45bf70 family: 3DF/MAP parts, .SKL/.PIV skeleton, .ROT
+      rider animation, the family's texture banks, skin index (bike + offset) & 7), its
+      drawer 0x45f290, the camera orbit 0x46dab0 (distance 1500, y +200 aim / +240 eye,
+      one turn per 10.24 s, dt capped 1000 ms), light (−0.5, −1, 0), the sideways whip
+      on a bike change. Until it exists page 10 can run without the bike.
+8. **Page 1** (loading): one frame — `<track dir>load.lez` full screen and loadtxt.lez at
+   (0,408) (lodanim and the two small badges are never shown by the original), present,
+   then the menu teardown (all started pages' end routines, menu inactive) and the race
+   load. Until the race exists: show the picture and end with a message, as unwritten
+   pages do.
+9. **Coming back from the race** (later, with the race): the race-end event flags (§8):
+   page 9 after a single race / practice (and in a championship through 0x4580f0), the
+   unlock pages 16/17/18 and the podium 24; re-entering the menu does the first-entry
+   set-up again.
+10. **Pages 20/21** (championship load/save, `Data\Champ<n>.sav`, 8 slots, font 12 list)
+    and **Options 11** (+12 controls, 13 info, 23 data disk) are off the shortest path to
+    a race and can come after; 11 is where difficulty and the opponents count are set.
+
+Nothing new is needed in the text-effect code for these pages (no TextList_Add on 5, 6,
+9, 10 or 1; page 9 draws its strings directly). The list widgets are only on 20/21 (a
+fixed list of 8 save names) and the network pages.
+
+#### 4.12.11 Captures of the original (build/ref/, 640x480, taken 2026-10-26)
+
+How: `tools/orig.sh start`, then keys and **mouse clicks both work** (xdotool
+`mousemove --window <win> X Y` then `click 1`; game coordinates = window coordinates).
+Keys sent in the first seconds of the logo are lost: wait ~5 s before Escape. The default
+name is confirmed by Return on page 15 (sometimes it needs a second Return). Careful: two
+helpers using `tools/orig.sh` at the same time share the Weston socket, the wine prefix and
+`wineserver -k`; one restarted the other's game here. A private instance (own copy of
+build/orig and the prefix, own Weston socket) avoided it.
+
+| file | what |
+|------|------|
+| orig_p3_main_link_hl.png | main menu, Link highlighted (pointer over it) |
+| orig_p3_to_p5_glass.png | glass transition 3 → 5, ~0.6 s in |
+| orig_p5_mode.png, orig_p5_mode_back.png | SELECT MODE settled (Championship / Back selected) |
+| orig_p5_mode_single_sel.png, orig_p5_mode_practice_sel.png | Single Race / Practice selected |
+| orig_p5_to_p6_glass.png, orig_p5_to_p6_champ_glass.png | glass 5 → 6 (Single; Championship, map and photo still sliding) |
+| orig_p6_track.png | SELECT RACE, Single Race, Speed Bay, 04 laps |
+| orig_p6_track_hover_right.png, orig_p6_hover_continue.png | right arrow / Continue hovered |
+| orig_p6_track_snowride.png | after the right arrow: Snow Ride, 02 laps |
+| orig_p6_practice_speedbay.png | Practice: laps −/+ and TIME ATTACK ON (stamp on the photo), 03 laps |
+| orig_p6_practice_ta_on.png, orig_p6_practice_ta_off.png | time attack on / off |
+| orig_p6_practice_laps5.png | laps 5 (> default 4): the time-attack switch gone |
+| orig_p6_championship.png, orig_p6_championship_next.png | CHAMPIONSHIP: Continue / Load / Back, no arrows |
+| orig_p6_after_race.png | page 6 again after TOP 5 → Continue |
+| orig_p6_to_p10_glass.png | glass 6 → 10 |
+| orig_p10_bike_a.png, orig_p10_bike_back.png, orig_p10_bike_b.png | CHOOSE BIKE (dirt bikes on Snow Ride), turntable, bars |
+| orig_p10_manual.png | M-T chosen |
+| orig_p10_champ_roadbike.png | road bike (Speed Bay) |
+| orig_p1_loading_snowride.png, orig_p1_loading_speedbay.png | page 1 |
+| orig_race_snowride_start.png, orig_race_speedbay_champ.png, orig_race_escmenu.png | race start, Escape menu |
+| orig_after_race_top5.png, orig_p9_top5.png | TOP 5 (Single Race) |
+| orig_p9_top5_champ.png | TOP 5 in a championship: Save / Abort / Next race |
+| orig_p11_options.png | OPTIONS |
+
+#### 4.12.12 In the port (2026-10-26)
+- `choices.c`: the globals of §4.12.8 with the program's initial values (Solo, Practice,
+  track 0, 3 laps, time attack on, automatic, difficulty and opponents from Config.Spt),
+  the track list (`tracks_load`, 0x428d60, at start-up) and the championship
+  (`champ_load`, 0x429a00: at start-up and on every main-menu start, champ<A+difficulty>),
+  `track_legal` (0x447920, which stops where it was called from, as the machine code does).
+  The program stops with a message when the lists cannot be read, as 0x472c40.
+- `page_mode.c` (5 and 26) and `page_track.c` (6). Page 6's presses are handled in the
+  middle of the frame (the flashes drawn over the buttons, ChangePage before the glass);
+  the frame's own redraw request 0x409bf0 (menu +0x30/+0x34) is not needed.
+- Numpad − and + are Windows' VK_SUBTRACT 0x6d / VK_ADD 0x6b.
+- Checked against the captures (tools/cmpshot.py, `OMR_TILE` for the tile's scroll, which
+  depends on how long the earlier pages ran): SELECT MODE with Championship highlighted;
+  SELECT RACE Single, Practice (03 laps, TIME ATTACK ON), Practice at 5 laps (the switch
+  gone), Snow Ride after the right arrow, CHAMPIONSHIP: every pixel the same but the
+  port's pointer. In tools/shots.sh.
+
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and

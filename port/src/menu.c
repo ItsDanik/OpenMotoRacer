@@ -36,9 +36,12 @@ static const struct {
 } pages[MENU_PAGES] = {
     [3] = { page_main_frame, page_main_start, 0, "main menu" },
     [4] = { page_quit_frame, 0, 0, "quit" },
+    [5] = { page_mode_frame, page_mode_start, 0, "select mode" },
+    [6] = { page_track_frame, page_track_start, page_track_end, "select race" },
     [14] = { page_title_frame, page_title_start, page_title_end, "title" },
     [15] = { page_name_frame, page_name_start, page_name_end, "name entry" },
     [25] = { page_logo_frame, page_logo_start, page_logo_end, "Delphine logo" },
+    [26] = { page_mode_frame, page_mode_start, 0, "select mode (26)" },
 };
 
 /* the game has routines for every page but 0 */

@@ -1,5 +1,6 @@
 /* OpenMotoRacer: Moto Racer (Delphine Software, 1997), its software renderer, written
    again in C from what the original program does (docs/NOTES.md). */
+#include "choices.h"
 #include "clock.h"
 #include "exe.h"
 #include "files.h"
@@ -29,9 +30,11 @@ static void usage(void)
          "test switches (environment):\n"
          "  OMR_PAGE=N         start on the menu page N (the game's numbers; 25 the logo)\n"
          "  OMR_INPUT=\"F:WHAT ...\"  at frame F: a key (return, escape, space, tab,\n"
-         "                     backspace, left, right, up, down, shift, a letter),\n"
+         "                     backspace, left, right, up, down, shift, minus, plus,\n"
+         "                     a letter),\n"
          "                     move:X,Y (the mouse), click (left button down and up),\n"
          "                     down, up (the left button alone)\n"
+         "  OMR_TILE=SX,SY     the menu's chequered tile scrolled so far at the start\n"
          "  OMR_TEXT=\"FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT\"  a text object on the\n"
          "                     first page (FORE, BACK: the game's colour numbers, -1 for\n"
          "                     the font's own)\n"
@@ -107,6 +110,8 @@ static int vk_of(SDL_Keycode k)
     case SDLK_DOWN: return VK_DOWN;
     case SDLK_INSERT: return VK_INSERT;
     case SDLK_KP_0: return 0x60;
+    case SDLK_KP_PLUS: return VK_ADD;
+    case SDLK_KP_MINUS: return VK_SUBTRACT;
     }
     return 0;
 }
@@ -118,6 +123,7 @@ static void scripted_input(const char *script, int frame)
         { "return", VK_RETURN }, { "escape", VK_ESCAPE }, { "space", VK_SPACE },
         { "tab", VK_TAB }, { "backspace", VK_BACK }, { "left", VK_LEFT },
         { "right", VK_RIGHT }, { "up", VK_UP }, { "down", VK_DOWN }, { "shift", VK_SHIFT },
+        { "minus", VK_SUBTRACT }, { "plus", VK_ADD },
     };
     const char *s = script;
     while (s && *s) {
@@ -188,6 +194,9 @@ int main(int argc, char **argv)
     if (!exe_load(err, sizeof err))
         fail(err, shot != 0);
     config_load();
+    /* the track list and the championship (0x472c40: the game stops without them) */
+    if (!tracks_load() || !champ_load())
+        fail("The track lists (data\\LIST.BPT, CHAMPA.BPT...) could not be read.", shot != 0);
     if (!font_init(err, sizeof err))
         fail(err, shot != 0);
     r3d_init();
@@ -204,6 +213,8 @@ int main(int argc, char **argv)
         fail(err, shot != 0);
     if ((env = getenv("OMR_TEXT")))
         test_text(env);
+    if ((env = getenv("OMR_TILE")))
+        sscanf(env, "%d,%d", &g_pics[0].sx, &g_pics[0].sy);
 
     for (frame = 0; !g_quit; frame++) {
         SDL_Event e;

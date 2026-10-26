@@ -8,6 +8,13 @@ void page_main_frame(void);     /* 0x442790 */
 
 void page_quit_frame(void);     /* 4: 0x40bc40 */
 
+void page_mode_start(void);     /* 5 and 26: SELECT MODE, 0x447250 */
+void page_mode_frame(void);     /* 0x447710 */
+
+void page_track_start(void);    /* 6: SELECT RACE / CHAMPIONSHIP, 0x447a30 */
+void page_track_frame(void);    /* 0x448110 */
+void page_track_end(void);      /* 0x4480d0 */
+
 void page_title_start(void);    /* 14: the title, 0x4465f0 */
 void page_title_frame(void);    /* 0x446b80 */
 void page_title_end(void);      /* 0x446b40 */

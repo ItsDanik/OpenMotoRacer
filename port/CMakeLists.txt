@@ -30,7 +30,7 @@ set(OMR_SOURCES
   src/rand.c
   src/sound.c
   src/obj3d.c
-  src/config.c
+  src/config.c src/choices.c src/page_mode.c src/page_track.c
   src/page_name.c
   src/script.c
   src/font.c

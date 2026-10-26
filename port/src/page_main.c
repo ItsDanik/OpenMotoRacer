@@ -2,11 +2,11 @@
    bar sliding down, Solo and Link sliding in from the sides, then Options and Exit
    rising from below; the Pocket and Reverse switches when the name-entry cheats have
    unlocked them. */
+#include "choices.h"
 #include "clock.h"
 #include "menu.h"
 #include "pages.h"
 #include "r3d.h"
-#include "script.h"
 #include "sound.h"
 
 #define PIC(id) (&g_pics[id])
@@ -21,14 +21,12 @@ static int g_rise_started;      /* 0x542380: Options and Exit are rising */
 static int g_voice_played;      /* 0x53f554 */
 static unsigned g_go_at;        /* 0x53f78c: the voice's end, -1 none */
 static int g_pocket_button, g_reverse_button;   /* 0x53f848, 0x53f4e8: -2 none */
-static int g_solo;              /* 0x4dbffc: 1 Solo, 0 Link */
 
 static int pocket_unlocked(void) { return g_pocket_unlocked || g_pocket_unlocked2; }
 static int reverse_unlocked(void) { return g_reverse_unlocked || g_reverse_unlocked2; }
 
 void page_main_start(void)
 {
-    Script champ;
     int y, next = 4;
     bitmap_place(PIC(P_TITLE), 0, -80, 0);
     bitmap_place(PIC(P_SOLO), -140, 116, 0);
@@ -60,11 +58,9 @@ void page_main_start(void)
         menu_add_button(PIC(P_REVERSE), PIC(P_REVERSE_HL), 0xffffffffu, -1, -1, 0, 0, 0, -1, -1, 0);
         g_reverse_button = next;
     }
-    /* the championship's script (Data\champA.spt for the difficulty 0x4dc060 = 0; champA01
-       when 0x4dc048 is set): when it opens, the music goes on and "make your choice" is
-       said after 600 ms */
-    if (script_open(&champ, "Data\\champA.spt")) {
-        script_close(&champ);
+    /* the championship of this difficulty (Data\champA.spt for easy, B, C): when it has
+       been read, the music goes on and "make your choice" is said after 600 ms */
+    if (champ_load()) {
         music_play(3, 3);
         sound_queue(1, 600, 0x57);
     }
