@@ -34,6 +34,9 @@ Every claim carries its address and its proof. Dead ends are written down too.
   (text lists of two demo runs: track name, 90000, a picture), `bestscor.dat`,
   `config.txt` (`-us`), `delphine.err` (the game's error log).
 - Music: `02.wav`–`13.wav` beside the program (the CD's audio tracks, through GOG's winmm).
+  They are the CD's tracks 2–13 sample for sample, the same length, shifted by 532 samples
+  (2128 bytes: a ripping offset). `tools/cdbin.py` cuts the CD image into `build/cd/NN.wav`
+  and `data.iso`.
 
 ## 3. Formats
 
@@ -116,3 +119,62 @@ by it (0x45d540 the player, 0x45e940 the others). So **one step a frame, of the 
 time**: the port runs a fixed step (1/60 s → 1.667) which is the original at a steady 60
 frames a second. `-frameratemax N` (0x4dc200) only waits in 0x459fd0 until 1000/N ms have
 passed; GOG's launcher passes `-FrameRateMax60`.
+
+### 4.3 The screen
+- **16-bit colour.** The software renderer draws RGB565 (wine's trace: the 640x480 surface,
+  pitch 1280, R 0xf800 G 0x07e0 B 0x1f); the game refuses a desktop that is not 16-bit
+  (0x45a7c2: `GetDisplayMode` bits != 16 → "16 bit screen mode required !"). LEZ palettes
+  and texture palettes become 16-bit colours through the shift globals 0x4ee9b8..0x4ee9cc.
+  So the port's framebuffer is 16-bit, not palette numbers.
+- Resolutions offered: 320*240, 512*384, 640*480 (0x443200).
+- Cdd (screen3d/dd.cpp): the DirectDraw object 0x5d922c, width 0x5d93bc, height 0x5d9c20,
+  bits 0x5d8944; the back surface 0x5d4320 locked by 0x476700 (address → 0x4eea14).
+
+### 4.4 The menu
+`Menu_Frame` 0x409c00 runs page `menu+0x3c` from the table at 0x4dbb38, 16 bytes a page:
+started flag, frame routine, start routine, end routine. Pages (from their strings):
+1 0x40b3f0 (loading, `%sload.lez`), 2 0x486a60 (network, DirectPlay), 3 0x442790
+(championship), 5/26 0x447710 ("PRESENTS"), 6 0x448110 (track choice: `%smap.lez`,
+`%sphoto.lez`), 7 0x449680, 8 0x44aee0 (`%ssmallmap.lez`), 9 0x44d540 (times, Reverse,
+Pocket), 10 0x44ed30, 11 0x443200 (screen sizes), 12 0x444f30, 13 0x4459d0 (3D card
+info), 14 0x446b80 (the title: `pages\titleMr` / `titleGP` 3D models), 15 0x487bb0
+(name entry, `menu\font3d`), 16-18 0x44fdb0/0x450080/0x450340, 19 0x488970, 20 0x450800
+and 21 0x450f40 (championship saves), 22 0x44a4f0, 23 0x4514e0, 24 0x452f80 (podium),
+25 0x453c50 (the Delphine logo intro, `pages\titleDsi`).
+
+### 4.5 3D models: 3DF + MAP
+Loader 0x4216a0 (and 0x420a50, its twin for the race). **3DF**: u16 version (1), u16
+vertex count, vertices as 3 floats each, multiplied by 96.0 (float 0x4d0690; Ghidra shows
+an int-to-float conversion, the machine code is `fld dword` — a decompiler trap), then
+faces: u16 point count n, u16 attribute, n u16 vertex numbers; a count of 0 ends the list.
+In memory a face is 0x40 bytes. **MAP**: 0x200-byte header (byte 1 bit 7 must be set:
+"version trop ancienne" otherwise), then 0x80 bytes a face in the 3DF's order: u16 kind
+(<3 untextured; 3 triangle, 4 quad: must equal the face's point count), texture (u,v) as
+ints at (+0x22,+0x32) (+0x26,+0x36) (+0x2a,+0x3a) (+0x2e,+0x3e), flags u32 at +0x48 (low
+16 bits: the texture page; 0x10000, 0x20000, 0x40000 ... 0x400000 set the face's drawing
+kind), u16 colour at +0x4e (RGB565). After the faces an `ANI!` block (animation).
+
+### 4.6 Ghidra and MSVC
+Routines with C++ exception handling set up their frame, end the prologue with a `nop`,
+and Ghidra starts a second function after it: 81 such pairs, found by `tools/splits.py`
+and joined by `JoinFunc.java` (now a step of `rebuild.sh`). Catch blocks stay separate
+small functions (they call 0x4c4f71). No RTTI for the game's own classes:
+`tools/vtables.py` lists the virtual tables and who installs them.
+
+## 5. Running the original (for checking)
+`tools/orig.sh start|shot|stop`: a private copy in `build/orig`, a private wine prefix
+`build/wineprefix`, a hidden X display :57. `tools/win/memtool.c` (MinGW, run under wine)
+reads and writes the running game's memory (`/proc/<pid>/mem` is closed by the kernel's
+ptrace rule; wine's ReadProcessMemory works). `tools/origshot.sh` copies the back surface
+out of memory. `tools/patch_orig.py` patches the private copy only.
+**Not working yet** (2026-10-26). The game starts, runs its menu (the menu pointer is set
+and the pause flag 0x4dbff4 is clear) and blits 640x480 RGB565 pictures, but nothing ever
+reaches the hidden display:
+- 24-bit display, windowed: "16 bit screen mode required !".
+- 16-bit Xvfb, windowed or full screen, with wine's ddraw (OpenGL or GDI renderer): black.
+- Depth test patched out, full screen on a 24-bit display: "Cannot initialise screen mode"
+  (Xvfb cannot change mode); the same inside `explorer /desktop`.
+- GOG's dgVoodoo DDraw.dll (`WINEDLLOVERRIDES=ddraw,d3dimm=n,b`): black, and 0x4eea14 stays 0.
+- The back surface read from memory (0x4eea14) in the plain-ddraw run: all black.
+Next to try: the real display (Danik's permission), or Proton/DXVK with dgVoodoo, or
+reading the menu's state to see whether it waits for something (the CD's audio?).

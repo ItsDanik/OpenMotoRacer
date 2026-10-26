@@ -39,7 +39,7 @@ format question stalls, find the code that reads the field.**
 - Engine name **OpenMotoRacer** (`~/openmotoracer`); MiSTer id `MotoRacer`.
 - **The player provides the GOG copy as installed** (`Moto Racer/`: `game.EXE`, `data/`,
   the music `02.wav`–`13.wav`), **and the original 1997 CD is to be supported too** (its
-  files not here yet: they go in `Moto Racer CD/`, never committed). The port reads the
+  image in `CD/`, its files extracted to `Moto Racer CD/`, neither committed). The port reads the
   game's tables from the player's `game.EXE`, each known build by its hash.
 - **Scope: the software renderer, one or two players on one PC.** No Direct3D renderer, no
   network or modem play (DirectPlay).
@@ -75,9 +75,18 @@ launcher (Delphi): it writes `motoracer.ini` and starts `game.EXE`.
 |-----|------|--------|
 | .BKF | bank: u32 count, 0x2c-byte records (name[0x24], offset, size), files | `tools/bkf.py`, all 28 unpack |
 | .RAW | Image Alchemy "mhwanh" picture (BE header, palette, 8-bit pixels) | `tools/raw.py` |
-| .LEZ | compressed picture, magic `LEZ1` | to do (decoder in the EXE) |
-| .BPT | settings/lists; enciphered in `data/`, plain inside banks | to do |
-| .3DF .MAP .ROT .SKL .PIV | meshes, mappings, animations, skeletons | to do |
+| .LEZ | packed 8-bit TGA (`LEZ1`, LZ with 10-bit distances) | `tools/lez.py`, all 755 |
+| .BPT | the .Spt scripts as tokens, XOR with Park-Miller from 0x1a2b3c4d | `tools/bpt.py`, all |
+| .3DF .MAP | model (float vertices x96, faces) + per-face texture mapping | read from 0x4216a0, NOTES §4.5 |
+| .ROT .SKL .PIV | animations, skeletons | to do |
 | .trk | track (`TRK\0`, floats), `data/ileNN/` | to do |
 | .WAV | sound effects in SFX.BKF (headerless?) | to do |
 | .dem | demo list (text: track, time, picture) | read |
+| data.z | the CD's InstallShield 3 archive (files stored) | `tools/is3.py` |
+
+## How the game works (the summary; NOTES §4)
+- MFC app; `App_OnIdle` 0x415960 is the frame: the menu (page table 0x4dbb38) or the race
+  (`Game_Frame` 0x47d660). One step a frame of the measured time (ms x 0.1, at most 200 ms):
+  the port runs fixed 1/60 s steps.
+- The picture is **16-bit RGB565** (320x240, 512x384, 640x480).
+- Running the original: `tools/orig.sh`, `tools/win/memtool.c` (NOTES §5; no picture yet).

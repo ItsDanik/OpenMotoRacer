@@ -50,4 +50,10 @@ echo "seed";      $G $P -process "$PROG" -scriptPath tools -postScript SeedFuncs
 echo "rename";    $G $P -process "$PROG" -noanalysis -scriptPath tools \
     -postScript RenameFuncs.java tools/names.txt > build/logs/rename.log 2>&1
 echo "decompile"; decompile
+python3 -I tools/splits.py build/${NAME}_flat.bin build/decomp/INDEX.txt > build/joins.txt
+if [ -s build/joins.txt ]; then
+    echo "join $(wc -l < build/joins.txt)"; $G $P -process "$PROG" -noanalysis -scriptPath tools \
+        -postScript JoinFunc.java $(cat build/joins.txt) > build/logs/join.log 2>&1
+    echo "decompile"; decompile
+fi
 echo "done: $(wc -l < build/decomp/INDEX.txt) functions"
