@@ -251,7 +251,7 @@ int land_load(int track, char *err, int errsize)
     char spt[0x120], land[64], name[64], path[0x180];
     unsigned char *d;
     long len;
-    int i, ok;
+    int i, k, ok;
     land_free();
     if (track < 0 || track >= g_ntracks) {
         snprintf(err, (size_t)errsize, "No track %d.", track);
@@ -269,7 +269,9 @@ int land_load(int track, char *err, int errsize)
     for (i = 0; i < LEVEL_BANKS && !s.bad; i++) {
         script_str(&s, name, sizeof name);
         script_str(&s, path, sizeof path);
-        script_int(&s);
+        k = script_int(&s);                     /* 0x51d168 + i x 4 */
+        if (i == 1)
+            g_land.bank1_rgb = (k & 4) != 0;
         if (i >= 2 && !s.bad) {                 /* 0, 1: the bikes' (0x518b20, 0x518b60) */
             snprintf(path, sizeof path, "%s%s", g_tracks[track].folder, name);
             if (!r3d_load_page(i, path))

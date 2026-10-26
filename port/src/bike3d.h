@@ -11,7 +11,8 @@ typedef struct {                /* a rider's bike, the fields the drawer reads (
     int sec;                    /* +0x31c1: its section */
 } Rider;
 
-int bike3d_load(void);          /* the banks (pages 0, 1), the skeleton, the pose, wheels */
+/* the banks (pages 0, 1), the skeleton, the pose, wheels; rgb1: page 1 read in RGB */
+int bike3d_load(int rgb1);
 void bike3d_free(void);
 /* page 10's camera (0x46dab0, 0x46e140): round the bike at angle theta, looking at target */
 void bike3d_menu_camera(float theta, const float target[3]);

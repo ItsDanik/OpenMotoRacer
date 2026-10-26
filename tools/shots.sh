@@ -78,3 +78,7 @@ OMR_WAV=build/shots/o.wav run datadisk_next 3 800 "$INO 400:move:330,435 410:cli
 # stand-in camera (the game's chase camera is not written yet)
 export OMR_HOME=$PWD/build/shots/home
 run race_grid 5 440 "80:move:320,250 90:click 200:move:630,10 210:right 260:return 330:move:630,10 420:return"
+# straight into the race (page 1): Speed Bay with the road bikes (the far models' page 1),
+# Snow Ride reversed
+OMR_CHOICES="1,0,3,0,0" run race_speedbay 1 260
+OMR_CHOICES="1,1,3,1,0" run race_reverse 1 260

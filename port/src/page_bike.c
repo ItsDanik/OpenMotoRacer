@@ -88,7 +88,7 @@ void page_bike_start(void)
         fprintf(stderr, "openmotoracer: the bikes of %s could not be read\n",
                 g_tracks[g_track].name);
     g_bike = bike;
-    if (!bike3d_load())
+    if (!bike3d_load(g_bikes[0].perso == 1))
         fprintf(stderr, "openmotoracer: the 3D bike of %s could not be read\n",
                 g_tracks[g_track].name);
     g_turn = 0.0f;              /* the camera's angles (0, 0, 0), 1500 away */

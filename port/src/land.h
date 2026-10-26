@@ -40,6 +40,7 @@ typedef struct {
     Decor *decor;
     int horizon_offset;         /* 0x4db2b0 */
     float horizon_scale;        /* 0x4db2b4 */
+    int bank1_rgb;              /* bank 1's number & 4 (0x51d16c): the bikes' page 1 in RGB */
 } Land;
 
 extern Land g_land;

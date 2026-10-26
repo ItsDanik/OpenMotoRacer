@@ -272,13 +272,14 @@ void bike3d_free(void)
     g_loaded = 0;
 }
 
-int bike3d_load(void)
+int bike3d_load(int rgb1)
 {
-    int i, dirt = g_bikes[0].perso == 1;           /* the flag of 0x401d90 and 0x420a50 */
+    int i, dirt = g_bikes[0].perso == 1;           /* the flag of 0x420a50 */
     bike3d_free();
-    /* 0x401d90: bank 0 paletted (the liveries), bank 1 in RGB for the dirt bikes; a road
-       family's bank 1 (24 bits, 256x256, flag 0) is not read */
-    if (!r3d_load_page_pal(0, g_fam.bank[0]) || (dirt && !r3d_load_page(1, g_fam.bank[1]))
+    /* 0x401d90: bank 0 paletted (the liveries), bank 1 in RGB when the flag says so (page
+       10: the dirt bikes; the race: Level.Spt's bank 1); a road family's bank 1 (24 bits,
+       256x256) with the flag 0 is not read */
+    if (!r3d_load_page_pal(0, g_fam.bank[0]) || (rgb1 && !r3d_load_page(1, g_fam.bank[1]))
         || !skl_load(g_fam.skl[0]) || g_fam.nrot < 5 || !rot_load(g_fam.rot[4])
         || !wheel_load(&g_wheel[0], FM_REAR, dirt) || !wheel_load(&g_wheel[1], FM_FRONT, dirt)) {
         bike3d_free();

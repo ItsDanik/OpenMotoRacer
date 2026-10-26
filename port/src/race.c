@@ -33,7 +33,7 @@ static int wrap(int s)
     return s;
 }
 
-/* 0x46d610 [guess: a x b] */
+/* 0x46d610: a x b */
 static void cross(float o[3], const float a[3], const float b[3])
 {
     float r[3];
@@ -47,8 +47,8 @@ static void unit(float v[3])    /* 0x40fcd0 */
 {
     float l = (float)sqrt((double)v[0] * v[0] + (double)v[1] * v[1] + (double)v[2] * v[2]);
     if (l != 0.0f) {
-        float k = 1.0f / l;
-        v[0] *= k, v[1] *= k, v[2] *= k;
+        double k = 1.0 / l;     /* kept at the FPU's width */
+        v[0] = (float)(v[0] * k), v[1] = (float)(v[1] * k), v[2] = (float)(v[2] * k);
     }
 }
 
@@ -81,15 +81,15 @@ static void grid(void)
         if (!g_reverse) {
             memcpy(r->m, sc->axes, sizeof r->m);
             memset(r->t, 0, sizeof r->t);
-        } else {                /* facing back along the road [guess for the signs] */
+        } else {                /* facing back: z = T - axes[2] (T is 0), x = up x z, y = z x x */
             static const float up[3] = { 0.0f, 1.0f, 0.0f };
             float z[3], x[3], y[3];
             for (i = 0; i < 3; i++)
                 z[i] = -sc->axes[2][i];
             unit(z);
             cross(x, up, z);
-            unit(x);
             cross(y, z, x);
+            unit(x);
             unit(y);
             memcpy(r->m[0], x, sizeof x);
             memcpy(r->m[1], y, sizeof y);
@@ -106,7 +106,7 @@ int race_load(char *err, int errsize)
     int k, opponents;
     if (!land_load(g_track, err, errsize))
         return 0;
-    if (!bikes_load(g_track) || !bike3d_load()) {
+    if (!bikes_load(g_track) || !bike3d_load(g_land.bank1_rgb)) {
         snprintf(err, (size_t)errsize, "The bikes of %s could not be read.",
                  g_tracks[g_track].name);
         land_free();

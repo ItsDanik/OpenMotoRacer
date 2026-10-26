@@ -5218,6 +5218,12 @@ The race object 0x52c478 (vtable 0x4d04c8): +0 0x47bf30 defaults, +4 **0x47b420 
   by 0x40c7e0 from +0x31c1 into +0x31c1 and +0x31bd; copies of the point at +0x2df5..
   +0x2e19; +0x198 = M row 2 + T [asm 0x45c7c0].
 
+- The bikes' pages in a race (0x410590): page 0 = FileBnk0 with the flag 0 (paletted, the
+  liveries), page 1 = FileBnk1 with the flag **(Level.Spt bank 1's number & 4) >> 2**
+  (0x51d16c; 5 on every track, so 1: read in RGB), not the dirt flag page 10 uses. A road
+  family's page 1 thus holds its picture in a race; one face of the medium model uses it.
+  (Level.Spt's own bank 0 and 1 names are not loaded.) [asm 0x4105c4, 0x4106e1]
+
 #### 4.16.2 The grid (0x47bf70, Solo) [asm 0x47c0ca..0x47c4cc]
 - dir = 0x4dc140 (1, or -1 reversed). s = wrap(dir x 0x509bac x 3) (0x40ec30 brings a
   section number into 0 .. count - 1); reversed: s = wrap(s - 3 dir).
@@ -5227,8 +5233,10 @@ The race object 0x52c478 (vtable 0x4d04c8): +0 0x47bf30 defaults, +4 **0x47b420 
   not practice: p += off x axes[0] + offset, off = +128 for even k, -128 for odd (an
   int through fild). The two plane distances 0x4b10c0 computed there are thrown away.
 - 0x45bdf0 clears the rider's state. Not reversed: +0xbc..+0xe8 = the section's 12
-  floats from +0xc (axes, offset). Reversed: a frame built from offset - axes[2],
-  (0, 1, 0) and two cross products (0x4570d0, 0x46d610) [the signs not read yet].
+  floats from +0xc (axes, offset). Reversed: z = offset - axes[2] (0x4570d0 is a - b;
+  the offset is 0, so -axes[2]) made unit, x = (0, 1, 0) x z and y = z x x (0x46d610 is
+  a x b, (out, a, b)), then x and y made unit; rows +0xbc x, +0xc8 y, +0xd4 z; +0xe0 = 0
+  [asm 0x47c28e..0x47c3ff].
 - 0x45c7c0(rec, p); +0x31c1 = s; +0x2f7d = +0x2f81 = 0.
 
 #### 4.16.3 In the port

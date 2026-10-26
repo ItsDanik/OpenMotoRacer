@@ -1295,7 +1295,7 @@ static void face(const Entry *e)
             && kind != 0x27) {
             static int told;
             if (!told++)
-                fprintf(stderr, "openmotoracer: 3D face kind %d is not written yet\n", kind);
+                fprintf(stderr, "openmotoracer: 3D face kind %d is not written yet (page %d)\n", kind, f->page);
             return;
         }
         tex = f->page >= 0 && f->page < R3D_PAGES ? g_texpage[f->page] : 0;
