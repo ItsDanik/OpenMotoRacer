@@ -66,6 +66,7 @@ extern int g_quit;                                  /* page 4 asked the program 
 
 int menu_start(int page, char *err, int errsize);   /* 0x472c40's part: the first page */
 void menu_frame(void);                              /* Menu_Frame 0x409c00 */
+void menu_leave(void);          /* the race takes over; menu_change_page comes back */
 void menu_change_page(int page);                    /* 0x409eb0 */
 void menu_capture(void);                            /* 0x40c4a0: the glass transition */
 

@@ -54,7 +54,8 @@ float model_fit(Model *m, float size);          /* 0x47a960: largest half extent
 void model_rescale(Model *m, float s);          /* 0x47abd0: centred again, times s */
 
 void r3d_camera(const float pos[3], const float target[3]);  /* 0x46e140 */
-void r3d_camera_pos(const float pos[3]);        /* the block's +0x98 alone, not looked again */
+void r3d_camera_pos(const float pos[3]);
+void r3d_get_camera(float c[3][3], float pos[3]);       /* the camera block's +0x68, +0x98 */        /* the block's +0x98 alone, not looked again */
 void r3d_begin(void);                           /* 0x49a160: empties the lists */
 /* 0x48c030: a model at an angle (a, b, c: radians) and a place, through the camera */
 void r3d_object(const Model *m, const float ang[3], const float pos[3]);

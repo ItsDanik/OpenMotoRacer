@@ -35,6 +35,7 @@ static struct {
     Bone b[BONES];              /* slot n holds the extra faces (the rider's joints) */
 } g_skl;
 static Model g_wheel[2];        /* rear 0x52c240, front 0x51ac58 */
+static Model g_lod[3];          /* medium, low, very low: 0x53a788, 0x53a7f8, 0x53a868 */
 static int g_loaded;
 
 /* ---------------------------------------------------------------- reading */
@@ -260,9 +261,12 @@ static int wheel_load(Model *m, int which, int dirt)
 
 void bike3d_free(void)
 {
+    int i;
     skl_free();
     model_free(&g_wheel[0]);
     model_free(&g_wheel[1]);
+    for (i = 0; i < 3; i++)
+        model_free(&g_lod[i]);
     r3d_free_page(0);
     r3d_free_page(1);
     g_loaded = 0;
@@ -270,7 +274,7 @@ void bike3d_free(void)
 
 int bike3d_load(void)
 {
-    int dirt = g_bikes[0].perso == 1;           /* the flag of 0x401d90 and 0x420a50 */
+    int i, dirt = g_bikes[0].perso == 1;           /* the flag of 0x401d90 and 0x420a50 */
     bike3d_free();
     /* 0x401d90: bank 0 paletted (the liveries), bank 1 in RGB for the dirt bikes; a road
        family's bank 1 (24 bits, 256x256, flag 0) is not read */
@@ -279,6 +283,15 @@ int bike3d_load(void)
         || !wheel_load(&g_wheel[0], FM_REAR, dirt) || !wheel_load(&g_wheel[1], FM_FRONT, dirt)) {
         bike3d_free();
         return 0;
+    }
+    /* 0x413450: the three far models, x 0.95 (0x4204b0) */
+    for (i = 0; i < 3; i++) {
+        if (!model_load_bike(&g_lod[i], g_fam.model[FM_MEDIUM + i][0],
+                             g_fam.model[FM_MEDIUM + i][1], dirt)) {
+            bike3d_free();
+            return 0;
+        }
+        model_scale(&g_lod[i], 0.95f, 0.95f, 0.95f);
     }
     g_loaded = 1;
     return 1;
@@ -434,6 +447,21 @@ static float carac(int bike, int off)           /* the bike's float at +off */
     return g_bikes[bike].phys[(off - 0x14) / 4];
 }
 
+/* 0x45c7c0(obj, x, y, z): the body there, and the wheels' ground points under the bike's
+   matrix: rear (0, c40 x -96, c38 x -48), front (0, c3c x -96, c38 x 48) */
+void bike3d_place(Rider *r, const float p[3])
+{
+    V v, w;
+    int bike = r->bike >= 0 && r->bike < BIKES ? r->bike : 0;
+    memcpy(r->pos, p, sizeof r->pos);
+    v[0] = 0.0f, v[1] = carac(bike, 0x40) * -96.0f, v[2] = carac(bike, 0x38) * -48.0f;
+    vm(w, v, (const float (*)[3])r->m, r->t);
+    add(r->rear, r->pos, w);
+    v[1] = carac(bike, 0x3c) * -96.0f, v[2] = carac(bike, 0x38) * 48.0f;
+    vm(w, v, (const float (*)[3])r->m, r->t);
+    add(r->front, r->pos, w);
+}
+
 static M g_bm[BONES];           /* each bone's matrix (+0x18) */
 static V g_bt[BONES];
 static int g_made[BONES];
@@ -495,7 +523,37 @@ static void part(const M r, const V pos, int i, int *base)
         *base = -1;
 }
 
+/* 0x45f290 at detail 2-4: one model on the rear wheel's ground point, its radius up */
+static void draw_far(const Rider *rd, int lod)
+{
+    const Model *m = &g_lod[lod - 2];
+    M a, b, mm1;
+    V v, t;
+    float n[3][3], tt[3];
+    int base;
+    rmat(a, 0.0, 1.5707963267948966, 0.0);
+    rmat(b, 0.0, 0.0, -0.0);
+    mm(mm1, (const float (*)[3])a, (const float (*)[3])b);
+    mm(mm1, (const float (*)[3])mm1, (const float (*)[3])rd->m);
+    v[0] = 0.0f, v[1] = carac(rd->bike, 0x40) * 96.0f, v[2] = 0.0f;
+    vm(t, v, (const float (*)[3])mm1, rd->rear);
+    r3d_place(n, tt, (const float (*)[3])mm1, t);
+    if ((base = r3d_points(m->nv, (const float (*)[3])m->v, (const float (*)[3])n, tt)) >= 0)
+        r3d_faces(base, m->nf, m->f, rd->skin);
+}
+
 void bike3d_draw(int bike, int skin)
+{
+    static const float zero[3];
+    Rider r;
+    memset(&r, 0, sizeof r);
+    r.bike = bike, r.skin = skin;
+    rmat(r.m, 0.0, 0.0, 0.0);           /* (0x40a710: built from COS[0] and COS[0x3000]) */
+    bike3d_place(&r, zero);
+    bike3d_draw_rider(&r, 0);
+}
+
+void bike3d_draw_rider(const Rider *rd, int lod)
 {
     static const V zero;
     M B, L298, Mframe, Mfront, Mrear, Msteer, Rphi, swing, Pinv, r;
@@ -504,18 +562,18 @@ void bike3d_draw(int bike, int skin)
     const Bone *b = g_skl.b;
     float c38, c3c, c40, c58, c6c, y1, h, ln, reach, q, phi;
     double cr[3], ka, th3;
-    int i, base = -2;
+    int i, base = -2, bike = rd->bike, skin = rd->skin;
     if (!g_loaded || bike < 0 || bike >= BIKES)
         return;
+    if (lod >= 2 && lod <= 4) {
+        draw_far(rd, lod);
+        return;
+    }
     c38 = carac(bike, 0x38), c3c = carac(bike, 0x3c), c40 = carac(bike, 0x40);
     c58 = carac(bike, 0x58), c6c = carac(bike, 0x6c);
-
-    /* 0x45c7c0(obj, 0, 0, 0): the wheels' ground points under the bike's matrix */
-    rmat(B, 0.0, 0.0, 0.0);
-    v[0] = 0.0f, v[1] = c40 * -96.0f, v[2] = c38 * -48.0f;
-    vm(rear, v, (const float (*)[3])B, zero);
-    v[0] = 0.0f, v[1] = c3c * -96.0f, v[2] = c38 * 48.0f;
-    vm(front0, v, (const float (*)[3])B, zero);
+    memcpy(B, rd->m, sizeof B);                 /* +0x2e55 = +0xbc */
+    memcpy(rear, rd->rear, sizeof rear);        /* +0x338, +0x1b4 */
+    memcpy(front0, rd->front, sizeof front0);
 
     /* steps 2-4 with the lean, pitch, steering and spins at 0 */
     rmat(r, 0.0, 0.0, -0.0);

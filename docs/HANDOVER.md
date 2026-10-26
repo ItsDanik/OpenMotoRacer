@@ -74,6 +74,10 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   reference): skeleton, pose, wheels, the liveries' palettes, the drawer's menu part.
   Equal to the original's captures (dirt: 8 edge pixels; road: all). `OMR_TURN` holds the
   turntable for such checks.
+- The race starts: page 1 loads it (track, bikes, 24 riders on the grid as 0x47bf70
+  places them) and draws it from a stand-in camera; Escape goes back. Three helpers are
+  mapping the physics/controls (build/notes/bike_physics.md), the camera/HUD/drawing
+  (race_view.md) and the rules (race_rules.md).
 - The tracker shows Claude's messages at its bottom ("From Claude", the `messages` dataset)
   and Danik writes from it (comments sent to Claude): keep it watched.
 

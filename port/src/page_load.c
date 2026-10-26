@@ -2,22 +2,20 @@
    and "Loading...", drawn once while the menu is still up; the original then takes the
    menu down and loads the race, and each step of the load draws the screen again
    (0x4470d0) with the Moto Racer logo on every other step and the Pocket and Reverse
-   badges (NOTES §4.12.10). The race is not written yet: the port draws the first step,
-   shows it for a moment and goes back to the main menu, as the original does when the
-   race fails to load. */
+   badges (NOTES §4.12.10). Then the race takes over (race.c); if it cannot be loaded,
+   the main menu comes back, as in the original. */
 #include "choices.h"
 #include "clock.h"
 #include "menu.h"
 #include "pages.h"
+#include "race.h"
 #include <stdio.h>
 
 enum { P_LOGO = 0xaf, P_LOADING = 0xb0, P_REVERSE = 0xb9, P_POCKET = 0xba };
-#define SHOWN_MS 2000
 
 static Bitmap g_load;           /* 0x4e90e8 */
 static int g_logo = 1;          /* 0x4e90fc: the logo is shown on this step */
 static int g_step;
-static unsigned g_since;
 
 /* 0x4470d0, a step of the race's load */
 void loading_progress(void)
@@ -56,16 +54,17 @@ void page_load_frame(void)
         return;
     }
     if (g_step == 1) {
+        char err[256];
         /* the menu goes, the race's load begins */
         loading_progress();
-        g_since = g_now;
-        g_step = 2;
-        return;
-    }
-    if (g_now - g_since >= SHOWN_MS) {
-        fprintf(stderr, "openmotoracer: the race is not written yet\n");
-        bitmap_free(&g_load);
         g_step = 0;
-        menu_change_page(3);
+        if (!race_load(err, sizeof err)) {
+            fprintf(stderr, "openmotoracer: %s\n", err);
+            bitmap_free(&g_load);
+            menu_change_page(3);
+            return;
+        }
+        bitmap_free(&g_load);
+        menu_leave();
     }
 }

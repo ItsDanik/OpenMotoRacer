@@ -5196,6 +5196,51 @@ above), the LOD models, lighting and the shadow.
 - The angle-to-index constant is the game's double 2607.594587618272 (0x4d0300,
   0x4d1bf8, 0x4d00d0), not 16384/2π computed (2607.5945876176133); corrected everywhere.
 
+### 4.16 The race: load, grid, frame (mapped 2026-10-26, in progress)
+
+The race object 0x52c478 (vtable 0x4d04c8): +0 0x47bf30 defaults, +4 **0x47b420 load**,
++8 **0x47bf70 start** (the grid, every rider's state), +0xc 0x47d620 unload, +0x10
+0x47ec40 (the frame's time), +0x14 **0x47d660 Game_Frame**, +0x18 **0x47ecd0 the step**
+(dt 0x4e9808), +0x1c 0x47ec50, +0x20 **0x47ff90 the drawing** [flat image].
+
+#### 4.16.1 Riders (0x410a50) [asm, decomp]
+- Records 0x581218 + k x 0x3209; k = 1 is the local player (0x584421), the opponents
+  k = 2 .. riders + 1. 0x509bac = the riders + 1 (25 for 23 opponents).
+- Riders 0x542874 (0x47b420): practice 1, else 23, or 11 with OPPONENTS "12" (0x4dbfdc).
+- Player: 0x45bf70(rec, 1, 1, skin, 0) with skin = the chosen bike (if page 0 is
+  paletted, 0x4f9300), else -1. Opponents: +0x78 (the carac row) = 0, 0x45bf70(rec, 0, 1,
+  skin, 0) with skin = k - 1, or 0 when k - 1 is the player's bike; -1 if the player's
+  is. +0x88 = 1 for an opponent, +8 = 1 for the player. Every one first placed at the
+  Level.Spt start point 0x51bfd8 (0x45c7c0); the grid comes at the start.
+- 0x45c7c0(rec, x, y, z): +0x30 = +0x3c = +0x48 = the point; rear wheel's ground point
+  +0x338 = p + (0, c40 x -96.0, c38 x -48.0) M + T, front +0x1b4 = p + (0, c3c x -96.0,
+  c38 x 48.0) M + T (M = +0xbc, T = +0xe0; floats 0x4d0e90/94/98); +0x4bc..; the section
+  by 0x40c7e0 from +0x31c1 into +0x31c1 and +0x31bd; copies of the point at +0x2df5..
+  +0x2e19; +0x198 = M row 2 + T [asm 0x45c7c0].
+
+#### 4.16.2 The grid (0x47bf70, Solo) [asm 0x47c0ca..0x47c4cc]
+- dir = 0x4dc140 (1, or -1 reversed). s = wrap(dir x 0x509bac x 3) (0x40ec30 brings a
+  section number into 0 .. count - 1); reversed: s = wrap(s - 3 dir).
+- For k = 0x509bac - 1 down to 1 (the player last, so at the back): if not practice,
+  s = wrap(s - 3 dir) (in practice all on one section). p = (0, 0, 10.0) through the
+  section's +0xc matrix (axes + the offset +0x30, 0x410010) + the section's +0;
+  not practice: p += off x axes[0] + offset, off = +128 for even k, -128 for odd (an
+  int through fild). The two plane distances 0x4b10c0 computed there are thrown away.
+- 0x45bdf0 clears the rider's state. Not reversed: +0xbc..+0xe8 = the section's 12
+  floats from +0xc (axes, offset). Reversed: a frame built from offset - axes[2],
+  (0, 1, 0) and two cross products (0x4570d0, 0x46d610) [the signs not read yet].
+- 0x45c7c0(rec, p); +0x31c1 = s; +0x2f7d = +0x2f81 = 0.
+
+#### 4.16.3 In the port
+- `race.c`: page 1 loads the race (`race_load`: the track, the bikes, the riders, the
+  grid) and hands over (`menu_leave`); `race_frame` draws the sky, the track and the
+  riders (`bike3d_draw_rider`, the detail by distance as 0x45f160: >= 3000 the very low
+  model, >= 2500 low, < 1000 the skeleton, else medium). A **stand-in camera** (700
+  behind, 260 above the player) until the chase camera 0x46f840 is mapped; Escape goes
+  back to the main menu. No physics, rules or dashboard yet. Practice's second record is
+  not drawn [guess: it is the time-attack ghost].
+- `input.c`: the keys held, for the race; OMR_INPUT gains `hold:KEY` and `release:KEY`.
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and

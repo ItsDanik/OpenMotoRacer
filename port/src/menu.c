@@ -224,6 +224,24 @@ void menu_change_page(int page)
     set_page(page);
 }
 
+/* page 1's teardown (an inline 0x409eb0, SetPage(0), every started page's end, 0x40b1f0):
+   the race takes over. (The port keeps the menu's pictures loaded.) */
+void menu_leave(void)
+{
+    int i;
+    text_clear();
+    g_menu.sel = -1;
+    g_menu.mouse_mode = 1;
+    for (i = 0; i < MENU_PAGES; i++)
+        if (g_menu.started[i]) {
+            if (pages[i].end)
+                pages[i].end();
+            g_menu.started[i] = 0;
+        }
+    g_menu.page = 0;
+    g_menu.active = 0;
+}
+
 int menu_start(int page, char *err, int errsize)
 {
     memset(&g_menu, 0, sizeof g_menu);

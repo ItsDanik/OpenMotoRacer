@@ -258,6 +258,12 @@ void r3d_camera(const float pos[3], const float target[3])
     g_cam[2][2] = (float)(nz / hz * hz);
 }
 
+void r3d_get_camera(float c[3][3], float pos[3])
+{
+    memcpy(c, g_cam, sizeof g_cam);
+    memcpy(pos, g_campos, sizeof g_campos);
+}
+
 void r3d_camera_pos(const float pos[3])
 {
     memcpy(g_campos, pos, sizeof g_campos);

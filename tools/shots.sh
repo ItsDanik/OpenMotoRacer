@@ -43,7 +43,7 @@ OMR_TURN=2.4985 run bike_road 5 480 "80:move:530,250 90:click 200:move:630,10 26
 OMR_TILE=13,115 run top5_snow 5 450 "80:move:320,250 90:click 200:move:630,10 210:right 260:move:574,417 270:click 300:move:630,10"
 OMR_CHOICES=2,0,4 OMR_TILE=109,19 run top5_champ 9 200 "1:move:630,10"
 # page 1 from page 10's Start: orig_p1_loading_snowride
-run loading_snow 5 520 "80:move:320,250 90:click 200:move:630,10 210:right 260:return 330:move:630,10 420:return"
+run loading_snow 5 423 "80:move:320,250 90:click 200:move:630,10 210:right 260:return 330:move:630,10 420:return"
 # pages 21 and 20 (in this order: the save made is then listed and loaded):
 # orig_p20_load_empty, orig_p20_load_hover2, orig_p20_load_saved (the original listing the
 # port's own Champ1.sav, which it loads); champ_save has no capture (the original reaches
@@ -74,3 +74,7 @@ OMR_WAV=build/shots/o.wav OMR_TILE=86,62 run settings 3 600 "$INO 400:move:500,1
 OMR_WAV=build/shots/o.wav run settings_bind 3 600 "$INO 400:move:500,132 410:click 500:move:400,320 520:q"
 OMR_WAV=build/shots/o.wav OMR_TILE=120,120 run datadisk 14 900 "100:return 250:return 500:move:320,440 510:click 600:move:630,10 700:move:330,435 710:click 800:move:630,10"
 OMR_WAV=build/shots/o.wav run datadisk_next 3 800 "$INO 400:move:330,435 410:click 500:move:630,10 600:right"
+# the race (Snow Ride) on its first frames: the riders on the grid, seen from the port's
+# stand-in camera (the game's chase camera is not written yet)
+export OMR_HOME=$PWD/build/shots/home
+run race_grid 5 440 "80:move:320,250 90:click 200:move:630,10 210:right 260:return 330:move:630,10 420:return"

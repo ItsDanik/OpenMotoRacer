@@ -15,6 +15,8 @@
 #include "horizon.h"
 #include "saves.h"
 #include "video.h"
+#include "input.h"
+#include "race.h"
 #include <SDL.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -202,14 +204,28 @@ static void scripted_input(const char *script, int frame)
             menu_mouse_button(1, 1);
             menu_mouse_button(1, 0);
         } else if (strcmp(what, "down") == 0 || strcmp(what, "up") == 0)
-            menu_mouse_button(1, what[0] == 'd'); else if (strlen(what) == 1 && isalpha((unsigned char)what[0]))
-            menu_key(toupper((unsigned char)what[0]));
-        else
+            menu_mouse_button(1, what[0] == 'd');
+        else {
+            /* KEY: pressed and let go; hold:KEY, release:KEY: for the race's held keys */
+            int hold = strncmp(what, "hold:", 5) == 0, release = strncmp(what, "release:", 8) == 0;
+            const char *k = hold ? what + 5 : release ? what + 8 : what;
+            int vk = 0;
+            if (strlen(k) == 1 && isalnum((unsigned char)k[0]))
+                vk = toupper((unsigned char)k[0]);
             for (i = 0; i < sizeof keys / sizeof keys[0]; i++)
-                if (strcmp(what, keys[i].name) == 0) {
-                    menu_key(keys[i].vk);
-                    menu_key_up(keys[i].vk);
-                }
+                if (strcmp(k, keys[i].name) == 0)
+                    vk = keys[i].vk;
+            if (!vk)
+                continue;
+            if (!release) {
+                input_key(vk, 1);
+                menu_key(vk);
+            }
+            if (!hold) {
+                input_key(vk, 0);
+                menu_key_up(vk);
+            }
+        }
     }
 }
 
@@ -300,12 +316,16 @@ int main(int argc, char **argv)
                 g_quit = 1;
                 break;
             case SDL_KEYDOWN:
-                if (vk_of(e.key.keysym.sym))
+                if (vk_of(e.key.keysym.sym)) {
+                    input_key(vk_of(e.key.keysym.sym), 1);
                     menu_key(vk_of(e.key.keysym.sym));
+                }
                 break;
             case SDL_KEYUP:
-                if (vk_of(e.key.keysym.sym))
+                if (vk_of(e.key.keysym.sym)) {
+                    input_key(vk_of(e.key.keysym.sym), 0);
                     menu_key_up(vk_of(e.key.keysym.sym));
+                }
                 break;
             case SDL_MOUSEMOTION:
                 menu_mouse_move(e.motion.x, e.motion.y);
@@ -321,6 +341,8 @@ int main(int argc, char **argv)
         scripted_input(script, frame);
         if (g_view_sec >= 0)
             race_view_frame();
+        else if (g_racing)
+            race_frame();
         else
             menu_frame();
         if (shot && frame + 1 >= shot_frames) {
