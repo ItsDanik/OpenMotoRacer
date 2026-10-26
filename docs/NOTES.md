@@ -162,27 +162,31 @@ small functions (they call 0x4c4f71). No RTTI for the game's own classes:
 `tools/vtables.py` lists the virtual tables and who installs them.
 
 ## 5. Running the original (for checking)
-`tools/orig.sh start|shot|stop`: a private copy in `build/orig`, a private wine prefix
-`build/wineprefix`, a hidden X display :57. `tools/win/memtool.c` (MinGW, run under wine)
-reads and writes the running game's memory (`/proc/<pid>/mem` is closed by the kernel's
-ptrace rule; wine's ReadProcessMemory works). `tools/origshot.sh` copies the back surface
-out of memory. `tools/patch_orig.py` patches the private copy only.
-**Works on Danik's own screen** (he agreed, 2026-10-26): `ORIG_DISPLAY=:1 tools/orig.sh
-start -NoD3D -windowed -us` with GOG's dgVoodoo DDraw.dll (`WINEDLLOVERRIDES=ddraw,d3dimm=n,b`,
-its `dgVoodoo.conf` sets DesktopBitDepth=16) shows the Delphine logo intro (page 25), then
-the attract-mode demo race (West Way), software renderer, 640x480 window "Moto Racer -
-© 1997". `tools/orig.sh shot FILE` takes the window (xdotool + import). The game stops
-moving when its window loses focus — which is probably why nothing ever appeared on the
-hidden display (no window manager there to give it focus). Reference pictures in
-`build/ref/`.
+`tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
+- A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and
+  `dgVoodoo.conf`, which sets DesktopBitDepth=16: the game demands a 16-bit screen) and a
+  private wine prefix `build/wineprefix`, run with `WINEDLLOVERRIDES=ddraw,d3dimm=n,b`.
+- The hidden display is a headless **Weston with Xwayland** (`weston --backend=headless
+  --xwayland --socket=mrwl`, 1024x768; its X display number read from
+  `build/logs/weston.log`, its pid in `build/logs/weston.pid`). Weston is a window manager,
+  so `xdotool windowactivate` can give the game's window focus: **the game stops moving
+  whenever its window lacks focus**, and that is the whole reason the plain Xvfb stayed black.
+- `start` waits for the window "Moto Racer - © 1997" (640x480 at -windowed) and focuses it;
+  `shot FILE` takes that window (`import`); `key KEYSYM...` focuses it and types with
+  xdotool (real key events: `key --window` would send synthetic ones); `stop` ends wine and
+  Weston. `ORIG_DISPLAY=:1` uses Danik's own screen instead (he agreed, 2026-10-26).
+- Checked: Escape skips the Delphine logo (page 25) to the title (page 14, which shows
+  "FULL D3D VERSION" even with -NoD3D), Return goes to the name entry (page 15). Left alone,
+  the logo leads to the attract-mode demo race (West Way). Reference pictures in `build/ref/`.
 
-The hidden display (:57), for the record (2026-10-26), all black:
- the game starts, runs its menu and blits 640x480 RGB565
-pictures, but nothing reaches the display:
-- 24-bit display, windowed: "16 bit screen mode required !".
-- 16-bit Xvfb, windowed or full screen, with wine's ddraw (OpenGL or GDI renderer): black.
-- Depth test patched out, full screen on a 24-bit display: "Cannot initialise screen mode"
+`tools/win/memtool.c` (MinGW, run under wine) reads and writes the running game's memory
+(`/proc/<pid>/mem` is closed by the kernel's ptrace rule; wine's ReadProcessMemory works).
+`tools/origshot.sh` (the back surface from memory, 0x4eea14) and `tools/patch_orig.py` (the
+16-bit test 0x45a7c9 jumped over) are left from the attempts below; neither is needed now.
+
+Dead ends on the hidden display (2026-10-26; never resurrect), every one black:
+- Xvfb at 24 bits, windowed: "16 bit screen mode required !".
+- Xvfb at 16 bits, windowed or full screen, wine's ddraw (OpenGL or GDI renderer).
+- The depth test patched out, full screen on 24 bits: "Cannot initialise screen mode"
   (Xvfb cannot change mode); the same inside `explorer /desktop`.
-- GOG's dgVoodoo DDraw.dll (`WINEDLLOVERRIDES=ddraw,d3dimm=n,b`): black, and 0x4eea14 stays 0.
-- The back surface read from memory (0x4eea14) in the plain-ddraw run: all black.
-Next to try there: give the window focus with xdotool (`windowactivate`), with dgVoodoo.
+- dgVoodoo on Xvfb; reading the back surface (0x4eea14) out of memory: 0 or black.

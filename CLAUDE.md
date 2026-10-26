@@ -89,5 +89,6 @@ launcher (Delphi): it writes `motoracer.ini` and starts `game.EXE`.
   (`Game_Frame` 0x47d660). One step a frame of the measured time (ms x 0.1, at most 200 ms):
   the port runs fixed 1/60 s steps.
 - The picture is **16-bit RGB565** (320x240, 512x384, 640x480).
-- Running the original: `ORIG_DISPLAY=:1 tools/orig.sh start` on Danik's screen (allowed),
-  `tools/orig.sh shot`, `tools/win/memtool.c` for its memory (NOTES §5).
+- Running the original: `tools/orig.sh start|shot|key|stop`, unseen (headless Weston +
+  Xwayland; the game only moves while its window has focus). `ORIG_DISPLAY=:1` is Danik's
+  own screen (allowed). `tools/win/memtool.c` reads its memory (NOTES §5).
