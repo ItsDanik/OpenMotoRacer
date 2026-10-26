@@ -81,6 +81,14 @@ void font_set_colors(Font *f, const unsigned char *fore, const unsigned char *ba
     }
 }
 
+void font_set_rgb(Font *f, const unsigned char *fore, const unsigned char *back)
+{
+    /* 0x490a30, 0x490a60, then slot 1 (1, 0xff): set and rebuilt every time */
+    memcpy(f->fore, fore, 3);
+    memcpy(f->back, back, 3);
+    build_table(f);
+}
+
 /* 0x490d80: one .FNT: u32 first, u32 count (the script's are used), u32 height, u32
    palette entries (0..256), the palette (R,G,B), count u32 widths, the glyphs */
 static int load_fnt(Font *f, int k)

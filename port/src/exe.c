@@ -2,6 +2,7 @@
    only need placing at their addresses (the relocation records only list the places
    that hold an address; tools/pe2flat.py does the same for the tools). */
 #include "exe.h"
+#include "bitmap.h"
 #include "files.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,7 +21,7 @@ static const struct {
 } builds[] = {
     { 0xd2534e97u, 1133056, "GOG game.EXE, 3.22, 1998-07-09", { 0x4e3e20, 0x4e8b60, 0x4f0dd4, 0x4f2590,
                                                                 0x4db7d8, 0x4db780, 0x4db770,
-                                                                0x4f1250, 0x4f1248 } },
+                                                                0x4f1250, 0x4f1248, 0x4e2920 } },
 };
 static int g_build = -1;
 
@@ -127,4 +128,15 @@ const char *exe_str(unsigned va)
     if (!p || !memchr(p, 0, g_size - (va - BASE)))
         return "";
     return (const char *)p;
+}
+
+const char *exe_text(int id)
+{
+    unsigned a;
+    for (a = exe_addr(X_STRINGS); a && exe_at(a, 28) && exe_u32(a) != 0xffffffffu; a += 28)
+        if (exe_u32(a) == (unsigned)id) {
+            unsigned s = exe_u32(a + 4 + 4 * (unsigned)g_lang);
+            return exe_str(s ? s : exe_u32(a + 4));
+        }
+    return "";
 }

@@ -89,9 +89,11 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   keys (SDL keys turned into Windows key codes) and mouse, the game's own pointer.
 - Pages written: 25 logo and 14 title (`page_intro.c`), 15 name entry (`page_name.c`, its
   3D letters through `obj3d.c`, NOTES §4.11), 3 main menu (`page_main.c`), 4 quit,
-  5 SELECT MODE (`page_mode.c`), 6 SELECT RACE (`page_track.c`); the race settings and
-  track lists in `choices.c` (NOTES §4.12). A page not written yet ends the program with a
-  message. Starts on 25, as the game.
+  5 SELECT MODE (`page_mode.c`), 6 SELECT RACE (`page_track.c`), 10 CHOOSE BIKE
+  (`page_bike.c`, `bikes.c`; no 3D bike yet), 9 TOP 5 (`page_top5.c`, `scores.c`:
+  bestscor.dat), 1 loading (`page_load.c`: back to page 3 until the race exists); the race
+  settings and track lists in `choices.c` (NOTES §4.12). A page not written yet ends the
+  program with a message. Starts on 25, as the game.
 - 3D (NOTES §4.9): `r3d.c` the software renderer (float transform, depth buckets, s-buffer,
   affine triangles), `model.c` 3DF+MAP, `rand.c` the game's random streams (seeds from
   game.EXE). The glass transition is `menu.c`'s.
@@ -99,7 +101,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   delayed voices, the music as GOG plays it (NN.wav, looping). `OMR_WAV=FILE` records it.
 - Text (NOTES §4.8): `script.c` reads BPT, `font.c` the 35 fonts (FONTS.BPT + .FNT),
   `text.c` the 48 text objects (blink, fades, see-through, drift).
-- Test switches: `OMR_PAGE`, `OMR_TILE=SX,SY` (the chequered tile's scroll, to match a capture;
+- Test switches: `OMR_PAGE`, `OMR_CHOICES="MODE,TRACK,LAPS[,REV,POC]"`, `OMR_TILE=SX,SY` (the chequered tile's scroll, to match a capture;
   `tools/cmpshot.py` finds it), `OMR_INPUT="F:key F:move:X,Y F:click F:down F:up"` (input at frame F),
   `OMR_TEXT="FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT"` (one text object).
 - Progress tracker for Danik: https://claude.ai/artifact/CCupuhZmsCRgz7FA5eFMxz

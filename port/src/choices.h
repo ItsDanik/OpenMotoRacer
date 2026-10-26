@@ -35,6 +35,7 @@ extern int g_difficulty;        /* 0x4dc060: 0 easy, 1 medium, 2 hard (Config.Sp
 extern int g_opponents;         /* 0x4dbfdc: 0 = 24 riders, 1 = 12 (Config.Spt) */
 extern int g_champ_race;        /* 0x509ba8: the championship's race being run */
 extern int g_champ_shown;       /* 0x4e90c8: page 9 has shown the standings */
+extern int g_champ_on;          /* 0x4dc07c: the race end's "the championship goes on" */
 extern int g_list_number;       /* 0x4dc048: the data disk's list, 0 none */
 
 int tracks_load(void);          /* 0x428d60 */

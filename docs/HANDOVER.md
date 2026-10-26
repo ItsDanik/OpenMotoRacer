@@ -52,6 +52,12 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   window, per-picture counts go by 60ths (NOTES §4.2). `tools/shots.sh` sums the test
   pictures (`tools/shots.sh | diff build/shots.txt -` after every change);
   `tools/cmpshot.py` compares a picture with a capture and finds the tile's scroll.
+- Pages 10 CHOOSE BIKE (2D; the 3D bike not yet), 9 TOP 5 (bestscor.dat read) and 1
+  loading in the port (NOTES §4.12.12): TOP 5 single race and championship, and the loading
+  screen, equal to the original's captures but the pointer; page 10 equal outside the bike.
+  The whole Solo chain runs logo → … → Start → loading, then back to the main menu (no
+  race yet). Correction in NOTES §4.12.10: the loading logo and badges are drawn by the
+  load's steps (0x4470d0).
 - The tracker shows Claude's messages at its bottom ("From Claude", the `messages` dataset)
   and Danik writes from it (comments sent to Claude): keep it watched.
 
@@ -63,8 +69,8 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   the original, or a user folder?
 
 ## Next, in order
-1. The Solo pages (NOTES §4.12.10): 10 CHOOSE BIKE (2D first, the 3D bike later), 9 TOP 5,
-   1 loading; then 20/21 championship saves and 11 options.
+1. Pages 20/21 (championship load/save) and 11 options (+12, 13, 23); then the 3D bike
+   on page 10 (the race's bike object, 0x45bf70 family, NOTES §4.12.10 7b).
 2. Sound: CONFIG.BPT's switches and volumes, pause on losing focus, the race's sounds.
 3. The track (.trk), the race loop, the race renderer (the same r3d with the race's
    near plane 64 and its face kinds): build/notes/track.md, track_raster.md/.py,

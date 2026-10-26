@@ -16,6 +16,7 @@ enum {
     X_SFX_PODIUM,       /* the podium's */
     X_CHEATS,           /* the name entry's {name, variable, value} (0x4f1250) */
     X_CHEAT_COUNT,      /* how many (0x4f1248) */
+    X_STRINGS,          /* the words in six languages {id, en, fr, de, it, sp, sw} (0x4e2920) */
     X_COUNT
 };
 unsigned exe_addr(int what);
@@ -24,5 +25,9 @@ unsigned exe_addr(int what);
 const unsigned char *exe_at(unsigned va, unsigned len);
 unsigned exe_u32(unsigned va);
 const char *exe_str(unsigned va);       /* a zero-ended string there, else "" */
+
+/* the game's word number id in the menus' language (0x415a70 fills text[] at 0x53b5e8:
+   the language's, else the English) */
+const char *exe_text(int id);
 
 #endif

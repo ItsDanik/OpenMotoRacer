@@ -34,6 +34,8 @@ static void usage(void)
          "                     a letter),\n"
          "                     move:X,Y (the mouse), click (left button down and up),\n"
          "                     down, up (the left button alone)\n"
+         "  OMR_CHOICES=MODE,TRACK,LAPS[,REVERSE,POCKET]  the race chosen (MODE 0 practice,\n"
+         "                     1 single race, 2 championship), for OMR_PAGE=9 and on\n"
          "  OMR_TILE=SX,SY     the menu's chequered tile scrolled so far at the start\n"
          "  OMR_TEXT=\"FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT\"  a text object on the\n"
          "                     first page (FORE, BACK: the game's colour numbers, -1 for\n"
@@ -213,8 +215,16 @@ int main(int argc, char **argv)
         fail(err, shot != 0);
     if ((env = getenv("OMR_TEXT")))
         test_text(env);
+    if ((env = getenv("OMR_CHOICES"))) {
+        sscanf(env, "%d,%d,%d,%d,%d", &g_mode, &g_track, &g_laps, &g_reverse, &g_pocket);
+        if (g_track < 0 || g_track >= g_ntracks)
+            g_track = 0;
+    }
     if ((env = getenv("OMR_TILE")))
-        sscanf(env, "%d,%d", &g_pics[0].sx, &g_pics[0].sy);
+        if (sscanf(env, "%d,%d", &g_pics[0].sx, &g_pics[0].sy) == 2) {
+            g_pics[1].sx = g_pics[0].sx;        /* page 9's tile, paralax2 */
+            g_pics[1].sy = g_pics[0].sy;
+        }
 
     for (frame = 0; !g_quit; frame++) {
         SDL_Event e;

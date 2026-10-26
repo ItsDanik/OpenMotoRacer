@@ -3159,13 +3159,24 @@ slots 0x4e90e8..0x4e90f8, freed at the end) [asm]:
 | slot | picture | placed at | drawn |
 |------|---------|-----------|-------|
 | 0x4e90e8 | `sprintf("%sload.lez", track.dir)` (0x4dbd88; track.dir = record +0x24 of the track table, e.g. `data\ile05\` → `data\ile05\load.lez`, in ILEnn.BKF), loaded by 0x43e7f0(path, 0). **In replay playback** (0x4e9830 != 0 and 0x542891[0] != 0) the path is the string at 0x542891 instead | as loaded (0,0), 640x480 | yes, mode 5 |
-| 0x4e90ec | id 0xaf `lodanim.lez` (lang 0) | (498, 381) align 0 | **never** (loaded and placed only; no reader draws it in this build [asm grep of 0x4e90ec]) |
+| 0x4e90ec | id 0xaf `lodanim.lez` (lang 0, the coloured Moto Racer logo over load.lez's grey one) | (498, 381) align 0 | not here: by each step of the race's load, every other step (see below) |
 | 0x4e90f0 | id 0xb0 `loadtxt.lez` (lang 1, "Loading...", 235x34) | (0, 408) | yes, mode 5. Not created during replay playback with a name |
 | 0x4e90f8 | id 0xba `smallpok.lez`, only if Pocket 0x4dc078 | (4, 460) | only if `menu+0 == 0` |
 | 0x4e90f4 | id 0xb9 `smallrev.lez`, only if Reverse 0x4dc068 | (4, 470) | only if `menu+0 == 0` |
 
-The menu is still active at this point (`menu+0 == 1`, because Menu_Frame refuses to run
-otherwise), so the two "small pocket/reverse" badges are **never drawn** [asm 0x40b6d2,
+**Correction (2026-10-26):** an earlier reading said lodanim and the badges are never drawn
+(a `grep | head` cut the list of users short). **0x4470d0** draws the loading screen again
+at each step of the race's load (called by the progress routine 0x4421d0 from 0x4011c6,
+0x410dc5 "Init WAV samples...", 0x462cbc, and by the menu's first load 0x40ab35/0x40ac16):
+0x49a160, load.lez (0x4e90e8), loadtxt (0x4e90f0), the Reverse badge 0x4e90f4 and the
+Pocket badge 0x4e90f8 if created **and** `menu+0 == 0` (true by then: the menu is torn
+down), then lodanim if 0x4e90fc != 0 and 0x4dc080 == 0 and not a replay (0x4e9830 == 0),
+then text 0x4e94f4 in font 21 at (550, 800) if 0x4dc084 (only the first menu load sets it,
+after 10 steps), 0x49b0e0, 0x49b1c0(1), and **0x4e90fc ^= 1** (initial 1, never reset: the
+logo blinks from step to step). 0x4dc080 is 1 at start (the first menu load shows its own
+picture 0xcb/0xca, not the logo) and 0x40b1f0 clears it. orig_p1_loading_snowride.png
+shows the logo on (a first step). Page 1's own frame, with the menu still active, draws
+neither the badges nor the logo [asm 0x40b6d2,
 0x40b6fc: `cmp DWORD PTR [menu],0`]. The capture build/ref/orig_p1_loading_snowride.png
 shows the same thing: load.lez, a full-screen picture with the black strip, the vertical
 track name and the Moto Racer logo all part of the picture, and "Loading..." at the bottom
@@ -3359,7 +3370,7 @@ Pages in the order to write them, each with what it needs first:
       one turn per 10.24 s, dt capped 1000 ms), light (−0.5, −1, 0), the sideways whip
       on a bike change. Until it exists page 10 can run without the bike.
 8. **Page 1** (loading): one frame — `<track dir>load.lez` full screen and loadtxt.lez at
-   (0,408) (lodanim and the two small badges are never shown by the original), present,
+   (0,408) (lodanim and the badges come with the load's steps, 0x4470d0), present,
    then the menu teardown (all started pages' end routines, menu inactive) and the race
    load. Until the race exists: show the picture and end with a message, as unwritten
    pages do.
@@ -3426,6 +3437,24 @@ build/orig and the prefix, own Weston socket) avoided it.
   SELECT RACE Single, Practice (03 laps, TIME ATTACK ON), Practice at 5 laps (the switch
   gone), Snow Ride after the right arrow, CHAMPIONSHIP: every pixel the same but the
   port's pointer. In tools/shots.sh.
+- `bikes.c` + `page_bike.c` (10): Level.Spt → the family script (the Pocket one with
+  Pocket) → the 8 carac scripts (MotoType, Gfx×4, 67 floats, PersoAnim); every 2D part
+  of CHOOSE BIKE, the bars' 1000 ms sine ease, the turntable's angle and the bike-change
+  whip kept as the game keeps them, but **the bike itself is not drawn yet** (§4.12.10
+  7b). Matches orig_p10_bike_a / orig_p10_manual outside the bike.
+- `scores.c` + `page_top5.c` (9): bestscor.dat read as 0x464e80 / 0x4656c0 (the key
+  compared whole, strcmp; a missing block fills the 8 races with 0x7f); the Solo page
+  drawn as the frame draws it (fonts 31, 12, 9; `font_set_rgb` = 0x490a30 + 0x490a60 +
+  slot 1). The 'TINI' rows, the name typing, the saving and Reset's ghost deletion wait
+  for the race (and the decision where the port keeps saves). `g_champ_on` = 0x4dc07c
+  (initial 1). Every pixel the same as orig_p9_top5 and orig_p9_top5_champ but the
+  pointer.
+- `page_load.c` (1): the first frame as the game draws it, then one load step
+  (`loading_progress`, 0x4470d0: badges, the logo on every other step); since the race
+  is not written yet it then waits 2 s and goes back to the main menu (the original's
+  path when a race fails to load). Same as orig_p1_loading_snowride.
+- Test switch `OMR_CHOICES=MODE,TRACK,LAPS[,REVERSE,POCKET]`; `OMR_TILE` also sets
+  page 9's tile (paralax2, id 1).
 
 
 ## 5. Running the original (for checking)

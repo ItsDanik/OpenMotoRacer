@@ -22,6 +22,7 @@ int g_difficulty = 1;
 int g_opponents;
 int g_champ_race;
 int g_champ_shown;
+int g_champ_on = 1;
 int g_list_number;
 
 /* ListName, PocketAvailable, ReverseAvailable, NumberIslande, then IslandeList: name,

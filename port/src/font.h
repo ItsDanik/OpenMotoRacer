@@ -38,6 +38,7 @@ const unsigned char *named_colour(int c);
 int font_init(char *err, int errsize);          /* FONTS.BPT and every font's files */
 Font *font_get(int n);                          /* 0x4903d0 */
 void font_set_colors(Font *f, const unsigned char *fore, const unsigned char *back);
+void font_set_rgb(Font *f, const unsigned char *fore, const unsigned char *back);
 void font_measure(const Font *f, const char *text, int *w, int *h, int one_line);
 /* 0x493820 in the 640x480 menu: flags place the block (0x492c20) and each line in it,
    level is the effect level in percent */
