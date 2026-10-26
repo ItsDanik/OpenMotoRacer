@@ -25,7 +25,8 @@
 Rider g_rider[RIDERS];
 int g_racing;
 static int g_player = 1;        /* 0x4ea4c0: the local player's record */
-static unsigned g_step;         /* steps run, for their milliseconds */
+#define STEP_MS 16
+static unsigned g_step_at;      /* the clock's time the steps have reached */
 
 /* one step of Game_Frame (0x47d660) of ms milliseconds: the timers, the countdown and
    the time limit, (the riders' steps and the physics: not yet), the race's rules */
@@ -155,7 +156,7 @@ int race_load(char *err, int errsize)
     sound_race_load(g_bikes[g_rider[1].bike].perso != 0);
     music_play(g_land.audio_track, 0);
     rules_restart();
-    g_step = 0;
+    g_step_at = g_now;
     g_racing = 1;
     return 1;
 }
@@ -190,11 +191,13 @@ void race_frame(void)
         menu_change_page(3);
         return;
     }
-    /* the original steps once a picture by the time it took; the port runs the 60ths of
-       a second that have passed, each the milliseconds the original would have counted
-       at 60 pictures a second (16, 17, 17, ...) */
-    for (i = 0; i < g_ticks; i++, g_step++)
-        step((int)((g_step + 1) * 50 / 3 - g_step * 50 / 3));
+    /* the original steps once a picture by the time it took, and GOG's -FrameRateMax60
+       makes every picture 16 ms (1000 / 60 in integers): 62.5 steps a second of dt 1.6.
+       The port runs one such step for every 16 ms of the clock. */
+    while (g_now - g_step_at >= STEP_MS) {
+        g_step_at += STEP_MS;
+        step(STEP_MS);
+    }
     /* the stand-in camera: 700 behind the bike, 260 above, looking at its seat */
     for (i = 0; i < 3; i++) {
         eye[i] = me->pos[i] - 700.0f * me->m[2][i] + 260.0f * me->m[1][i];

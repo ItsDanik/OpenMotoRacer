@@ -136,9 +136,10 @@ adds ILE10, ILE11 (not on the CD; not in LIST.BPT either).
 0x47df40 then scales `0x4e9808` by 0.1 (float 0x4d1970) (it compares the result with 0.0,
 float 0x4d1900, not 1.0: any frame of 1–200 ms is simply ms x 0.1) and steps every bike
 by it (0x45d540 the player, 0x45e940 the others). So **one step a frame, of the measured
-time**: the port runs a fixed step (1/60 s → 1.667) which is the original at a steady 60
-frames a second. `-frameratemax N` (0x4dc200) only waits in 0x459fd0 until 1000/N ms have
-passed; GOG's launcher passes `-FrameRateMax60`.
+time**. `-frameratemax N` (0x4dc200) only waits in 0x459fd0 until 1000/N ms have passed
+(integer division); GOG's launcher passes `-FrameRateMax60`, so **the race runs at 62.5
+frames a second, every step 16 ms, dt = 1.6** [run: 813 frames in a row, §4.18.1]. The
+port's race runs those steps: one of 16 ms for every 16 ms of the clock.
 
 **The menu's speed** (2026-10-26): the menu times its slides, 3D objects and texts by
 `timeGetTime`, but some things move a fixed amount each picture: the tile scroll
@@ -5253,8 +5254,8 @@ The race object 0x52c478 (vtable 0x4d04c8): +0 0x47bf30 defaults, +4 **0x47b420 
   finish 0x47e3d0, places 0x47e1e0 with the C library's quicksort as the game has it
   (0x4b3100, checked against its machine code: the 1998 MSVC qsort, shortsort at 8),
   fastest lap 0x481800, lap record 0x458310 (against bestscor.dat's best lap). The race
-  runs the 60ths of a second that passed, each of 16 or 17 ms (1000 a second), dt = ms x
-  0.1 as the original at 60 pictures a second. The countdown's beeps and voices
+  runs a step of 16 ms (dt 1.6) for every 16 ms of the clock, as GOG's original does with
+  `-FrameRateMax60` (§4.2, §4.18.1). The countdown's beeps and voices
   (0x4082f0) once a picture, as the dashboard plays them; recorded: "3" "2" "1" "GO" at 0,
   2, 4, 6 s. The dashboard's texts, splits shown, events (turn signs) not yet.
 - Sounds: the race's set 0x4044c0 (`sound_race_load`: Ktm or Ninja by the bike's
@@ -6678,6 +6679,1810 @@ driving is not here: AI riders get zero inputs here and are driven inside the bi
 - Replay record/playback, .Sav load/save, demo list and the kind-2 flow: ~250 lines
   (the file dialog replaced by a fixed name or a switch).
 - 0x4121e0: 5 lines. 0x411a10 / 0x411b30 (SDL game controller): ~120 lines.
+
+### 4.18 The player's bike: one race step (physics and controls; mapped 2026-10-26)
+
+Mapped 2026-10-26 from game.EXE (GOG 3.22, base 0x400000) for the port. Marks: [asm] read in
+the machine code, [decomp] Ghidra's text only, [guess] inferred, [run] measured in the running
+original (tools/win/memwatch.c, §9). Constants are given as the game reads them: address,
+width (f = float, d = double) and value (bits in brackets where the digits are not exact).
+
+The reference in Python is tools/bikephys.py (its routines name the game's addresses); the
+checks that run it against recordings of the original are build/phys/chk_*.py (§9).
+
+Conventions: `obj` = the bike + rider object (player 1 = 0x584421; rider k at
+0x584421 + k·0x3209, k = 0..23; one more record before, 0x581218). `body` = obj+0x24, a
+sub-object of the 0x48xxxx class (its fields are written body+Y = obj+0x24+Y; both are given).
+`C` = the carac row 0x509278 + obj[+0x78]·0x124 (§3). `dt` = the step (§1).
+
+---------------------------------------------------------------------------------------------
+
+#### 1. The frame and the step [asm]
+
+- `0x4120e0` (each race frame, from Game_Frame 0x47d660 before anything else): `ms` =
+  timeGetTime − the previous frame's (0x459fa0 reads timeGetTime into 0x4e9cfc, 0x459fc0 gives
+  it; the previous one kept at 0x50bbc8) → **0x4e980c** (int). Unless a replay plays
+  (0x4e9834 == 1), a smoothed copy 0x4dc150 += (ms − 0x4dc150)·d 0x4d0380 = 0.125 (fild, fsub
+  f, fmul d, fadd f, fstp f). Then **0x4e9808** = f32(ms) (fild of the 64-bit {ms, 0}); if
+  ms > f 0x4d0398 = 200.0 → ms = 200, 0x4e9808 = 200.0; else if 0x4e9808's bits ≤ 0 (ms ≤ 0) →
+  ms = 30, 0x4e9808 = 30.0. (A replay, 0x4e9834 == 1, overwrites 0x4e980c/0x4e9808 with the
+  recorded ms in 0x4116f0 → 0x4578a0.) 0x4dbfb4 −= 0x4e9808 (truncated). 
+- `0x47df40` (from Game_Frame after the race rules 0x47dae0): **dt = f32(0x4e9808 · f 0x4d1970
+  (0.1f = 3dcccccd))**; **if dt < f 0x4d1900 = 0.0 → dt = 1.0**. (NOTES §4.2 says "at least
+  1.0": the constant is 0.0, so dt is 0.1 .. 20.0; ms ≥ 1 makes it ≥ 0.1.) dt is in
+  hundredths of a second. **One step a frame, no substeps.**
+  - Solo (0x4dbffc) Practice (0x4dc094 == 0) with time attack (0x4dc148): only player 1 is
+    stepped, 0x45d540(0x584421, keys, joyY, joyX, dt), then the ghost (0x4192a0 replays the
+    best lap into rider 2, 0x58762a, and steps it with 0x45e940), then 0x4191c0 records.
+  - Otherwise, riders k = 0..23 with obj+0x68 (loaded): Solo → 0x45d540(obj, obj+0x31e9 |
+    obj+0x31ed, obj+0x31f1, obj+0x31f5, dt). Link (0x4dbffc == 0): the local player(s) the same,
+    the remote ones 0x45e940(obj, dt).
+- `0x45d540`(obj, keys, joyY, joyX, dt): global **0x581014 = dt**; obj+8 (set by 0x45bf70's
+  p1: a driven bike) → **0x45d580** (this note), else **0x46bf80** (the computer riders' model:
+  0x46b120 drives along the track; not mapped here).
+- The frame limiter 0x459fd0 (`-FrameRateMax60`, 0x4dc200 = 60): waits until 1000/60 = **16 ms**
+  (integer division) have passed since the last limiter call or since the routine was
+  entered. So GOG's original runs its race at 62.5 frames a second with ms = 16, **dt = 1.6**
+  every step [run: 813 frames in a row all 16 ms]. Without the switch, under wine on the
+  hidden display, every frame was 33 ms (dt 3.3) [run].
+
+Port: a fixed step of dt = 1.6f at 62.5 Hz is exactly what the original does at
+`-FrameRateMax60` on a fast machine (every step the same). 1/60 s steps (dt = 1.6667) are not
+an original step and change the results slightly (the step is not linear in dt). [guess]
+
+#### 2. Controls
+
+##### 2.1 Keyboard: the bits at obj+0x31e9 [asm 0x431250 (key down), 0x432700 (key up)]
+The bindings 0x53eae0[7]{key, button} (CONFIG.BPT, NOTES §4.14; defaults Up, Down, Left,
+Right, A, Z, Space). The key handlers work on the local player's object only
+(0x584401 + 0x4dc0fc·0x3209 = obj+0x31e9, 0x4dc0fc = 1 in Solo). Nothing when a replay plays
+(0x4e9834 != 0).
+
+| action | key down | key up |
+|---|---|---|
+| 0 accelerate | 0x4e8964 = 1; bit1 cleared, **bit0** set | 0x4e8964 = 0; bit0 cleared |
+| 1 brake | (race running 0x5429b0) bit0 cleared, **bit1** set | bit1 cleared; bit0 set again if 0x4e8964 (accelerate still held) |
+| 2 left | (0x5429b0) bit3 cleared, **bit2** set | bit2 cleared |
+| 3 right | (0x5429b0) bit2 cleared, **bit3** set | bit3 cleared |
+| 4 gear up | (0x4dc0b4 == 0 and 0x5429b0) **bit4** set, 0x4dc110 = 1 | bit4 cleared |
+| 5 gear down | (same) **bit5** set | bit5 cleared |
+| 6 turbo / stunt | (0x5429b0) **obj+0x31f9 = 1**, obj+0x3201 = 1 | obj+0x31f9 = 0 |
+
+Windows repeats WM_KEYDOWN for a held key (the last one pressed), which re-applies its row:
+holding Right then tapping Left leaves neither bit once Left is released (Left's down cleared
+bit3, its up clears bit2, and Right no longer repeats). The port should feed key-down
+repeats the same way, or at least the one-press semantics above.
+
+##### 2.2 Joystick: obj+0x31ed (bits), obj+0x31f1 (Y), obj+0x31f5 (X) [decomp 0x411b30, 0x4116f0]
+Each frame (0x4116f0, race-frame input) for every rider whose input kind obj+0x31e1 is 2
+(joystick) or 4 (pad): obj+0x31ed = 0x411b30(k) (the same bit meanings, from buttons and the
+axes when bound to them), obj+0x31f1 = axis Y 0x51bcf8[obj+0x31e5 · 14], obj+0x31f5 = axis X
+0x51bcf4[...] (0..0xffff, centre 0x8000); before the race runs (0x5429b0 != 1) X = 0x8000 and
+only bit0 is kept. Otherwise +0x31ed = 0, +0x31f1 = +0x31f5 = 0x8000. The keyboard player:
++0x31ed = 0, axes 0x8000. Then 0x4577f0 records (ms, keys|joybits, Y, X) for the replay.
+
+##### 2.3 The race phases
+0x411010 (race start): 0x4dc0b4 = 1 (countdown), 0x4dc0a8 = 6000 ms, 0x5429b0 = 0, unless
+0x4dc0ac == 0 (no countdown: Practice time attack) → 0x4dc0b4 = 0, 0x5429b0 = 1. Player 1's
+obj+0x88 = 0x4dc0a0 (1 automatic, 0 manual) in Solo; every other rider 1.
+
+#### 3. The carac table (0x509278 + bike·0x124, parser 0x42a580) [asm]
+
+Read at load from CARACn.BPT (the BPT tokens, 73 numbers in exactly this order; tools/bikephys.py
+`Carac`). All floats except +0x00..+0x10 and +0x120. Values: SPEED1 (road) / KTMCROSS1 (dirt).
+"Readers" are the code that reads the field with an absolute address (0x5092xx[bike·0x124]);
+code that reads through a row pointer exists too, so "parser only" means [guess] unused.
+
+| C+ | name | SPEED1 / KTM1 | what it does (readers) |
+|---|---|---|---|
+| 0x00 | MotoType | 2 / 1 | 1 = dirt: grip factor from the lateral speed (§5), slide terms in 0x45d110, the dirt brake-slide, landing threshold 8 instead of 32 on straights (§7), dirt riders' pose |
+| 0x04..0x10 | Gfx acc/spe/gri/bra | ints | the CHOOSE BIKE bars only (NOTES §4.12) |
+| 0x14 | Frein | 100 / 80 | brake deceleration (0x48ef30 brake; at least 10) |
+| 0x18 | MoteurVitesseMax (MVM) | 7 / 8 | the engine-speed scale: engine value 0..MVM; rpm = e·RegimeMax/MVM |
+| 0x1c | MotoMasse | 280 / 150 | divides the drive force and the drag (0x48ef30) |
+| 0x20 | RetardCadre | 16 / 8 | smoothing of the frame pitch (0x466a80) |
+| 0x24 | RoueAccelerationAngulaire (RAA) | 10 / 30→6 | steering rate gain per step (0x466240). Dirt bikes are clamped at load: > 6 → 6, else > 3 → 3 |
+| 0x28 | RoueMaxAccelerationAngulaire | 30 / 42 | parser only |
+| 0x2c | RoueVitesseRetour (RVR) | 30 / 35 | steering return to centre (0x466240) |
+| 0x30 | AngleSuspension | 0.1963 | pitch clamp (0x466a80), effects (0x466d70) |
+| 0x34 | RoueLimiteAngulaire (RLA) | 600 / 980 | steering angle limit obj+0x110 (0x466240) |
+| 0x38 | RoueAxeDistance | 1.75 / 1.45 | wheelbase: wheel points ±48·it (ground matrix 0x468ca0, 0x469c60) |
+| 0x3c / 0x40 | RoueRayonAv / Ar | .29 .32 / .30 .30 | wheel radii: spin angles (0x466940), wheel points (0x469c60) |
+| 0x44 | RoueRayon | .27 | parser only |
+| 0x48 | RealSpeedMax | 80 / 46 | top speed (m/s): body+0x90 = obj+0xb4, +2.0 for a manual box (0x45bf70) |
+| 0x4c | VitesseMaxBoite (VMB) | 61 / 40 | wheel speed ↔ engine (rpm = MVM/(ratio·VMB)·wheel), steering transfer |
+| 0x50 | RotationTransfert | .0028 / .0026 | steering angle → yaw rate (0x466240) |
+| 0x54 | DivTransfert | 32 | parser only |
+| 0x58 | HauteurCadre | .58 / .55 | frame height (0x469c60, ·96) |
+| 0x5c/0x60/0x64 | RessorAmplitudeDec / Min / Factor | .885 / −10 / 10 | the spring bounce (0x466a80) |
+| 0x68 / 0x6c | FourcheAngleAvant / Arriere | −.65 −.55 / −1.25 −1.05 | +0x6c by the drawer 0x46031d; +0x68 parser only (both are the 3D bike's, NOTES §4.15) |
+| 0x70 | NbSpeed | 6 / 5 | number of gears (stored as a float; −1.0 when 0x4dc1f4 == 0, which never happens) |
+| 0x74 | RegimeMax | 12000 / 10000 | rpm scale (HUD, sound, torque curve) |
+| 0x78..0x8c | RapportDeBoite1..6 | .3 .6 .9 1.2 1.34 1.45 | gear ratios (ratio[g] = C+0x74+4g) |
+| 0x90..0x9c | RegimeCoupleMax, CoupleMax, Couple1000, CoupleRegimeMax | 10500 15 6 2 / 6500 7 1 1 | the torque curve 0x48ee30 |
+| 0xa0 | ZoneRouge | .9 / .85 | parser only (red line drawn from it elsewhere? [guess]) |
+| 0xa4 | MinAdherenceWheel | .2 / .1 | used only as "k = it if > 1.0": with the GOG data never (k = 1) |
+| 0xa8..0xb0 | MinAdherenceDerap[3] | | never read |
+| 0xb4..0x11c | Material* triples (Neutre, EauProfonde, Eau, Sable, Herbe, Terre, Goudron, Huile, BordRoute) | | never read: **the grip does not depend on the surface** |
+| 0x120 | PersoAnim | 0 / 1 | read by 0x45d580 each step: 1 = dirt rider (the `flat` flag below, poses) |
+
+#### 4. The driven bike's step: 0x45d580(obj, keys, joyY, joyX, dt) [asm]
+
+In this order (the detail of each routine is in §5–§8):
+1. Read C+0x120 (PersoAnim). Clear obj+0x319d, obj+0x2dac (this step's event bits) and
+   obj+0x2e95 (landing kick). If dt's bits as int < 1 (dt ≤ +0) → dt = 1.0.
+2. **0x465fa0** (start of step): the matrix obj+0xbc..0xe8 copied to obj+0x140..0x16c;
+   obj+0x2da8 = 0x48ca10 (the longitudinal speed); positions shifted (obj+0x3c..0x44 →
+   obj+0x48..0x50, obj+0x30..0x38 → obj+0x3c..0x44), likewise the wheel points (+0x1b4 → +0x1c0 →
+   +0x1cc, +0x338 → +0x344 → +0x350, +0x4bc → +0x4c8 → +0x4d4); obj+0x54 = 0x581014 (dt);
+   obj+0x2da4 = obj+0x2da0; obj+0x2dbc = obj+0x2db8; a negative speed obj+0x124 is set to 0.
+3. obj+0x14 = 0.
+4. Brake dive: if !(keys & 2) or speed ≤ +0 (bits): if obj+0x2ea5 is negative →
+   obj+0x2ea5 = f32(obj+0x2ea5 + 0x581014 · d 0x4d0f38 = 0.0025), else obj+0x2ea5 = 0.
+   (0x466660 makes it negative when braking.)
+5. obj+0x2e39 (frame dive) moves toward 0 by d 0x4d0ed8 = 0.01 per **step** (not scaled by dt):
+   > 0.01 → −0.01, < −0.01 → +0.01, else 0.
+6. lat = 0x48d0f0 (lateral speed); obj+0x2da0 (sliding) = obj+0x2db8 (on the ground) and
+   |lat| ≥ d 0.04.
+7. Not in the countdown (0x4dc0b4 == 0): if obj+8 and obj+4, obj+0x2e85 = obj+0x31f9 (turbo
+   held); then **0x4660f0**(obj, dt) (turbo/wheelie, §5 "0x4660f0").
+8. Not crashed (obj+0x30c1 == 0): **0x465da0**(keys, joyY, joyX, dt) → **0x48ef30** (throttle,
+   engine, brake, slope, drag; §5).
+9. Not in the countdown and not crashed: **0x466240**(keys, joyY, joyX, dt) (steering and yaw, §6.5).
+10. flat = PersoAnim && 0x46c7a0(obj+0x31c1, 8) == 0 (a dirt bike on a road that does not bend in
+    the next 8 sections).
+11. **0x48d620**(body, dt, flat) (integration, §6.3). Then if obj+0x180 (impulse |P|) is ±0:
+    obj+0xc = obj+0x10 = 0 (forced input off).
+12. **0x45d110**(obj, dt) (sideways slide; its result is dropped) (§6.4).
+13. r = **0x468ca0**(obj, flat) (ground, walls, air, landing; §7). It always returns 1.
+14. **0x466660**(obj, keys) (air counter, brake dive, gear keys, the gearbox; §5 "Gearbox", §6.6),
+    **0x4667e0** (acceleration, dive), **0x466940** (wheel spin), **0x466a80** (suspension, pitch),
+    **0x461aa0** (shadow points), **0x469c60** (frame matrix, lean, wheel points),
+    **0x4683e0** (crash tumble), **0x467b30**(obj, r) (rider pose, stunts), if r **0x466d70**(obj,
+    keys) (dust, spray, skid marks), **0x467930** (speedometer, rpm), obj+0x31d9 = **0x46d340**
+    (lane) (§8).
+15. obj+0x2dc8 = keys (last step's keys).
+
+Every field the step reads or writes is listed, with its writer, in four tables: §5 "Fields"
+(engine and gearbox, body+0x0c..0x118), §6.1 (body fields, the matrix layout and the obj fields
+of the integration and steering), §7.6 (the contact) and §8 "Fields" (everything after the
+contact, obj+0x7c..0x3205). The input fields are in §2.
+
+After every bike has been stepped, Game_Frame calls the race object's slot +0x18 = **0x47ecd0**
+(bike against bike, §8.11; not in Practice).
+
+---------------------------------------------------------------------------------------------
+
+#### 5. The engine: throttle, engine, gearbox, brake, drag
+
+(Throttle, engine, gearbox, brake, drag (the "engine" part of the bike step))
+
+Conventions as build/phys/brief.md: `obj` the bike object, `body` = obj+0x24 (the 0x48xxxx class
+works on body; every field is given as body+X (= obj+X+0x24)). `C` = carac row
+0x509278 + body[+0x54]·0x124. `ratio[g]` = float at C+0x74+4g (g = 1..6 → RapportDeBoite1..6;
+address 0x5092ec + (bike·0x49 + g)·4). `MVM` = C+0x18 MoteurVitesseMax, `VMB` = C+0x4c
+VitesseMaxBoite, `RM` = C+0x74 RegimeMax, `RCM` = C+0x90 RegimeCoupleMax, `CM` = C+0x94 CoupleMax,
+`C1000` = C+0x98 Couple1000, `CRM` = C+0x9c CoupleRegimeMax, `NbSpeed` = C+0x70, `Masse` = C+0x1c,
+`Frein` = C+0x14, `MinAdhW` = C+0xa4 MinAdherenceWheel, `RSM` = C+0x48 RealSpeedMax.
+f32(x) = rounded to float by an `fst(p) DWORD`; everything else stays in the 80-bit register
+(53-bit mantissa if the process default control word holds [guess]). Constants: "double 0xADDR =
+value (bits)" are read as doubles (`QWORD PTR`), "float" as floats.
+
+##### Fields (established here)
+
+| body+ | obj+ | type | name / meaning | mark |
+|---|---|---|---|---|
+| 0x0c..0x14 | 0x30 | f32×3 | position (only passed, unused, to 0x459f90) | [asm] |
+| 0x54 | 0x78 | int | bike number (carac row) | [asm] |
+| 0x58 | 0x7c | int | **gear** 1..NbSpeed (engine sound reads obj+0x7c) | [asm] |
+| 0x5c | 0x80 | int | gear-shift timer, ms | [asm] |
+| 0x60 | 0x84 | int | **shift state**: 0 none, 1 shifting up, 2 shifting down. While ≠ 0 the clutch is out: 0x48deb0/0x48dd90 return their pass-through value and 0x48ef30 revs the engine freely | [asm] |
+| 0x64 | 0x88 | int | gearbox: 1 automatic, 0 manual (0x4dc0a0 for player 1, 1 for computer bikes) | [asm] |
+| 0x68 | 0x8c | int | pending gear change (+1 up, −n down) | [asm] |
+| 0x6c | 0x90 | f32 | engine speed at the end of the last shift (written by 0x48e6e0) | [asm] |
+| 0x6c+4g | 0x90+4g | f32 | (g = 1..NbSpeed−1) **upshift table**: road (wheel) speed at which the automatic box leaves gear g; built by 0x48e3a0 when body+0x70 is ±0 | [asm] |
+| 0x88 | 0xac | int | brakes grip: 1 normally; 0x466240 sets 0 for a *player's dirt* bike braking while steering (then braking does not slow the wheel, it sets +0x118) | [asm+decomp] |
+| 0x8c | 0xb0 | int | brake held time, ms (reset to 0 when the throttle is ≥ 0) | [asm] |
+| 0x90 | 0xb4 | f32 | top speed: RSM, + 2.0 for a manual box (0x45bf70) | [asm] |
+| 0x94 | 0xb8 | f32 | power multiplier: 1.0; 1.2 (0x3f99999a) or 2.0 when 0x4dc1f8, while the wheelie/turbo angle obj+0x307d ≠ 0 (0x4660f0) | [asm] |
+| 0x98..0xc4 | 0xbc..0xe8 | f32×12 | bike matrix, rows R0 (+0x98, right), R1 (+0xa4, up), R2 (+0xb0, forward), T (+0xbc) | [asm; names guess] |
+| 0xc8 | 0xec | f32 | **engine speed** in MVM units (0..MVM; ×RM/MVM = rpm) | [asm] |
+| 0xcc | 0xf0 | f32 | time in the air: 0 on the ground (0x466660), +2.592 (double 0x4d0f20) each step in the air; ±0 = on the ground everywhere below | [asm] |
+| 0xe4 | 0x108 | ptr | owner bike object (→ obj+8 = driven by an input, 0 = computer) | [asm] |
+| 0x100 | 0x124 | f32 | **speed** = length of the velocity | [asm] |
+| 0x104 | 0x128 | f32 | speed at entry of 0x48ef30 (after the top-speed clamp) | [asm] |
+| 0x108 | 0x12c | f32 | **wheel speed**: driven-wheel road speed, signed, kept in ±body+0x90 | [asm] |
+| 0x10c..0x114 | 0x130..0x138 | f32×3 | velocity direction (unit; 0 when the speed ≤ 1e-5) | [asm] |
+| 0x118 | 0x13c | int | dirt brake-slide: set by 0x48ef30 when a player's dirt bike brakes without grip; cleared at each 0x48ef30 entry (after being read) | [asm] |
+
+Globals: 0x4dc0b4 countdown (1 until the start), 0x4dc1f8 (set to 1 at 0x45d1c0 when 0x4dc094 == 2
+championship and 0x509ba8 ≥ 3: torque ×1.1 with a manual box, turbo ×2.0) [asm], **0x4dc1fc** (set
+in 0x468ca0 at 0x468eec from a GetWindowLong(…, −21) + [0x540488] == 0x7b5403 test: a copy
+protection; when 0 the wheel speed is capped 9.0 under top speed in 0x48dd90 — the port takes 1)
+[asm; protection = guess], 0x4dc1f4 (set to 1 at start-up 0x414333; when 0, NbSpeed − 1.0 at
+load) [asm], 0x4ea4c8 gear-key latch (one global for all bikes), 0x581014 = dt.
+
+##### Shared pieces
+
+**Local velocity** [asm, repeated inline 6× in 0x48ef30, in 0x48cbe0, 0x48d0f0, 0x48eb40, 0x48e6e0]:
+d = body+0x10c normalised by 0x40fcd0 (len = f32(√((x²+y²)+z²)); if len ≠ 0: each comp f32(c·(1/len))),
+v = f32(d·speed) per component (0x46d540), inv = 0x40fe80(body matrix) = transpose of R with
+translation −R·T (each f32: inv.t_i = −f32((R_i.z·T.z + R_i.y·T.y) + R_i.x·T.x) in machine order),
+local = 0x410010(v, inv): local_i = f32(((R_i.z·v.z + R_i.y·v.y) + R_i.x·v.x) + inv.t_i).
+So local.x = lateral, local.y = up, **local.z = forward** component; the translation is applied as to
+a point (zero effect if T = 0 in the race [guess: check obj+0xe0..0xe8 in memory]).
+
+**Grip factor k** (inline; also 0x48eb40 which returns it) [asm]:
+- dirt (C+0 MotoType == 1): lat = 0x48d0f0 (80-bit, see below); a = |lat| stored as double;
+  if a > double 0x4d1d48 = 0.01 (3f847ae147ae147b) and a < double 0x4d1d50 = 20.0
+  (4034000000000000): k = f32(a·(−0.05) + 1.0) (double 0x4d1d58 = −0.05 bfa999999999999a,
+  double 0x4d1c00 = 1.0); else k = 1.0. (0x48eb40: lat comes from its own float local vector.)
+- road: k = 1.0, or C+0xa4 MinAdherenceWheel if its bits as int > 0x3f800000 (> 1.0; GOG data: 0.2
+  and 0.1, so k = 1.0 always).
+
+**Blend wheel ← forward**: wheel = f32((fwd − wheel)·k + wheel).
+**Blend forward ← wheel**: 0x48cbe0(f32((wheel − fwd)·k + fwd)).
+
+**Wheel clamp** [asm]: if wheel > max → max; else if −max > wheel → −max (max = body+0x90; −max
+computed as fchs, stored f32).
+
+##### 0x465da0(obj, keys, joyY, joyX, dt) — input → throttle [asm]
+Called by 0x45d580 only when not crashed (obj+0x30c1 == 0).
+1. s = obj+0x2de5 (race state). If s ∉ {0,1} and obj+8 ≠ 0: keys = 2 (brake).
+2. If countdown (0x4dc0b4): keys |= 2. Else if obj+0x307d (wheelie/turbo angle) ≠ ±0: keys |= 1.
+3. If keys & 2: obj+0x2e85 = 0 (turbo request off) and, if obj+8 && obj+4, obj+0x31f9 = 0.
+4. dir = (f32(obj+0xe0 + obj+0xd4), f32(obj+0xe4 + obj+0xd8), f32(obj+0xe8 + obj+0xdc)) = T + R2;
+   len = f32(√((y² + z²) + x²)); if len ≠ 0.0 (float 0x4d0e54): dir = f32(dir·(1/len)) each.
+5. Throttle t and scale:
+   - joyY ≠ 0x8000 and s ∈ {0,1}: t = 0x8000 − joyY; if t < 0: t = t / 2000 (idiv, toward 0;
+     −16..0, a dead zone of 2000); scale = 0x8000. (Keys are ignored.)
+   - else if keys & 3: t = −1 if (keys & 2) and not countdown; else 1 if keys & 1; else 0. scale 1.
+     (In the countdown accelerate gives +1, nothing else.)
+   - else t = 0, scale = 1.
+6. 0x48ef30(ECX = obj+0x24; dir.x, dir.y, dir.z, t, scale, dt) (stdcall, ret 0x18).
+
+##### 0x48ef30(body; dx, dy, dz, t, scale, dt) — engine, brake, slope, drag [asm]
+Locals: dt10 = f32(dt·10.0f) (float 0x4d1da8 = 10.0 41200000) clamped to 500.0f (0x4d1dac,
+43fa0000) — the step in ms; `free` (edi) = countdown || body+0x60 ≠ 0 || body+0x118 ≠ 0 (engine
+disengaged); `air` (ebx) = body+0xcc ≠ ±0; `hold` = t < 0 || countdown; `cpu` = (owner obj+8 == 0).
+
+1. **Speed over top speed**: if speed > max: speed = max; if !air: wheel ← blend from fwd (local z
+   of the clamped velocity). Wheel clamp. If !free: rpm = 0x48deb0(&wheel, gear, rpm).
+2. **Wheel over top speed**: if wheel > max: wheel = max; if !air: forward ← blend from wheel
+   (0x48cbe0). If !free: rpm = 0x48deb0(&wheel, gear, rpm).
+3. saved = speed (→ body+0x104 at the end).
+4. **Throttle** (t ≥ 0): body+0x8c = 0. target = f32((float(t)/float(scale))·MVM) (fild scale,
+   fild t, fdivrp, fmul MVM; the compare below uses the unrounded value).
+   a. target ≥ rpm and t > 0:
+      - free or air: rpm = f32(MVM·dt10·0.0006 + rpm) (double 0x4d1dd0 = 0.0006
+        3f43a92a30553261); if < 0 → 0; if > MVM → MVM. Then if air: wheel = 0x48dd90(&rpm, gear,
+        wheel).
+      - driving (on the ground, engaged):
+        idle = MVM/RM·1200.0f (float 0x4d1db0 44960000); if idle > rpm: rpm = f32(idle).
+        T = 0x48ee30(rpm) (80-bit).
+        F = f32(((((RM / MVM) · rpm) · 2.0f (float 0x4d1c54)) · double 0x4d1db8 =
+        0.05235987755982988 (3faacee9f37bebd5, = π/60)) · T), in that order (fld RM; fdiv MVM;
+        fmul rpm; fmul 2.0f; fmul π/60; fmulp T).
+        (= wheel torque × engine angular speed: rpm·2π/60 → power.)
+        if wheel > double 0x4d1c90 = 0.0001 (3f1a36e2eb1c432d): a = f32(F / wheel)
+        else a = f32(F · double 0x4d1dc0 = 10000.0 (40c3880000000000)).
+        acc = f32(dt10 · a / Masse · double 0x4d1c80 = 0.001 (3f50624dd2f1a9fc));
+        cap = dt10 · double 0x4d1dc8 = 0.03 (3f9eb851eb851eb8) (kept as double); if cap < acc:
+        acc = f32(cap).
+        wheel = f32(wheel + acc); if wheel > max: wheel = max.
+        r = 0x48deb0(&wheel, gear, rpm); rpm = f32(r); if r > MVM: rpm = MVM; else if rpm > target:
+        rpm = target.
+        wheel = 0x48dd90(&rpm, gear, wheel).
+        if !air: forward ← blend from wheel (0x48cbe0).
+   b. target < rpm, or t == 0 (closing the throttle):
+      - free or air: rpm = f32((dt10 · double 0x4d1de0 = −0.0006 (bf43a92a30553261) + 1.0) · rpm);
+        < 0 → 0; > MVM → MVM. If air: wheel = 0x48dd90(&rpm, gear, wheel).
+      - driving: if MVM/RM·1000.0f (float 0x4d1d80 447a0000) < rpm (engine above 1000 rpm):
+        rpm = f32(eb[gear]·rpm·dt10·double 0x4d1dd8 = −0.001 (bf50624dd2f1a9fc) + rpm) with
+        **eb[g] = float at 0x4f17dc + 4g** (engine-brake per gear, read from game.EXE: g1 0.25,
+        g2 0.2, g3 0.16, g4 0.12, g5 0.08, g6 0.05; the table sits right after the string
+        "AnimDecor" at 0x4f17d4, so gear 0 would read junk); < 0 → 0;
+        wheel = 0x48dd90(&rpm, gear, wheel); if !air: forward ← blend from wheel.
+        (At or below 1000 rpm nothing happens.)
+5. body+0x118 = 0.
+6. **Brake** (hold = t < 0 or countdown):
+   - if body+0x88 == 0 and !cpu and !countdown (player's dirt bike sliding): body+0x8c = 0;
+     if dirt: body+0x118 = 1. No braking.
+   - else: b = Frein; if Frein's bits < 10.0f's (int compare) → b = 10.0; else if (double)b >
+     double 0x4d1df0 = 140.0 → b = 140.0f (0x430c0000). If (double)body+0x8c < double 0x4d1e00 =
+     200.0 and !cpu: b = f32(b · float 0x4d1e08 = 0.16666667 (3e2aaaab)) (the player's first 200 ms
+     of braking are soft). dec = f32(b · double 0x4d1e10 = 0.2777777777777778 (3fd1c71c71c71c72,
+     = 1/3.6) · dt10 · 0.001). wheel moves toward 0 by dec: if wheel > 0 (int > 0): wheel =
+     f32(wheel − dec), if it went negative → 0; if wheel < 0 (bits > 0x80000000): wheel =
+     f32(wheel + dec), if > 0 → 0. If !free: rpm = 0x48deb0(&wheel, gear, rpm). If !air: forward ←
+     blend from wheel. body+0x8c = ftol((double)body+0x8c + dt10).
+7. **On the ground (!air): slope and rolling resistance**:
+   fwd = local z of the current velocity (f32).
+   If !hold, or speed > double 0x4d1ca0 = 0.1: g = 0; (always on the ground here) g =
+   f32(−dy · dt10 · double 0x4d1d60 = 0.004905 (3f741743e963dc49, = 9.81/2000)); if g > double
+   0x4d1d68 = 0.55 → g = 0.55f (0x3f0ccccd); fwd = f32(g + fwd). (Braking at a standstill: no slope.)
+   r = 0x459f90(pos) = float 0x4d0e4c = 0.02 (3ca3d70a) (a constant; the position arguments are
+   dropped by `ret 0xc`); dirt: r = f32(r · 0.5 (double 0x4d1c48)). rr = f32(r · dt10 · double
+   0x4d1e18 = 0.00981 (3f841743e963dc49)); if speed's bits < 20.0f's: rr = f32(rr · (double)speed ·
+   double 0x4d1e20 = 0.05). fwd moves toward 0 by rr: if fwd < 0 (bits > 0x80000000): fwd =
+   f32(rr + fwd), if the unrounded sum > 0 → 0; else fwd = f32(fwd − rr), if < 0 → 0.
+   0x48cbe0(fwd) (forward component of the velocity := fwd).
+   wheel ← blend from the new fwd (only when !air, which holds). Wheel clamp. If !free: rpm =
+   0x48deb0(&wheel, gear, rpm).
+8. **Air drag** (both cases): d = speed·speed·dt10·(1.6f in the air (float 0x4d1e28 3fcccccd),
+   0.3f on the ground (float 0x4d1e2c 3e99999a)) (80-bit), d = f32(d / Masse · 0.001);
+   speed = f32(speed − d); negative → 0. (Only the length changes; the direction stays.)
+9. If !air: v = local velocity (with the new speed); k = 0x48eb40(body) (80-bit);
+   wheel = f32((local.z − wheel)·k + wheel). Wheel clamp. If !free: rpm = 0x48deb0(&wheel, gear, rpm).
+10. body+0x104 = saved speed (step 3).
+
+##### 0x48deb0(body; float *wheel, int gear, float rpm) → rpm from the wheel [asm]
+If body+0x60 ≠ 0 (shifting): return rpm. If gear < 1: gear = body+0x58.
+If *wheel < 0 (bits > 0x80000000): r = rpm; else r = f32(MVM / (ratio[gear]·VMB) · *wheel)
+(fld ratio; fmul VMB; fdivr MVM; fmul *wheel). If r < 0 (bits) → 0.
+If MVM < r: r = MVM; *wheel = f32(ratio·VMB / MVM · r).
+Return r (a float). (wheel = rpm·ratio·VMB/MVM: at the red line MVM the wheel speed is
+ratio·VMB, e.g. 1.45·61 = 88.45 in 6th for SPEED1.)
+
+##### 0x48dd90(body; float *rpm, int gear, float wheel) → wheel from the engine [asm]
+If body+0x60 ≠ 0: return wheel. If gear < 1: gear = body+0x58.
+If (float)gear > NbSpeed: return wheel. If *rpm < 0.0001 (double): return wheel.
+w = f32(*rpm / MVM · ratio[gear] · VMB); if the unrounded value < 0.0f → 0.
+lim = body+0x90; if 0x4dc1fc == 0: lim = f32(lim − 9.0f) (float 0x4d1c98).
+If w > lim: w = lim; *rpm = f32(MVM / (ratio·VMB) · lim). Return w.
+
+##### 0x48ee30(body; float e) → torque (ST0) [asm]
+R = f32(RM / MVM · e) (rpm); compare with RCM unrounded.
+- R < RCM: slope = (CM − C1000) / (RCM − 1000.0f) (80-bit; stored f32 as `slope`),
+  icpt = f32(slope80 · double 0x4d1d88 = −1000.0 + C1000).
+- else: slope80 = (CRM − CM) / (RM − RCM), stored f32; icpt = f32(CM − RCM·slope80).
+T = (f32slope · R + icpt) · double 0x4d1d90 = 9.81 (40239eb851eb851f); stored f32; if the
+unrounded value < double 0x4d1d98 = 0.2 → T = 0.2f (0x3e4ccccd).
+If 0x4dc1f8 and body+0x64 == 0 (manual): T = f32(T · double 0x4d1da0 = 1.1).
+Return body+0x94 · T (80-bit, not rounded).
+(SPEED1: torque line through (1000, 6), (10500, 15), (12000, 2), ×9.81.)
+
+##### 0x48cbe0(body; float w) — set the forward velocity component [asm]
+w clamped to ±body+0x90 (if max < w → max; else if −max > w → −max).
+v = local velocity (shared piece; lx = local.x, ly = local.y as floats).
+new.x = f32(((R1.x·ly + R0.x·lx) + R2.x·w) + T.x)
+new.y = f32(((R0.y·lx + R1.y·ly) + R2.y·w) + T.y)
+new.z = f32((R2.z·w + (R1.z·ly + R0.z·lx)) + T.z)
+speed (body+0x100) = f32(√((y² + z²) + x²)).
+If speed's bits & 0x7fffffff: inv = 1/speed (80-bit), n = f32(new·inv) each (else n = new).
+If speed > double 0x4d1c08 = 1e-5 (3ee4f8b588e368f1): dir (body+0x10c) = n; else dir = 0.
+
+##### 0x48d0f0(body) → lateral velocity (ST0, 80-bit) [asm]
+d = normalised dir (as 0x40fcd0, len stored f32), v = f32(d·speed) each, inv as above (each f32),
+return ((R0.z·v.z + R0.y·v.y) + R0.x·v.x) + inv.t0 (no rounding).
+
+##### 0x48eb40(body) → grip factor k [asm]
+The grip factor above; dirt: computes the full local vector with float stores (as 0x410010) and
+uses |local.x| (float, then held as double).
+
+##### Gearbox
+
+###### Keys: inside 0x466660(obj, keys) [asm 0x466735..0x4667d5]
+(The first part of 0x466660 — air time, the brake-on-ground pitch, 0x48e550 — see below/other notes.)
+On the ground (obj+0x2db8 ≠ 0) it calls **0x48e550(body)** (automatic box) after its other work;
+in the air it does not.
+Then, only for an input-driven bike (obj+8 ≠ 0):
+- bit4 and bit5 both: latch 0x4ea4c8 = 1.
+- bit4 (gear up) only: if latch == 0: if manual (obj+0x88 == 0) 0x48e0a0(body); latch = 1.
+- bit5 (gear down) only: if latch == 0: if manual 0x48e120(body); latch = 1.
+- neither: latch = 0.
+Finally 0x48e6e0(body, ftol(dt · 10.0f (float 0x4d10a0))) (ms, truncated).
+(Key bits 4/5 are only set when not in the countdown and the race runs, 0x431250/0x411b30.)
+
+###### 0x48e0a0(body) — request one gear up [asm]
+If body+0x60 == 0: if (float)gear ≥ NbSpeed: gear = ftol(NbSpeed). Else if (float)(gear +
+pending) < NbSpeed: pending++, timer = 200 (auto) / 150 (manual), state = 1.
+
+###### 0x48e120(body) — request one gear down [asm]
+If state ∈ {0, 2}: if gear < 2: gear = 1. Else if gear + pending > 1: pending−−, and if state ≠ 2:
+timer = 300 (auto) / 200 (manual), state = 2. (Repeated presses during a down-shift add steps.)
+
+###### 0x48e6e0(body, ms) — finish a shift [asm+decomp]
+If state ≠ 0: timer −= ms; when timer < 1:
+- state 1: pending = 0, state = 0. If (float)gear < NbSpeed: gear++; if not countdown: rpm =
+  0x48deb0(&wheel, gear, rpm); wheel = 0x48dd90(&rpm, gear, wheel); if on the ground: forward ←
+  blend from wheel (0x48cbe0, grip factor computed inline); body+0x6c = rpm. Else gear =
+  ftol(NbSpeed).
+- state 2: n = |pending|; state = 0, pending = 0; body+0x6c = rpm. If gear < 2: gear = 1. Else
+  n = min(n, gear − 1); if n > 0: automatic box and gear − n > 1: while gear − n > 1 and
+  table[gear − n − 1] − 2.0 (double 0x4d1d40) > wheel: n++ (skip further down to a gear the wheel
+  speed suits); gear −= n; if not countdown: rpm = 0x48deb0(&wheel, gear, rpm); wheel =
+  0x48dd90(&rpm, gear, wheel).
+- other states: state = 0, pending = 0.
+So a shift takes 150/200/300 ms with the clutch out (engine free, wheel coasting).
+
+###### 0x48e550(body) — automatic box [decomp, compares asm-checked]
+- Manual (body+0x64 == 0): build the table (0x48e3a0) if body+0x70 is ±0; return.
+- Automatic, only when body+0x118 == 0 and state == 0:
+  if rpm ≤ 0 (int bits < 1): gear = 1; return.
+  If not countdown: build the table if needed; g = gear.
+  If (float)g ≥ NbSpeed or wheel ≤ table[g]: if g > 1 and wheel < table[g−1] − 2.0 (double) and
+  state ∈ {0,2}: down-shift request as 0x48e120 but timers 300 auto / 200 manual.
+  Else (wheel > table[g]) and state == 0: up-shift request as 0x48e0a0 (200 / 150 ms).
+
+###### 0x48e3a0(body) — the upshift table [asm]
+n = ftol(NbSpeed); top = min(RSM, ratio[n]·VMB) (the product unrounded, stored f32).
+g = 1, v = 0.0f; if NbSpeed > 1.0 (bits): while v < top and (float)g < NbSpeed:
+c = v; r1 = f32(0x48deb0(&c, g, 0.0)); r2 = f32(0x48deb0(&c, g+1, 0.0)) (c may have been clamped by
+the first call); p1 = f32(0x48ee30(r1)·r1); if 0x48ee30(r2)·r2 (unrounded) > p1, or (g < 4 and
+MVM · double 0x4d1d38 = 0.97 < r1): table[g] = v, g++. v = f32(v + 0.1 (double 0x4d1ca0)).
+Then table[g..NbSpeed−1] = top. (Shift up where the next gear gives more power, or at 97 % of the
+red line in gears 1–3.) Note 0x48deb0 returns 0.0 while a shift is in progress, so a table built
+then is wrong [asm; whether that happens: the manual path builds it regardless of state].
+
+##### 0x4660f0(obj, dt) — wheelie/turbo angle and the power multiplier [asm]
+(Called by 0x45d580 when not in the countdown; listed here because it sets body+0x94.)
+- Crashed (obj+0x30c1): angle obj+0x307d = 0, held time obj+0x3081 = 0, request obj+0x2e85 = 0,
+  power obj+0xb8 = 1.0; if obj+8 && obj+4: obj+0x31f9 = 0. Return.
+- Request (obj+0x2e85, a copy of the Space key obj+0x31f9 made by 0x45d580) and held time's bits <
+  200.0f's: angle = f32(dt · double 0x4d10a8 = 0.0471238898038469 (3fa8209f5b22baa7) + angle); if
+  > double 0x4d0eb0 = π/2 → 1.5707964f (0x3fc90fdb); held = f32(held + dt).
+- Else if angle > 0 (int > 0): angle = f32(dt · double 0x4d10b0 = −0.025132741228718346
+  (bf99bc65b68b71c3) + angle); if negative: obj+0x2e95 = −32.0f (0xc2000000), angle = 0.
+- angle ≠ ±0: obj+0xb8 = 2.0 if 0x4dc1f8 else 1.2f (0x3f99999a). Else obj+0xb8 = 1.0 and, if no
+  request, held = 0.
+So the action-6 key lifts the front (0..π/2 in ~33 steps of dt 1) for at most 200 dt units (2 s) a
+press, gives ×1.2 power and full throttle (0x465da0 step 2) while the angle is up.
+
+##### Related fields seen but not mapped here
+- obj+0x11c: int engine rpm for the sound/HUD (ftol, at least 800), obj+0x114/+0x118 ints, obj+0x120:
+  written by 0x467930 (post-step; it calls 0x48e180 with obj+0x7c).
+- obj+0x2e95 (set −32.0 when the wheelie ends), obj+0x2ea5 (0x45d580/0x466660 pitch).
+- Engine sound (NOTES §4.10.6.3) reads obj+0x7c (gear), obj+0x11c, obj+0x307d.
+
+##### Open points
+- Units: speeds look like m/s ×? (RSM 80, VMB 61; 1/3.6 in the brake formula suggests Frein in
+  km/h per second) [guess]. obj+0x118 → int speed for the HUD in 0x467930 (not read).
+- Whether the matrix translation T (obj+0xe0..0xe8) is zero in the race (else every "local
+  velocity" carries a −R·T offset, and 0x465da0's direction is T + R2): read it in memory.
+- 0x4dc1fc / 0x4dc1f4 values in GOG's running game (expected 1 / 1): read in memory.
+- FPU precision (the 80-bit intermediates assume the default 53-bit control word).
+
+---------------------------------------------------------------------------------------------
+
+#### 6. The body: integration, steering, slide, orientation
+
+(Body integration, steering, lean/slide, orientation, gearbox helpers)
+
+`obj` = bike object (player 1 0x584421), `body` =
+obj+0x24 (the class at 0x48xxxx works on it: body+Y = obj+0x24+Y). `C` = carac row
+0x509278 + bike*0x124 (names in build/phys/brief.md). `dt` = the step (ms*0.1, >= 1.0), also in
+global 0x581014. `dts` below = seconds = float(dt*0.01). Marks: [asm] read in the machine code,
+[decomp] Ghidra only, [guess].
+
+Float/double constants are given as they are read (width, address, value, bits).
+"f32(x)" = a store to a float (rounding); everything between stores is x87 extended (the FPU's
+precision control: process default, no fldcw in the program [guess 53-bit]).
+x87 compares: "a < b" etc. below are the exact branch conditions read from the flags.
+"int-compare" = the code compares the float's bits as a signed or unsigned integer (MSVC trick):
+`(int)bits < 1` means "<= +0.0 or negative"; `(uint)bits > 0x80000000` means "negative, not -0".
+
+Units: speed in m/s (C+0x48 RealSpeedMax 80 = 288 km/h; 0.5556 = 2 km/h threshold),
+world = 128 units per metre (displacement = speed*128*seconds; radius*1/128 -> metres).
+
+---------------------------------------------------------------------------------------------
+
+##### 6.1 Body fields (body = obj+0x24) [asm unless marked]
+
+Constructor 0x48bce0(body, &pos, &angles, model) (thiscall, ret 0xc): +0x0c..+0x14 = pos,
++0x00..+0x08 = angles, +0x34 = model, +0x44 = 1, +0x58 = 1, +0x88 = 1, +0x94 = 1.0f; zeroes
++0x30, +0x48, +0x60, +0x68, +0x6c, +0x70..+0x84 (6 dwords), +0x8c, +0xc8, +0xd0, +0xd4,
++0xe4, +0xe8, +0xec, +0xf0..+0xfc, +0x100, +0x104, +0x108, +0x118, +0x180.
+
+| body | obj | name | written by / meaning |
+|------|-----|------|----------------------|
+| +0x00..08 | +0x24 | angles (menu/ctor) | not used by the step parts here |
+| +0x0c..14 | +0x30..38 | **position** x,y,z (world units) | 0x48d620 `pos += d` |
+| +0x18..20 | +0x3c..44 | position one step ago | 0x465fa0 (start of step) |
+| +0x24..2c | +0x48..50 | position two steps ago | 0x465fa0 |
+| +0x30 | +0x54 | dt of the step | 0x465fa0 copies 0x581014 |
+| +0x34 | +0x58 | model pointer | ctor |
+| +0x54 | +0x78 | bike number (carac row) | |
+| +0x58 | +0x7c | **gear** 1..NbSpeed | gearbox §7 |
+| +0x5c | +0x80 | shift timer (ms, int) | 0x48e0a0/0x48e120/0x48e550, counted down by 0x48e6e0 |
+| +0x60 | +0x84 | shift state: 0 none, 1 up, 2 down | while != 0 the rev/wheel conversion 0x48deb0 returns its "previous" argument |
+| +0x64 | +0x88 | automatic gearbox (1) / manual (0) | 0x411010 (= 0x4dc0a0 for player 1, 1 for others) |
+| +0x68 | +0x8c | pending gear delta (int) | |
+| +0x6c | +0x90 | rev at the last shift (table[0]) | 0x48e6e0 |
+| +0x70.. | +0x94.. | table[g] = upshift wheel speed of gear g (g = 1..NbSpeed-1) | 0x48e3a0 |
+| +0x88 | +0xac | drive/grip flag (1; 0 = dirt bike braking + steering) | 0x466240; read by 0x48ef30 (engine part) |
+| +0x90 | +0xb4 | **max speed** = C+0x48 RealSpeedMax (+2.0 manual, 0x45bf70) | |
+| +0x94 | +0xb8 | turbo factor 1.0 / 1.2 / 2.0 | 0x4660f0 |
+| +0x98..c4 | +0xbc..e8 | **orientation matrix** (12 floats, layout below) | 0x45cb00 |
+| +0xc8 | +0xec | **engine rev** e, 0..C+0x18 MoteurVitesseMax | 0x48deb0 |
+| +0xcc | +0xf0 | **airborne counter**: 0 on the ground, +2.592 (double 0x4d0f20) per step without contact | 0x466660 |
+| +0xd0 | +0xf4 | smoothed half-sum of the longitudinal speed change | 0x4667e0 (other part) |
+| +0xd4 | +0xf8 | **longitudinal acceleration** (m/s^2) = (lon - lon_at_step_start)/(dt*0.01) | 0x4667e0 |
+| +0xd8..e0 | +0xfc..104 | displacement of this step (world units) | 0x48d620 |
+| +0xe4 | +0x108 | pointer to the owning obj | 0x45bf70 |
+| +0xe8 | +0x10c | **steering rate** | 0x466240 |
+| +0xec | +0x110 | **steering angle** | 0x466240 |
+| +0x100 | +0x124 | **speed** (m/s, magnitude) | 0x48d620, 0x48d2c0 |
+| +0x108 | +0x12c | **wheel speed** (signed, clamped to +-max) | 0x48d620 tail, gearbox |
+| +0x10c..114 | +0x130..138 | **F**: unit velocity direction ("forward") | 0x48d620, 0x48d2c0 |
+| +0x118 | +0x13c | flag: doubles the dirt v^2/r term (0x45d110), blocks the automatic gearbox (0x48e550) | set elsewhere |
+| +0x11c..148 | +0x140..16c | matrix of the previous step | 0x465fa0 |
+| +0x150..158 | +0x174..17c | **P**: unit direction of an extra (impulse) velocity | 0x48d620; set by collisions (other part) |
+| +0x15c | +0x180 | **|P|**, impulse speed, decays 33.33 m/s per second | 0x48d620 |
+| +0x168..170 | +0x18c..194 | **V**: unit smoothed motion direction (what moves the bike) | 0x48d620 |
+
+**Matrix layout** (body+0x98, 12 floats M0..M11): M0,M1,M2 = image of the x axis ("right"),
+M3,M4,M5 = y ("up"), M6,M7,M8 = z ("forward"), M9..M11 = translation T. A point maps as
+out = M0..2*x + M3..5*y + M6..8*z + T. **T is always 0 for the bike**: every writer of
+obj+0xe0..0xe8 in the step stores 0 (0x45cb00 at 0x45ccdc, and 0x469c60/0x46bb2e/0x46c50b)
+[asm]. The "inverse" built inline by 0x48ca10/0x48d0f0/0x48d2c0/0x48e6e0 is the transpose,
+with translation -(R^T T) = -0.0: it never changes a value.
+
+obj fields outside body used here: +0x8 driven by inputs (else AI), +0xc forced-input active,
++0x10 forced input bits (OR-ed into the keys by 0x466240), **+0x18 turn radius in metres
+(signed; FLT_MAX = none)** (0x45d110), +0x2da0 "sliding" flag (0x45d580: grounded +0x2db8 and
+|lateral| >= 0.04), +0x2da8 longitudinal speed at step start (0x465fa0 via 0x48ca10),
++0x2db8 wheels on the ground (contact part), +0x2e29 steering is analogue (1) / keys (0),
++0x2e55..+0x2e84 copy of the matrix (written by 0x45b4e0, 0x469c60 and the drawer 0x45f290;
+read by 0x45ca00), +0x2ea5 brake-dive angle (<= 0), +0x307d turbo/wheelie angle (0x4660f0),
++0x31c1 current track section.
+
+---------------------------------------------------------------------------------------------
+
+##### 6.2 Small helpers [asm]
+
+- 0x40fcb0(v) |v|: sqrt((x*x + y*y) + z*z), returned unrounded in ST0.
+- 0x40fcd0(v) normalise in place: n = f32(sqrt((x*x + y*y) + z*z)); if n != 0: k = 1/n
+  (extended); x = f32(x*k), y = f32(y*k), z = f32(k*z).
+  The same inline sequence (n stored as float, then 1/n) is used everywhere a vector is
+  normalised below ("norm()").
+- 0x410010(out, v, M) (stdcall): out.x = f32(((M6*vz + M3*vy) + M0*vx) + M9),
+  out.y = f32(((M1*vx + M4*vy) + M7*vz) + M10), out.z = f32(((M8*vz + M5*vy) + M2*vx) + M11).
+- 0x403a80(out, A, B) (stdcall): out = B∘A (apply A, then B), each element one f32 store:
+  o0 = a2*b6 + (a1*b3 + a0*b0); o1 = (a0*b1 + a2*b7) + a1*b4; o2 = (a0*b2 + a1*b5) + a2*b8;
+  o3 = (b0*a3 + a5*b6) + b3*a4; o4 = (a5*b7 + b1*a3) + b4*a4; o5 = (a5*b8 + b5*a4) + b2*a3;
+  o6 = (b0*a6 + a7*b3) + a8*b6; o7 = (b1*a6 + b7*a8) + a7*b4; o8 = (b5*a7 + a6*b2) + b8*a8;
+  o9 = ((b0*a9 + a11*b6) + b3*a10) + b9; o10 = ((a9*b1 + a11*b7) + b4*a10) + b10;
+  o11 = ((a9*b2 + b5*a10) + a11*b8) + b11. (Products commute; the grouping is what counts.)
+- Angle -> table: i = __ftol(angle * double 2607.594587618272 [0x4d0300 / 0x4d0ed0, bits
+  0x40a45f306dc9ce2b]) (truncation), cos = COS[i & 0x3fff], sin = COS[(i-0x1000) & 0x3fff],
+  COS = 0x5fcb80 (NOTES §4.9.3.2).
+- 0x40fd40(M, &angles a,b,c) (thiscall, ret 4) Euler matrix, T = 0 [asm]. With ca,sa / cb,sb /
+  cc,sc from the table (sc kept as a float in memory):
+  M0 = cb*cc; M1 = (sb*sa)*cc + sc*ca; M2 = sc*sa - f32(sb*ca)*cc; M3 = -(sc*cb);
+  M4 = ca*cc - f32(sb*sa)*sc; M5 = cc*sa + f32(sb*ca)*sc; M6 = sb; M7 = -(cb*sa); M8 = cb*ca.
+  (In M1 the product sb*sa is the unrounded one; in M4 the float-rounded copy.)
+- 0x46d270(M, out) angles from a matrix [asm]: sb = M6; cb = f32(sqrt(double 1.0 - sb*sb));
+  if cb > float 1e-5 (0x4d0e50, 0x3727c5ac): b = f32(atan2(sb, cb)); a = f32(atan2(-(M7/cb),
+  M8/cb)); cc' = f32(M0/cb); sc' = f32(-(M3/cb)); else b = +-1.5707964f (sign of M6's bits),
+  a = 0, cc' = M4, sc' = M1. c = f32(atan2(sc', cc')). out = (a, b, c).
+  (fpatan: atan2(st1, st0).)
+- 0x45cb00(obj, R by value: 48 bytes on the stack, ret 0x30) **turn the bike by R in its own
+  frame and re-square the matrix** [asm]: M = 0x403a80(R, M) (= M∘R); (a,b,c) = 0x46d270(M);
+  rebuild M from (a,b,c) through the table (constant 0x4d0ed0), different rounding from 0x40fd40:
+  M0 = cc*cb; M1 = sc*ca + f32(sb*cc)*sa; M2 = sc*sa - f32(sb*cc)*ca; M3 = -(sc*cb);
+  M4 = cc*ca - f32(sc*sb)*sa; M5 = cc*sa + f32(sc*sb)*ca; M6 = sb; M7 = -(cb*sa); M8 = cb*ca;
+  T = 0. So every rotation quantises the orientation to 16384 steps a turn per axis.
+- 0x458da0(a) wrap: while a < -pi (double 0x4d0e18) a += 2pi (double 0x4d0e20); while a > pi
+  (0x4d0e28) a -= 2pi; the loops keep the extended value, one f32 at the end.
+- 0x48ca10(body) **longitudinal speed** [asm]: u = norm(F); w = f32(speed*u) per component;
+  returns (M7*wy + M8*wz) + M6*wx + (-0.0) (unrounded, ST0). = w·Z.
+- 0x48d0f0(body) **lateral speed** [asm]: same w; returns (M2*wz + M1*wy) + M0*wx + (-0.0) =
+  w·X. (Right after 0x48d620 F is parallel to Z, so this is ~0; the lateral part lives in F
+  between 0x48d2c0 and the next 0x48d620.)
+- 0x40c8b0(track 0x52c108, section s, &p) **road height** [asm]: if count [0x52c10c] <= 0 ->
+  0.0f. Section record = [0x52c108] + s*0xfc; plane test = 0x4b10c0(record+0xa0, p) (n·p + d,
+  ((ny*py + nz*pz) + nx*px) + d; counts calls in 0x709378); if < 0.0f -> plane (a,b,c,d) at
+  record+0x90, else at record+0x80. If b == +-0 -> 0.0f; else returns
+  -(((pz*c) + (a*px)) + d) / b (extended; callers store a float).
+
+---------------------------------------------------------------------------------------------
+
+##### 6.3 0x48d620(body, dt, flag) — integrate one step [asm]
+
+Called from 0x45d580 with flag = 1 when the bike is a dirt bike (C+0x120) and
+0x46c7a0(obj+0x31c1, 8) == 0 (other part), else 0. thiscall, ret 8. In order:
+
+1. dtk = f32(dt * float 0.01f [0x4d1c10, 0x3c23d70a]) (= seconds); old = speed (body+0x100).
+2. F = 0x410010(M, (0,0,1)) = Z + T; F = norm(F) (inline) ; store body+0x10c..114.
+3. **Branch on the airborne counter**: if body+0xcc <= double 2.592 [0x4d1c18,
+   0x4004bc6a7ef9db23] -> **ground**, else **air**.
+
+**Air** (more than one step without contact):
+  a. V = norm(V); V = f32(V*speed) per component.
+  b. dtk becomes a double (`fst qword`) for the rest of the routine (same value).
+  c. Vy = f32(Vy - dtk*double 24.525 [0x4d1c20, 0x4038866666666667]) (gravity 9.81*2.5).
+  d. speed = f32(sqrt((Vy*Vy + Vz*Vz) + Vx*Vx)); V = norm(V).
+  e. if |P| (body+0x15c) != +-0: Px,Py,Pz = f32(P*|P|); Py = f32(dtk*double -24.525
+     [0x4d1c28] + Py); |P| = f32(sqrt((Py*Py + Pz*Pz) + Px*Px)); k = 1/|P| (extended);
+     P = (f32(Px*k), f32(Py*k), f32(k*Pz)).
+  f. k = (speed * double 128.0 [0x4d1c30]) * dtk; d = (f32(Vx*k), f32(Vy*k), f32(k*Vz)).
+  g. if max (body+0x90) < speed: speed = max.
+
+**Ground**:
+  a. c = (Vy*Fy + Vz*Fz) + Vx*Fx; if c < 0: speed = f32(speed * |f32(c)|).
+  b. grip g: k = (C+0x120 dirt ? double 11.0 [0x4d1c40] : double 6.0 [0x4d1c38]) /
+     |obj+0x18| (turn radius, metres); g = f32(double 1.0 [0x4d1c00] - k);
+     int-compare: if bits(g) > 0x3f800000 -> g = 1.0f, else if g < double 0.5 -> g = 0.5f.
+     (So g = 1 when no radius, 0.5..1 in tight turns.)
+  c. r = f32(speed / max * float 2.0f [0x4d1c54]); if the unrounded value > double 0.9
+     [0x4d1c58] -> r = 0.9f (0x3f666666); then if r < double 0.85 [0x4d1c68] -> r = 0.85f
+     (0x3f59999a). w = 1.0f - r (extended).
+  d. **V blends towards F**: Vx = f32((Fx*w) + Vx*r); Vy (computed, then thrown away);
+     Vz = f32((w*Fz) + Vz*r); then **Vy = Fy** exactly. V = norm(V).
+  e. dtk -> double; k = ((speed*g) * double 128.0) * dtk;
+     d = (f32(Vx*k), f32(Vy*k), f32(k*Vz)).
+  f. if flag == 0 or int-compare dy <= 0: dy = f32(dtk * double -1255.68 [0x4d1c78,
+     0xc0939eb851eb851f] + dy) (a downward push of 9.81*128 per second, every grounded step).
+  g. if |P| != +-0: c2 = (Pz*Fz + Py*Fy) + Px*Fx; Py = (c2 < 0 ? -Fy : Fy); P = norm(P).
+
+**Tail** (both):
+  1. kP = (|P| * double 128.0) * dtk; dx = f32(Px*kP + dx); dy = f32(Py*kP + dy);
+     dz = f32(kP*Pz + dz) (the unrounded dz is kept and stored after the next two lines).
+  2. pos.x = f32(dx + pos.x); pos.y = f32(dy + pos.y); pos.z = f32(dz + pos.z).
+  3. if |f32(old - speed)| > double 0.001 [0x4d1c80]:
+     - if body+0xcc == +-0 (on the ground this step): a = f32(0x48ca10(body)); b = 0x48eb40(body)
+       (engine part: blend factor, ST0); wheel = f32((a - wheel)*b + wheel).
+     - clamp wheel to [-max, +max] (if wheel > max: max; else if -max > wheel: f32(-max)).
+     - rev = f32(0x48deb0(body, &wheel, gear, rev)) (§7).
+  4. dec = f32(dtk * double 33.333333333333336 [0x4d1c88, 0x4040aaaaaaaaaaab]);
+     if int-compare |P| > 0: |P| = f32(|P| - dec), negative -> 0; else if negative (bits >
+     0x80000000): |P| = f32(|P| + dec), int > 0 -> 0.
+
+Fields: reads/writes body+0x0c..14, 0x90, 0xc8, 0xcc, 0xd8..e0, 0xe4(->obj+0x18), 0x100,
+0x108, 0x10c..114, 0x150..15c, 0x168..170, M (read).
+
+---------------------------------------------------------------------------------------------
+
+##### 6.4 0x45d110(obj, dt) — sideways slide (lean of the velocity) [asm]
+
+Runs after 0x48d620. thiscall, ret 4. Returns the new lateral speed (ST0).
+1. dts = f32(dt * double 0.01 [0x4d0ed8]) (overwrites the argument slot).
+2. If body+0xcc (obj+0xf0) > double 2.592 [0x4d0f20]: return 0x48d0f0(body) (nothing else).
+3. lon = f32(0x48ca10(body)); lat = f32(0x48d0f0(body));
+   grip = f32(0x459f80(...)) = 1.0f: 0x459f80 is a stub returning float [0x4d0e48] = 1.0 and
+   popping 4 ignored arguments (rear wheel x, y, z, bike) — ret 0x10.
+4. Championship check: if 0x4dc094 == 2 and [0x509ba8] >= 3: 0x4dc1f8 = 0, then the bytes at
+   0x442761/0x442762 (code of the main menu: 0x75 0x22) are compared with 0x75 / 0x22 and both
+   `jne` go to the next instruction, then 0x4dc1f8 = 1. **0x4dc1f8 is a "genuine copy" flag**:
+   initial value 1 in the image, always 1 in this build; when 0 the game would weaken the turbo
+   (0x4660f0: factor 1.2 instead of 2.0) and something in 0x48ef30 (0x48eef2). The code at
+   0x45d1cf ("ILLEGAL VERSION" text) is unreachable. Port: treat 0x4dc1f8 as 1.
+5. **Turn radius** (only when obj+0xc == 0 and int-compare speed > 1.0f):
+   R = 0x45cd10(x0 = obj+0x48, z0 = obj+0x50, x1 = obj+0x3c, z1 = obj+0x44, x2 = obj+0x30,
+   z2 = obj+0x38, 0, 0) (positions two steps ago, one step ago, now) * double 0.0078125
+   [0x4d0ee0] (= /128 -> metres).
+   - Dirt (C+0 MotoType == 1): Rloc = f32(R*k) and obj+0x18 = Rloc (obj+0x18 unchanged and
+     Rloc = FLT_MAX when the condition fails).
+   - Road: obj+0x18 = FLT_MAX first; when the condition holds obj+0x18 = f32(R*k). Rloc stays
+     FLT_MAX (not used for road bikes).
+6. Road camber: p = obj+0x30..38; py = (sections ? f32(0x40c8b0(track, obj+0x31c1, p)) : 0);
+   q = (f32((M9 + M0) + px), f32((M1 + M10) + py), f32((M2 + M11) + pz)) (the point one unit
+   to the bike's right; obj+0xe0 + obj+0xbc etc.);
+   h = sections ? f32(qy - 0x40c8b0(track, section, q)) : qy.
+   s = f32(h / sqrt(h*h + double 1.0)) (sine of the right axis' tilt over the road).
+7. a = 0; if dirt: a = f32(lon*lon / Rloc) (centripetal); if body+0x118: a = f32(a * double 2.0).
+   s9 = f32(s * double 9.81 [0x4d0f30, 0x40239eb851eb851f]); g9 = f32(grip * double 9.81).
+8. new = f32(((dirt ? s9 + a : s9) * dts) + lat); dec = f32(g9 * dts).
+9. Towards 0 without crossing: if int-compare new > 0: new = f32(new - dec), < 0 -> 0; else if
+   new < 0 (as double): new = f32(dec + new), > 0 -> 0.
+10. 0x48d2c0(body, new); return new.
+
+Effect: road bikes never keep a lateral speed (the camber term is at most 9.81 and the decay
+is 9.81, from a lateral of ~0); dirt bikes slide outwards when v^2/r beats g*(1 - s).
+
+###### 0x45cd10(x0,z0,x1,z1,x2,z2, &cx, &cz) — signed turning radius [asm]
+
+stdcall, ret 0x20; returns ST0. Points P0 (oldest), P1, P2 (newest) in the ground plane (x,z).
+1. A = f32(z1-z0), B = f32(x2-x1), C = f32(x1-x0), D = f32(z2-z1).
+2. If (|D| < double 1e-4 [0x4d0eb8] and |B| < 1e-4) or (|A| < 1e-4 and |C| < 1e-4):
+   *cx = *cz = 0 (if given), return float FLT_MAX [0x4d0e74].
+3. d1 = f32(sqrt(C*C + A*A)); d2 = f32(sqrt((z1-z2)^2 + (x1-x2)^2)) (each difference
+   unrounded); l1 = d1, l2 = d2, int-compares: > 800.0f -> 800.0f, then < 128.0f -> 128.0f.
+4. Two points half a clamped step from P1 (stored as floats over the argument slots):
+   Q1z = f32(((l2/d2)*D)*0.5 + z1); Q1x = f32(((l2/d2)*B)*0.5 + x1);
+   Q0z = f32((((z0-z1)/d1)*l1)*0.5 + z1); Q0x = f32((((x0-x1)/d1)*l1)*0.5 + x1)
+   (0.5 = double 0x4d0f08).
+5. G = f32(Q1z - z1); H = f32(Q1x - x1); J = Q0x - x0 (unrounded); E = f32(Q1z - Q0z);
+   K = G*E + H*Q1x; Num = double(K*(Q0z - z0) - Q0x*(J*G));
+   Den = double((Q0z - z0)*H - J*G).
+6. If |f32(Den)| <= 1e-4 or |G| <= 1e-4: *cx = *cz = 0, return FLT_MAX.
+7. cx = f32(Num/Den); cz = f32(((Q1x - cx_unrounded)/G)*H + Q1z) (cz uses the extended
+   quotient, later uses of cx the float); store *cx, *cz if given.
+8. R = f32(sqrt((x1-cx)^2 + (z1-cz)^2)) (sum: (x1-cx)^2 first); side =
+   (cz - Q0z)*(Q1x - Q0x) - (cx - Q0x)*E; if side < 0: R = -R. Return f32(R * double 2.0).
+
+###### 0x48d2c0(body, lat) — set the lateral speed [asm]
+
+thiscall, ret 4. 1) lat clamped: if max < lat -> max; else if -max > lat -> f32(-max).
+2) w = f32(speed*norm(F)). 3) l = 0x410010(w, transpose of M) (ly = ((M3*wx + M4*wy) + M5*wz),
+lz = ((M8*wz + M7*wy) + M6*wx), each + -0.0, f32). 4) back to world with lx = lat:
+x = f32(((M0*lat + M3*ly) + M6*lz) + M9); y = f32(((M1*lat + M7*lz) + M4*ly) + M10);
+z = f32(((M2*lat + M5*ly) + M8*lz) + M11). 5) speed = f32(sqrt((y*y + z*z) + x*x)).
+6) u = (x,y,z); if speed != +-0: k = 1/speed, u = (f32(x*k), f32(y*k), f32(k*z)).
+7) F = u if |speed| > double 1e-5 [0x4d1c08], else F = (0,0,0).
+
+---------------------------------------------------------------------------------------------
+
+##### 6.5 0x466240(obj, keys, joyY, joyX, dt) — steering and yaw [asm]
+
+Called by 0x45d580 only when not in the countdown (0x4dc0b4 == 0) and not crashed. ret 0x10.
+1. lat0 = f32(0x48d0f0(body)) (lateral speed left by the previous step).
+2. if obj+0xc: keys |= obj+0x10.
+3. **Steering angle** s = obj+0x110, rate r = obj+0x10c; RAA = C+0x24
+   RoueAccelerationAngulaire, RLA = C+0x34 RoueLimiteAngulaire, RVR = C+0x2c RoueVitesseRetour;
+   K = double 0.5555555555555556 [0x4d10c0] (2 km/h):
+   - **Analogue** (joyX != 0x8000): n = joyX - 0x8000, n = 0 if speed < K; obj+0x2e29 = 1;
+     s = f32(((float)n * RLA) * float 3.0517578125e-05 [0x4d10c8] (1/32768)). r untouched.
+   - **Right** (keys & 8) and speed > K: obj+0x2e29 = 0; if s < 0 (bits > 0x80000000): s = 0;
+     r = f32(RAA*dt + r); new = r*dt + s (unrounded); s = f32(min(new, RLA)) (RLA when
+     RLA <= new).
+   - else **Left** (keys & 4) and speed > K: obj+0x2e29 = 0; if int-compare s > 0: s = 0;
+     r = f32(RAA*dt + r); new = s - r*dt; s = f32(max(new, -RLA)) (-RLA when -RLA >= new).
+   - else **centre**: ret = obj+0xf8 (longitudinal acceleration) * RVR * double 1/6
+     [0x4d10d0]; if ret < RVR: ret = RVR (else f32(ret)); r = 0; if int-compare s > 0:
+     s = f32(s - ret*dt), negative -> 0; else if s negative: s = f32(ret*dt + s), int > 0 -> 0.
+   (Keys: right is tested before left; 0x431250 already makes them exclusive.)
+4. **Turn factor** T: if obj+8 == 0: T = 0.004f (0x3b83126f). Else f = speed / C+0x4c
+   VitesseMaxBoite * double 0.5 [0x4d0f08] (kept as double); if f < double 0.0 [0x4d0f28]:
+   f = 0, else f = min(f, 0.5). T = RT - (f*RT)*0.5f (RT = C+0x50 RotationTransfert, 0.5f =
+   float 0x4d1018); if obj+0x307d (turbo angle) != +-0: T = T*0.5f (from the unrounded value);
+   T = f32(T). Then T2 = f32((T*dt) * float 0.01f [0x4d1004]).
+5. obj+0xac (body+0x88) = 1; if driven and dirt (MotoType 1): keys: 0 when (keys & 2) and
+   (keys & 0xc) (braking while steering) else 1; analogue: 0 when joyX < 0x4000 or > 0xc000,
+   else 1; then 1 again if int-compare speed < 2.0f.
+6. **Grip multiplier** m = 1.0f; if obj+0x2da0 (sliding): m = |lat0| * double 0.1 [0x4d0ea8]
+   + double 1.0 [0x4d0ec8]; if m < 1.0 -> 1.0 else min(m, double 1.6 [0x4d10e0]); m = f32(m);
+   if (keys & 2) and (keys & 0xc): m = 1.6f (0x3fcccccd).
+7. yaw = f32((m * T2) * s); R = 0x40fd40((0, yaw, 0)); 0x45cb00(obj, R).
+   **The bike turns by yaw = T2*m*steering radians per step about its own up axis**, i.e.
+   rate = RotationTransfert*(1 - 0.5*min(speed/(2*VMB), 0.5)) * steering per second (x0.5 with
+   turbo). Road SPEED1: RLA 600 * RT 0.0028 = 1.68 rad/s at full lock, standing; 1.26 rad/s at
+   VMB and above.
+
+---------------------------------------------------------------------------------------------
+
+##### 6.6 0x466660(obj, keys) — airborne counter, brake dive, gear keys, shifts [asm]
+
+thiscall, ret 4. Runs after 0x468ca0 (ground contact sets obj+0x2db8).
+1. If obj+0x2db8 == 0 (no contact): obj+0xf0 = f32(obj+0xf0 + double 2.592) (per step, not
+   scaled by dt). Else:
+   a. obj+0xf0 = 0; lon = f32(0x48ca10(body)).
+   b. If (keys & 2) and lon > double 0.1 [0x4d0ea8]: **nose dip**: a = 0x45d0c0(obj,
+      0.024543693f [0x3cc90fdb] = 2pi/256); R = 0x40fd40((a, 0, 0)); 0x45cb00(obj, R)
+      (a pitch of 1/256 turn per braking step, unless the slope test says 0);
+      obj+0x2ea5 = f32([0x581014]*double -0.001963495408493621 [0x4d10f0] + obj+0x2ea5);
+      if < double -0.19634954084936207 [0x4d10f8]: obj+0x2ea5 = -0.19634955f (0xbe490fdb).
+      (0x45d580 brings +0x2ea5 back: when not braking or speed < 1: if > 0 -> 0, else
+      += dt*double 0.0025 [0x4d0f38], int > 0 -> 0 [decomp].)
+   c. 0x48e550(body) (automatic gearbox, §7).
+2. If driven (obj+8): gear keys with a global latch 0x4ea4c8 (one shift per press; shared by
+   all bikes): both 0x10 and 0x20 -> latch = 1; 0x10 alone and latch 0: if manual (obj+0x88
+   == 0) 0x48e0a0 (up); latch = 1; 0x20 alone and latch 0: if manual 0x48e120 (down);
+   latch = 1; neither -> latch = 0. (In automatic the keys do nothing but set the latch.)
+3. 0x48e6e0(body, __ftol([0x581014] * float 10.0f [0x4d10a0])) (= ms, truncated).
+
+0x45d0c0(obj, a) [asm]: a = f32(0x458da0(a)); p = 0x45ca00(obj) (as double); if p > double
+1.4726215563702154 [0x4d0f10] or p < double -1.4726215563702154 [0x4d0f18]: return 0; else a.
+0x45ca00(obj) **pitch of the bike** from the matrix copy obj+0x2e55 (X = +0x2e55..5d,
+Z = +0x2e6d..75, T = +0x2e79..81) [asm]: fx = f32(Zx+Tx), fy = f32(Zy+Ty), fz = f32(Zz+Tz),
+Xx' = f32(Xx+Tx), Xz' = f32(Xz+Tz); h = f32(fz*fz + fx*fx); n = f32(sqrt((fz*fz + fy*fy) +
+fx*fx)) — sum order (fy*fy + fz*fz) + fx*fx; r = f32(sqrt(h) * n); if |r| < 1e-4: return
+(int-compare fy > 0 ? 1.5707964f : -1.5707964f); else return atan2((((fz*fy)*Xx') +
+((-(fx*fy))*Xz'))/r, h/r) (unrounded).
+
+---------------------------------------------------------------------------------------------
+
+##### 6.7 Gearbox and rev helpers [asm unless marked]
+
+NbSpeed = C+0x70 (float), ratio[g] = C+0x74+4g (RapportDeBoite g), VMB = C+0x4c, MVM =
+C+0x18 MoteurVitesseMax, RSM = C+0x48 RealSpeedMax.
+
+- **0x48deb0(body, &v, g, prev)** rev from wheel speed (thiscall, ret 0xc): if body+0x60
+  (shifting) return prev; if g < 1: g = gear; if v negative (bits > 0x80000000): e = prev
+  else e = f32(MVM / (ratio[g]*VMB) * v); if e negative: e = 0; if MVM < e: e = MVM,
+  v = f32(((ratio[g]*VMB) / MVM) * e) (written back). Returns e.
+- **0x48df90(body, &v, prev)** (reset only: 0x411010, 0x412a50) choose a gear for v: if
+  shifting return prev; loop: e = MVM/(ratio[g]*VMB)*v; if (unrounded) e < double 0.1
+  [0x4d1ca0]: if g <= 1 stop, else g-- (store); else if MVM < f32(e): if (float)g < NbSpeed
+  g++ (store) else stop; repeat while MVM < e. Then e negative -> 0; else if MVM < e: e = MVM,
+  v = f32(((ratio[g]/MVM)*VMB)*e). Returns e.
+- **0x48edd0(body)** (reset): wheel = speed, clamped to [-max, max].
+- **0x48e0a0(body)** gear up (manual key): only if not shifting: if NbSpeed <= (float)gear:
+  gear = __ftol(NbSpeed); else if (float)(gear + pending) < NbSpeed: pending++, timer =
+  (auto ? 200 : 150) ms, state = 1.
+- **0x48e120(body)** gear down (manual key): only if state is 0 or 2: if gear <= 1: gear = 1;
+  else if gear + pending > 1: pending-- (also when already state 2), and if state was 0:
+  timer = (auto ? 300 : 200), state = 2.
+- **0x48e550(body)** automatic gearbox (every grounded step): manual -> only build the table if
+  table[1] (body+0x70) == +-0 (0x48e3a0). Auto: nothing if body+0x118 or shifting; if
+  int-compare rev <= 0: gear = 1; nothing during the countdown; build the table if empty;
+  up: if (float)gear < NbSpeed and table[gear] < wheel: (if not shifting) pending++, timer 200,
+  state 1 (same tests as 0x48e0a0); else down: if gear > 1 and table[gear-1] - double 2.0
+  [0x4d1d40] > wheel and state is 0 or 2: as 0x48e120 with timer 300.
+- **0x48e3a0(body)** shift table: n = __ftol(NbSpeed); vmax = f32(min(RSM, ratio[n]*VMB));
+  g = 1, v = 0.0f; if int-compare NbSpeed > 1.0: while v < vmax: vc = v; e1 =
+  f32(0x48deb0(&vc, g, 0)); e2 = f32(0x48deb0(&vc, g+1, 0)) (vc possibly clamped by the first
+  call); p1 = f32(T(e1)*e1); if T(e2)*e2 > p1, or (g < 4 and MVM*double 0.97 [0x4d1d38] < e1):
+  table[g] = v, g++; v = f32(v + double 0.1); stop when (float)g >= NbSpeed.
+  Then table[g..NbSpeed-1] = vmax. T = 0x48ee30 (torque curve, engine part).
+- **0x48e6e0(body, ms)** shift in progress: if state: timer -= ms; when timer <= 0:
+  - state 1: pending = 0, state = 0; if NbSpeed <= (float)gear: gear = __ftol(NbSpeed); else
+    gear++; unless countdown: rev = f32(0x48deb0(&wheel, gear, rev)); wheel =
+    f32(0x48dd90(&rev, gear, wheel)) (engine part); if on the ground (body+0xcc == +-0):
+    l = transpose(M)*(speed*norm(F)); k = 1.0f; dirt: x = (0x410010 of norm(F) scaled by
+    0x46d540(speed) through 0x40fe80(M)).x [engine-part helpers, not fully read]; a = |x|;
+    if a > double 0.01 and a < double 20.0: k = f32(a*double -0.05 + 1.0); road: k = 1.0,
+    or C+0xa4 MinAdherenceWheel if its bits > 1.0f (never, values 0.1..0.2);
+    0x48cbe0(body, f32((wheel - lz)*k + lz)) (engine part: sets the forward speed);
+    body+0x6c = rev.
+  - state 2: n = |pending|; state = pending = 0; body+0x6c = rev; if gear <= 1: gear = 1;
+    else n = min(n, gear-1); if n >= 1: auto: while gear-n > 1 and table[gear-n-1] - 2.0 >
+    wheel: n++ (several gears at once); gear -= n; unless countdown: rev, wheel as above.
+  - other: state = pending = 0.
+
+---------------------------------------------------------------------------------------------
+
+##### 6.8 Order inside the step (this part's routines, from 0x45d580)
+
+0x465fa0 (previous position/matrix, lon at start) -> ... -> **0x466240** (steer, yaw rotation,
+uses lat from the previous step) -> 0x46c7a0 -> **0x48d620** (F from the matrix, V blend,
+gravity/air, move) -> **0x45d110** (turn radius, slide, F gets its lateral part) -> 0x468ca0
+(ground) -> **0x466660** (air counter, brake dive, gearbox) -> 0x4667e0 (longitudinal
+acceleration into obj+0xf8, used by the next step's centring) -> ...
+
+##### 6.9 Open points
+- 0x48eb40 (blend factor of the wheel speed), 0x48dd90, 0x48ee30, 0x48cbe0, 0x46d540, 0x40fe80:
+  engine part, not read here.
+- Who sets body+0x118 (obj+0x13c), obj+0xc/+0x10 (forced inputs), P (+0x150..15c): collision
+  part.
+- FPU precision control assumed 53-bit (no fldcw found); if DirectX set 24-bit, every
+  "extended" above would be single [guess].
+- Ghidra's text for 0x45cd10 names the differences differently (it is right); for 0x48d620
+  it shows the blended Vy being stored then overwritten — the asm agrees (Vy = Fy).
+
+##### 6.10 The bike's rotation: 0x40fd40, 0x403a80, 0x46d270, 0x45cb00 [asm]
+
+(Supersedes the [decomp] line on 0x45cb00 in §7.2. Transcribed bit-exact in tools/bikephys.py:
+rot_40fd40, matmul_403a80, angles_46d270, rot_45cb00, rotate_45cb00.)
+
+- Angle → table: i = ftol(a · d 0x4d0300 / 0x4d0ed0 = 2607.594587618272 (40a45f306dc9ce2b))
+  (truncation toward 0, of the unrounded product), cos = COS[i & 0x3fff], sin =
+  COS[(i − 0x1000) & 0x3fff]. sin(0) is therefore COS[0x3000] ≈ −1.8e−16, not 0: the "zero"
+  angles of a yaw rotation leave tiny terms in the matrix, which the bit-exact path must keep.
+- **0x40fd40**(out, &(a0, a1, a2)): the rotation of NOTES §4.9.3.3, with A = f32(s1·s0) and
+  B = f32(s1·c0) stored on the way and every element one register expression, stored once:
+  M0 = c1·c2, M1 = (s1·s0)·c2 + s2·c0 (s1·s0 unrounded here), M2 = s2·s0 − B·c2,
+  M3 = −(s2·c1), M4 = c0·c2 − A·s2, M5 = c2·s0 + B·s2, M6 = s1, M7 = −(c1·s0), M8 = c1·c0, T = 0.
+- **0x403a80**(out, A, B): out = A·B for 3×4 row-vector matrices (out row r = Σk A[r][k]·B row k,
+  translation row = A.T·B + B.T); every element is one register sum of three products, rounded
+  once; the sums run in a fixed order per element (written out in tools/bikephys.py
+  matmul_403a80).
+- **0x46d270**(M) → (a0, a1, a2): c = f32(√(1.0 − M6²)); if c ≤ f 0x4d0e50 = 1e−5: a0 = 0, a1 =
+  ±π/2 (f 3fc90fdb; minus when M6 is negative), a2 = atan2(M1, M4). Else a1 = f32(atan2(M6, c)),
+  a0 = f32(atan2(−M7/c, M8/c)) (quotients unrounded), a2 = f32(atan2(f32(−M3/c), f32(M0/c))).
+  atan2 is the x87 fpatan.
+- **0x45cb00**(obj, R by value): P = 0x403a80(R, obj matrix) (so R turns the bike about its own
+  axes); P is written to obj+0xbc..0xe8; then the angles of P (0x46d270) are taken and the
+  matrix is **rebuilt from them through the table**, T = 0: with A = f32(s1·c2), B = f32(s2·s1):
+  M0 = c2·c1, M1 = s2·c0 + A·s0, M2 = s2·s0 − A·c0, M3 = −(s2·c1), M4 = c2·c0 − B·s0,
+  M5 = c2·s0 + B·c0, M6 = s1, M7 = −(c1·s0), M8 = c1·c0.
+  **Consequence: the bike's heading moves in whole steps of the table, 2π/16384 = 0.000383 rad.**
+  At full lock (SPEED1, 600) the computed yaw per step is 0.0228 rad but the bike turns 57 or 58
+  table steps (0.02186 / 0.02224) [run, §9]: the truncation loses one to two steps of the table
+  every step. A port that keeps the heading as a float angle would turn 2–4 % faster than the
+  original at full lock, more at small steering angles.
+- 0x466240 calls 0x40fd40 with (0, yaw, 0) and passes the result to 0x45cb00; the wall spin in
+  0x468ca0 does the same with its own angle (§7.3).
+
+---------------------------------------------------------------------------------------------
+
+#### 7. The contact with the track: ground, walls, air, landing
+
+(Contact with the track (ground, walls, air, landing) — 0x468ca0 and its helpers)
+
+Marks: [asm] read instruction by instruction, [decomp] Ghidra's text only, [guess], [test] checked
+with build/phys/ground.py on the 10 shipped tracks. Conventions as build/phys/brief.md: `obj` = bike
+object, `body` = obj+0x24 (offsets below are obj-relative unless written body+X), `C` = carac row,
+`dt` = the step (float [0x581014]). "K[addr]" = a constant at addr, f = float, d = double.
+x87: the process default control word (53-bit) is assumed [guess]; "ext" below means a value kept in
+an FPU register (not rounded to float); "→f" = stored as float.
+
+##### 7.1 The track geometry the physics uses (not the road models)
+
+The physics never touches the road block models. Each section (0xfc bytes, array [0x52c108], count
+[0x52c10c]) carries planes (n.x, n.y, n.z, d), "distance" = n·p + d:
+
+| plane | built by | what |
+|---|---|---|
+| +0x40 | 0x40e5c0 [decomp] | start plane: n = normalize((0,0,1)·M) = the section's Z row, through pos (+0). Walk test. |
+| +0x60 | the .trk file | left wall (inside of the road = positive side) |
+| +0x70 | the .trk file | right wall |
+| +0x80 | 0x40e5c0 [decomp] | road triangle 1: corners Li, Lj, Ri; n = normalize((Lj−Li)×(Ri−Li)), through Li (n.y > 0 on every track [test]) |
+| +0x90 | 0x40e5c0 [decomp] | road triangle 2: corners Rj, Lj, Ri; n = normalize((Lj−Rj)×(Ri−Rj)), through Rj (n.y < 0 on every track [test]; harmless, see 0x40c8b0) |
+| +0xa0 | 0x40e5c0 [decomp] | vertical split plane along the diagonal Lj–Ri: n = normalize(Ri.z−Lj.z, 0, −(Ri.x−Lj.x)), through Lj; ≥ 0 → triangle +0x80, < 0 → +0x90 |
+
+Corners [decomp, 0x40e5c0]: M_i = the section's 3x4 (axes rows X, Y, Z at +0xc, offset +0x30), point(v) =
+pos + v·M + offset (0x410010 then 0x40ffc0). Li = line(point_i(0,0,0) → point_i(−2048,0,0)) ∩ wall
++0x60 of section i; Lj = line(point_{i+1}(0) → point_{i+1}(−2048,0,0)) ∩ +0x60 of section i;
+Rj = line(point_{i+1}(0) → point_{i+1}(2048,0,0)) ∩ +0x70 of i; Ri = line(pos_i + offset → point_i(2048,0,0))
+∩ +0x70 of i (the intersection is the infinite line, 0x4b0f60). So **the road surface is a strip of two
+flat triangles per section, spanning wall to wall**; the walls are its sides. [test] the surface passes
+through every section's pos (|h(pos) − pos.y| < 3e-12 on ILE01); walls lie 200..6000 units from the
+centre, outside the edges +0xf0/+0xf4 (the drawn road); one ILE11 section has its pos outside a wall.
+(build/phys/ground.py rebuilds the planes and the height in Python.)
+
+Plane builder precision is not mapped (0x40e5c0 read in decomp only); a port should build these
+planes as the game does or, better, read them from the original's memory once to check. [open]
+
+##### 7.2 Helpers [asm unless marked]
+
+###### 0x4b10c0 plane distance (ECX = plane, arg p) → ST0
+((n.y·p.y + n.z·p.z) + n.x·p.x) + d, all ext; increments the counter [0x709378] (statistics only).
+
+###### 0x4b0f60 line ∩ plane (ECX = plane; out, A.x, A.y, A.z, B.x, B.y, B.z by value; ret 0x1c)
+- If |A.x−B.x| ≤ 1e-5f and |A.y−B.y| ≤ 1e-5f and |A.z−B.z| ≤ 1e-5f (K[0x4d2090] f 0x3727c5ac): out = A.
+- dy = B.y−A.y →f, dz = B.z−A.z →f, dx = B.x−A.x →f (but the denominator uses dx ext);
+  den = (n.x·dx + n.y·dy) + n.z·dz →f; den == 0 → out = A.
+- t = −(((n.x·A.x + n.z·A.z) + n.y·A.y) + d) / den   (ext)
+- out = (dx·t + A.x, dy·t + A.y, dz·t + A.z) each →f (dx here the stored float).
+
+###### 0x40c740 nearest section (ECX = track 0x52c108, arg p) → EAX
+Best = FLT_MAX (0x7f7fffff), index −1; for every section i: L = |pos_i − p| (sqrt of the summed
+squares in ext; sum order not transcribed) compared with the best (float); strictly smaller → best =
+L →f, index i (first wins on ties). Used by the drawing
+when there is no hint; not by the bike step.
+
+###### 0x40c7e0 section walk (ECX = track; hint, p, float *dist_out) → EAX   (NOTES §4.13.1)
+- nsec ≤ 0 → 0. hint ≥ nsec → 0.
+- s = plane40(hint)·p. If s < 0: i = hint−1 (−1 → nsec−1) repeatedly until plane40(i)·p ≥ 0; return i.
+- Else: repeatedly try i+1 (mod nsec) while plane40(i+1)·p ≥ 0; return the last i with ≥ 0.
+- dist_out (if not NULL) = the last distance computed →f (always NULL in the bike code).
+- No loop guard (the circuits are closed). Result: the section whose start plane is behind p and
+  whose successor's start plane is ahead.
+
+###### 0x40c8b0 road height (ECX = track; sec, p*) → ST0
+- nsec ≤ 0 → 0.0. s = planeA0(sec)·p (ext, compared with 0.0f); s < 0 → plane +0x90, else +0x80.
+- If n.y's bits & 0x7fffffff == 0 → 0.0. Else **h = −(((n.z·p.z + n.x·p.x) + d) / n.y)** (ext,
+  the caller stores it →f). The sign of the plane's normal does not matter.
+
+###### 0x40c960 point on the road below/above p (ECX = track; sec, p*, out*) (only 0x461aa0 uses it)
+Same triangle choice; out = 0x4b0f60(plane, A = p, B = (p.x, p.y + 10000.0f →f, p.z)), i.e. the vertical
+projection of p onto the road plane. nsec ≤ 0 → out = (0,0,0). K[0x4d02d4] = 10000.0f.
+
+###### 0x40ca80 wall crossing (ECX = track; sec, A*, B*, hit_out*, v*, n_out*) → EAX 0/1
+- If |A−B| ≤ 1e-5f (K[0x4d02c8]) per component → return 0, nothing written.
+- For the left wall (+0x60), then the right wall (+0x70), in that order: if plane·B < 0 (B outside):
+  hit_out = 0x4b0f60(plane, A, B); n_out = the plane's normal (copied); **v is mirrored**:
+  k = (v·n) in ext as ((n.x·v.x + n.y·v.y) + n.z·v.z), then v.x = v.x − k·(2·n.x) (ext→f),
+  v.y −= (k·2n.y →f), v.z −= (k·2n.z →f) (K[0x4d02d8] = 2.0f); v normalized (0x40fcb0 length, if ≠ 0
+  multiply by 1/len); result = 1. With both walls crossed the second one wins hit_out and n_out and
+  v is mirrored twice.
+
+###### 0x40cd90 keep a point between the walls (ECX = track; sec, p*)
+If plane60·p < 0: p = 0x4b0f60(plane60, A = section pos (+0), B = p). Then the same with +0x70.
+(The point is moved back along the line from the section's centre point.)
+
+###### 0x40ec60 ground type under p (ECX = track; sec, p.x, p.y, p.z by value) → EAX
+lateral = ((d.z·Z... ) see NOTES: lateral = X·(p − pos) − X·offset with X = the section's X row,
+summed as dx·X0 + ((dz·X2 − (oy·X1 + ox·X0 + oz·X2)) + dy·X1) [asm]; if edge_left(+0xf0) < lateral
+< edge_right(+0xf4) (strict) → section+0xe4 (on-road ground) else +0xe8 (off-road ground).
+Users: 0x465d20(obj, p, flag) = 0x40ec60(obj's section, p) (+9 if flag; 0 when no track) for the
+engine sound 0x406290, and 0x466d70 (effects; ground > 0 and on the ground starts dust when the
+speed ratio is high) [asm 0x466f54..]. **Not the bike's grip**: see §5.
+
+###### 0x46c7a0(sec, n) → EAX: "the road bends ahead" [asm]
+a = pos[wrap(sec + n·dir)] − pos[sec], b = pos[wrap(sec + (n·dir)/2)] − pos[sec] (dir = [0x4dc140],
+−1 when racing in reverse; /2 truncates toward 0; wrap = 0x40ec30), both with y = 0 and normalized
+in x/z (len = sqrt(z² + x²) ext, →f, × 1/len); d = |(b.x·a.x) + ((0) + b.z·a.z)|;
+**d > 0.995 (K[0x4d1300] d) → 0 (straight) else 1**.
+In 0x45d580 [asm 0x45d748]: `flag = (C.PersoAnim != 0) && 0x46c7a0(obj+0x31c1, 8) == 0` — a dirt
+bike on a straight; the flag goes to 0x48d620 and to 0x468ca0.
+
+###### 0x46d610(out, a, b): out = a × b [asm] (standard cross product, each component one ext
+expression a.y·b.z − b.y·a.z etc. →f). 0x4570d0(out, a, b): out = a − b. 0x46d5e0(a, b) → ST0:
+a·b summed as (b.x·a.x) + ((a.z·b.z) + (a.y·b.y)) in ext. 0x46bce0
+(ECX = v; x, y, z): v = (x, y, z).
+
+###### 0x490220 heading of a 3x4 matrix (ECX = M) → ST0 [asm]
+a = row2 + T (Z + translation, →f each), b0 = row1.x + T.x, b1 = row1.y + T.y (→f);
+c = sqrt(1.0) · |a| (|a| = sqrt((a1² + a2²) + a0²) →f, then c →f). If |c| < 1e-4 (K[0x4d1e50] d):
+return +π/2f if a.x's bits > 0 (int compare) else −π/2f (K[0x4d1e5c]/[0x4d1e60]). Else
+**return atan2((b0·a1 − a0·b1)/c, a2/c)** (fpatan; numerator summed as (−a0·b1) + b0·a1).
+For a level matrix with Z = (sin h, 0, cos h) this is **−h**: 0x490220 gives minus the yaw
+(yaw = atan2(Z.x, Z.z)).
+
+###### 0x46bdc0 look-along matrix (ECX = out 3x4; from*, to*) [decomp]
+Z = normalize(to − from); X = normalize(Z.z, 0, −Z.x); Y = normalize(−Z.x·Z.y, Z.z² + Z.x², −Z.z·Z.y);
+rows X, Y, Z, T = 0.
+
+###### 0x458e20(out, a*, b*) direction → angles (used by 0x461aa0) [asm]
+d = b − a (→f each); L = sqrt((dy² + dz²) + dx²) ext; nx = dx/L, ny = dy/L (ext), nz = dz/L →f;
+h = sqrt(nz² + nx²) (nx, ny →f first). h ≠ 0: out = (atan2(ny, h), atan2(−nx/h, nz/h), 0) (pitch, −yaw,
+0) →f. h == 0: out = (+π/2 if a.y < b.y, −π/2 if a.y > b.y, else 0; 0; 0).
+
+###### 0x40fd40 R(a, b, c) from the cosine table (NOTES §4.9.3.3); with (0, h, 0) a yaw rotation.
+###### 0x45cb00(obj, R by value, 0x30 bytes) [decomp]: bike matrix (+0xbc) = 0x403a80(R, matrix),
+then the angles are taken back out (0x46d270) and the matrix rebuilt from them through the table, T = 0.
+(Described by the bike-step helper.)
+
+##### 7.3 0x468ca0(obj, flag) — the contact step, called after the integration [asm]
+
+Called from 0x45d580 as `r = 0x468ca0(obj, flag)` right after 0x45d110; **always returns 1**
+[asm 0x469c49], so 0x467b30(obj, 1) and 0x466d70 always run after it. `flag` = the dirt-on-a-straight
+flag of §2. Stack locals used below: `move`, `dir`, `hit`, `h`.
+
+1. obj+0x2dc0 = obj+0x2dc4 = 0. persoAnim = C+0x120 (kept as raw int bits).
+2. Histories (sub-object +0xc pos → +0x18 → +0x24): rear wheel +0x338 → +0x344 → +0x350; front
+   wheel +0x1b4 → +0x1c0 → +0x1cc; +0x4bc → +0x4c8 → +0x4d4 (oldest overwritten first);
+   +0x2dbc (on ground last step) = +0x2db8.
+3. old = +0x31c1; **+0x31c1 = walk(old, body pos +0x30)**.
+4. move = pos(+0x30) − prev pos(+0x3c) (each →f; prev pos was saved by 0x465fa0 before the
+   integration); L = sqrt(((z²) + y²) + x²) (z kept ext from the subtraction, →f into L);
+   dir = move × (1/L) (→f) if L ≠ 0, else dir = move.
+5. (0x468e7a–0x468ef6: a copy-protection check in the championship (0x4dc094 == 2) that calls through
+   0x70d98c and sets 0x4dc1fc; the "ILLEGAL VERSION" branch after it is jumped over in this build
+   (`nop; jmp`) — nothing to port.)
+6. **Wall test**:
+   - section unchanged (old == +0x31c1): hit = 0x40ca80(+0x31c1, A = prev pos, B = pos, hit_out,
+     v = dir, n_out = obj+0x31c5).
+   - changed: save dir; try 0x40ca80 with the **old** section; if it hit and walk(old, hit_out) == old,
+     keep that; otherwise restore dir and test the new section +0x31c1 as above.
+7. **If a wall was hit** (dir is now the mirrored, normalized direction; n = obj+0x31c5):
+   - pos = hit_out + n·32.0f (K[0x4d1024]; each component n·32 ext + hit →f).
+   - +0x31c1 = walk(+0x31c1, pos).
+   - obj+0x174..+0x17c (body+0x150, the bounce direction) = dir.
+   - yaw = −0x490220(bike matrix +0xbc); **+0x2e31 (wall spin) = 0x46ad10(n, yaw)** (§4).
+   - If **not on the ground last step** (+0x2dbc == 0): r = CRT rand() (0x458ce0, MSVC rand, not the
+     game's stream); (r & 3) == 0 → **crash 0x467e30(obj, &move)** and +0x2dac |= 2, else +0x2dac |= 1.
+     +0x180 (body+0x15c, bounce speed) = speed(+0x124) × 0.8 (K[0x4d11c0] d) →f; if < 0.5555… (K[0x4d10c0]
+     d) → 0x3f0e38e4 (0.5555556f). **speed = 0**.
+   - Else (on the ground): a = |((n.z·dir.z + n.x·dir.x) + n.y·dir.y)| →f (cosine of the incidence;
+     the mirror keeps it).
+     - a > 0.98 (K[0x4d11d0] d) and speed > 27.777… (100 km/h, K[0x4d11d8] d) → crash 0x467e30(obj, &dir), |= 2;
+     - else r = rand(): ((r & 3) == 0 and a > 0.5f (bits > 0x3f000000) and speed > 22.22… (80 km/h,
+       K[0x4d11e0] d)) or (turbo +0x307d ≠ 0 and speed > 5.555… (20 km/h, K[0x4d0f50] d)) → crash
+       0x467e30(obj, &dir), |= 2; else |= 1.
+     - speed = speed × 0.75 (K[0x4d0ff0] d) →f.
+     - q = (dir.x·move.x) + ((dir.z·move.z) + (dir.y·move.y)) (ext; move = the unnormalized move).
+       - q ≥ 0 (a glancing hit): +0x18c..+0x194 (body+0x168, the direction of motion) = dir;
+         speed = (1.0f − a) × speed →f; speed = speed × 0.9 (K[0x4d11b8] d) →f; **0x48d2c0(body, 0.0)**;
+         if speed < 0.2777… (1 km/h, K[0x4d0f70] d) → speed = 0x3e8e38e4 (0.2777778f).
+       - q < 0 (head-on): s = speed (as a double); +0x180 = s × 0.5 (K[0x4d0f08] d) →f, if < 1.3888…
+         (K[0x4d11e8] d) → 0x3fb1c71c (1.3888888f); speed = s × 0.3 (K[0x4d11f8] d) →f; if < 1 km/h →
+         0.2777778f.
+   - Then (both cases): 0x48cbe0(body, speed) (sets the body's velocity from the speed);
+     0x48edd0(body) (+0x12c = speed clamped to ±body max +0xb4); +0xec = 0x48deb0(body, &+0x12c,
+     gear +0x7c, +0xec) (the engine value from the wheel speed); **+0x31d1 = 200.0f** (0x43480000,
+     a wall-contact timer [guess]); +0x2e85 = 0; if obj+8 && obj+4 (a driven bike): +0x31f9 = 0
+     (turbo key released).
+8. **0x40cd90(+0x31c1, pos)**: pos kept between the walls (always, hit or not).
+9. h = 0x40c8b0(+0x31c1, pos) →f. tol = 32 (8 when flag) as an int, fild'ed.
+10. **Airborne if h + tol < pos.y** (ext sum vs float):
+    - +0x2db8 (on ground) = 0; driven bike: +0x31f9 = 0.
+    - If speed(+0x124)'s bits & 0x7fffffff ≠ 0 — **the bike's nose follows the flight path**:
+      f = normalize(+0x18c − 0) (the motion direction); X1 = (0,1,0) × f (unused but for its length);
+      Z' = normalize(Z.x + T.x, f.y, Z.z + T.z) (Z = +0xd4.., T = +0xe0..; i.e. the bike's horizontal
+      heading with the flight's vertical slope); X' = (0,1,0) × Z'; Y' = Z' × X'; X', Y' normalized
+      (0x40fcd0); matrix rows +0xbc = X', +0xc8 = Y', +0xd4 = Z'; T (+0xe0..+0xe8) = 0.
+      (A cross product d × X1 is computed and then overwritten with zeros: dead code.)
+    - speed == 0: the matrix and T are left alone.
+11. **Else on the ground**:
+    - If it was airborne (+0x2dbc == 0) — **landing**: +0x2e95 = (prev pos.y(+0x40) − h) × −2.0f
+      (K[0x4d1028]) →f (a downward kick for the suspension [guess]); speed = (float)(int)+0x118 ×
+      0.2777… (K[0x4d0f70] d) →f — the speed is reset to the displayed km/h (+0x118, an int) / 3.6,
+      dropping the vertical part; 0x48cbe0(body, speed); 0x48edd0(body); +0xec = 0x48deb0(…);
+      +0x2dac |= 0x80.
+    - **pos.y = h**; +0x2db8 = 1; +0xf0 (body+0xcc) = 0; +0x2dc0 = 1; +0x2dc4 = 1.
+    - **Pitch from the road under the two axles**: kR = C.RoueAxeDistance(+0x38) × −48.0f
+      (K[0x4d0e94]), kF = RoueAxeDistance × 48.0f (K[0x4d0e98]);
+      R = ((kR·Z.x + T.x) + pos.x, (kR·Z.y + T.y) + h, (kR·Z.z + T.z) + pos.z),
+      F likewise with kF (each component →f). **Note** the x component multiplies by k in ext (the
+      register after `fst`), y and z by k rounded to float.
+      If persoAnim == 0 (road bike) or flag: secF = walk(+0x31c1, F), secR = walk(+0x31c1, R); else
+      both = +0x31c1 (dirt bikes on bends use the body's section for both).
+      F.y = height(secF, F), R.y = height(secR, R) (→f).
+      Z = normalize(F − R); X = (0,1,0) × Z; Y = Z × X; X, Y normalized; rows +0xbc = X, +0xc8 = Y,
+      +0xd4 = Z; T = 0. **The ground matrix has no lean (X is horizontal)**; the lean +0x2e1d is
+      applied elsewhere (drawing / other routines).
+12. **Wheel positions** (always): s_R = C.HauteurCadre(+0x58)·96.0f (K[0x4d102c]) kept ext, then
+    s_R = C.RoueRayonAr(+0x40)·−192.0f (K[0x4d1030]) + that →f; s_F = C.RoueRayonAv(+0x3c)·−192.0f +
+    (the same ext HauteurCadre·96) →f; r_R = RoueAxeDistance·−48 (x in ext, y/z →f as above),
+    r_F = RoueAxeDistance·48.
+    rear (+0x338) = ((r_R·Z + s_R·Y) + T) + pos (per component); front (+0x1b4) likewise with r_F, s_F.
+    I.e. the wheel centres sit at ±48·wheelbase along Z and 96·(HauteurCadre − 2·radius) along Y
+    from the body point (units: 96 per metre).
+13. +0x2db0 = height(walk(+0x31c1, rear), rear) →f (always). If on the ground (+0x2db8):
+    front.y (+0x1b8) = height(walk(+0x31c1, front), front); rear.y (+0x33c) = +0x2db0.
+14. **Wall spin** +0x2e31: if its bits & 0x7fffffff == 0 → return 1. Else
+    - > 0: d = dt × 0.0235619449… (K[0x4d1208] d = 3π/400) →f; +0x2e31 = +0x2e31 − d →f; if the result
+      is negative (bits > 0x80000000) → 0.
+    - < 0: d = dt × −0.0235619449… (K[0x4d1210] d) →f; +0x2e31 −= d; if the result is > 0 → 0.
+    - **0x45cb00(obj, R(0, d, 0))**: the bike is turned about the vertical by d (the full d, even when
+      +0x2e31 was clamped). return 1.
+    So a wall hit spins the bike by +0x2e31 radians at 3π/400 rad per 1/100 s (135°/s).
+
+##### 7.4 0x46ad10(n*, yaw) → ST0: the spin a wall hit gives [asm]
+(ret 8; ECX unused.)
+1. nl = *n. R = R(0, yaw, 0); fwd = (0,0,1)·R + T (0x410010) = (sin yaw, 0, cos yaw) from the table.
+   If fwd·nl > 0 (0x46d5e0 vs 0.0f): **n (= obj+0x31c5) = (0,0,0)** (0x46bce0) and return 0.0
+   (already heading away from the wall: no spin).
+2. left = (−1,0,0)·R(0, yaw, 0) + T; if left·nl < 0: nl = −nl.
+3. A = 0x46bdc0(from 0, to nl); idx = ftol(yaw × 2607.594587618272 (K[0x4d0ed0] d)); c = COS[idx & 0x3fff],
+   s = COS[(idx − 0x1000) & 0x3fff], C0 = COS[0] ([0x5fcb80]), C3 = COS[0x3000] ([0x608b80]);
+   v = (c·C0·−100, ((1+s)·C3·C0)·−100, (C3·C3 − s·C0·C0)·−100) (K[0x4d12a8] = −100.0f; each →f) ≈
+   100·(−cos yaw, 0, sin yaw) = the bike's left; B = 0x46bdc0(from 0, to v).
+4. α = 0x490220(A) →f, β = 0x490220(B) →f. Each brought into [0, 2π): while < 0 add 2π
+   (K[0x4d0e58] d, added in ext, stored after the loop), while ≥ 2π subtract.
+   If α + π (double) < β: β −= 2π (→f). If α − π > β: β += 2π (→f).
+   δ = β − α →f, brought into [0, 2π) the same way; if δ > π (K[0x4d0e60] d): δ −= 2π (→f).
+   return δ: the signed yaw that turns the bike's left side onto the wall's normal (in −π..π).
+
+##### 7.5 What is not here / findings for the other parts
+
+- **The carac Material* triples (+0xb4..+0x11f) and MinAdherenceDerap (+0xa8..+0xb0) are never read**:
+  an address grep of every instruction for 0x50932c..0x509394 (and 0x509320..0x509328) finds only the
+  parser 0x42a580 [asm]. MinAdherenceWheel (+0xa4, 0x50931c) is read by the body code 0x48ea1a,
+  0x48edac, 0x48f0cf, … (engine/grip helper's topic). The track's ground types (+0xe4/+0xe8) only feed
+  the engine sound (0x465d20) and the effects (0x466d70). So **grip does not depend on the surface**.
+- No "off-road slows you" here: off the drawn road (outside +0xf0..+0xf4) the surface is the same two
+  triangles and the same physics up to the walls; any off-road drag must come from elsewhere [guess:
+  none found in this part].
+- The suspension values: in 0x468ca0 only +0x2e95 (landing kick) and the wheel heights (+0x1b8,
+  +0x33c, +0x2db0) are produced; Ressor* (C+0x5c..+0x64) are read by 0x466a80 [asm grep], AngleSuspension
+  (C+0x30) at 0x466d21, FourcheAngleArriere (C+0x6c) only by the drawer 0x46031d; +0x2e39 is decayed in
+  0x45d580. (The step helper / post-step helper map those.)
+- Jumps: there is no jump code in the contact: a jump is just pos.y leaving h + 32 (a crest), the nose
+  following the path (step 10) and the landing (step 11). The `_N_` jump animations (list 0x580d0c,
+  count 0x5cf4fc) are read only by 0x45e057.. (in 0x45d810, the rider animation) [asm grep].
+- Crash start 0x467e30(obj, v*) [asm for the fields]: nothing if already crashed (+0x30c1); else
+  +0x31a1..+0x31a9 = v, +0x31ad = 1, **+0x7c (gear) = 1, +0x30c1 = 1**, +0x30c5 = 400.0f; +0x30c9 = normalize(v.x,
+  v.y + 0.6 (K[0x4d1180] d) →f, v.z); +0x30d5 = +0x30d9 = speed × 0.15 (K[0x4d1188] d) →f; +0x30b5 =
+  pos + dir·speed (dir = +0x30c9); fall side +0x30dd = −π/2 (0xbfc90fdb) if +0x2e31 < 0, +π/2 if > 0;
+  if +0x2e31 == 0 by the sign of the lean +0x2e1d; if the lean is 0 too, CRT rand() & 1 → −π/2 else +π/2;
+  then +0x3085 (the rider's reference matrix) = Ra(3π/2 via table index 0x3000) composed (0x403a80) with
+  R(0, −0x490220(+0x3085)·…, 0) — built inline from COS[0], COS[0x2000], COS[0x3000] [asm 0x467fb4–
+  0x468172, element order not transcribed]; +0x30e1 = 0, +0x30e5 = +0x30e9 = +0x30dd; then
+  0x467c40(6, pos, 15, 16, bike matrix by value) (a sound/effect [guess]). Crash progress and being
+  put back on the road are not in this part (0x466d70 / 0x461aa0 / 0x4683e0).
+- Random numbers: the wall crash chances and the fall side use **the C runtime's rand()** (0x4b3600
+  through 0x458ce0), not the game's Rand_Next stream; a port needs MSVC's LCG (seed state shared with
+  every other rand() caller) to reproduce them.
+
+##### 7.6 Fields (obj-relative) established here
+
+| field | what |
+|---|---|
+| +0x30 / +0x3c / +0x48 | body position / previous step / the one before (body+0xc, +0x18, +0x24) |
+| +0xbc..+0xe8 | bike matrix rows X (+0xbc), Y (+0xc8), Z (+0xd4, forward, rear→front), T (+0xe0, set 0 here) |
+| +0xec | engine value (body+0xc8), recomputed by 0x48deb0 after a hit or landing |
+| +0xf0 | body+0xcc, set 0 on the ground (airborne measure [guess]) |
+| +0x118 | speed as an int in km/h (the HUD) [guess from the 1/3.6] |
+| +0x124 | speed in m/s-like units (km/h ÷ 3.6) (body+0x100) |
+| +0x12c | body+0x108 drive speed (clamped speed) |
+| +0x174..+0x17c | bounce direction (body+0x150), set to the mirrored direction on a wall hit |
+| +0x180 | bounce speed (body+0x15c) |
+| +0x18c..+0x194 | direction of motion (body+0x168) |
+| +0x1b4 / +0x1c0 / +0x1cc | front wheel centre / previous / before |
+| +0x338 / +0x344 / +0x350 | rear wheel centre / previous / before |
+| +0x4bc / +0x4c8 / +0x4d4 | a third sub-object's position history (sub-object at +0x4b0) |
+| +0x7c | gear (body+0x58); a crash sets 1 |
+| +0x2dac | event bits this step: 1 wall scrape, 2 wall crash, 0x80 landing (cleared in 0x45d580) |
+| +0x2db0 | road height under the rear wheel |
+| +0x2db8 / +0x2dbc | on the ground now / last step |
+| +0x2dc0, +0x2dc4 | on the ground (both set together here) |
+| +0x2e31 | wall spin still to apply (radians) |
+| +0x2e95 | landing kick ((prev y − h)·−2; also −32 from 0x4660f0; cleared each step in 0x45d580) |
+| +0x30c1 | crashed |
+| +0x31c1 | current section index |
+| +0x31c5..+0x31cd | last wall normal (zeroed when the bike already heads away) |
+| +0x31d1 | 200.0 after a wall hit (timer [guess]) |
+| +0x31f9 | turbo key held (cleared when airborne or after a hit, driven bikes only) |
+
+##### 7.7 Open points
+- Precision of the plane builder 0x40e5c0 (decomp only) and of the x87 control word.
+- What 0x48cbe0 / 0x48d2c0 do exactly with the speed (other helper).
+- Where the bike is put back on the road after a crash, and the off-road behaviour (if any) outside
+  this routine.
+- +0x4b0 sub-object's identity; +0x31d1's reader.
+
+##### 7.8 The section planes: 0x40e5c0 (track load, called from the .trk loader 0x40d650 at 0x40e147) [asm]
+
+Checked bit for bit: `python3 -I tools/trkplanes.py "Moto Racer/data/ile01/ile01.trk"
+build/phys/sections_speedbay.bin` builds all 788 × 4 planes of Speed Bay exactly as the running
+original holds them (memory dump of the section array [0x52c108], 788 × 0xfc bytes) [test]. The
+inputs in memory (pos +0, matrix +0xc, walls +0x60/+0x70) equal the file's values.
+
+Arithmetic: the FPU's 53-bit default; "f" = stored to a float, everything else stays in a register.
+Section i (0xfc bytes): pos P (+0), matrix M (+0xc: rows X, Y, Z, then T at +0x30), walls W60, W70.
+j = (i + 1) mod count (idiv). For every i in order:
+
+1. **+0x40** start plane: n = (0,0,1)·M_i + T_i through 0x410010 (each component f of
+   ((M6·v.z + M3·v.y) + M0·v.x) + T; so Z row + T, not Z alone); normalised by 0x40fcd0
+   (len = f(√((x²+y²)+z²)); if len ≠ 0: c = f(c · (1/len)), 1/len unrounded); plane through P_i
+   (0x4b0f20: normal copied, d = f(−((n.y·p.y + n.z·p.z) + n.x·p.x))). The file's plane 0 is
+   overwritten.
+2. Corner points, each from a line A→B cut with a wall by 0x4b0f60:
+   - point(P, M, v) = f(P + f(v·M + T)) per component (0x410010 then 0x40ffc0).
+   - Li = W60_i ∩ line(point(P_i, M_i, 0) → point(P_i, M_i, (−2048,0,0)))
+   - Lj = W60_i ∩ line(point(P_j, M_j, 0) → point(P_j, M_j, (−2048,0,0)))  (next section's
+     line, this section's wall)
+   - Rj = W70_i ∩ line(point(P_j, M_j, 0) → point(P_j, M_j, (2048,0,0)))
+   - Ri = W70_i ∩ line(f(P_i + T_i) → point(P_i, M_i, (2048,0,0)))
+     (A for Ri adds T directly instead of 0·M + T; the same value.)
+   - 0x4b0f60(plane; A, B): if |A−B| ≤ 1e-5f (float 0x4d2090) on all three axes → A. Else
+     dx = B.x − A.x kept unrounded, dy = f(B.y − A.y), dz = f(B.z − A.z), dx32 = f(dx);
+     den = f((n.x·dx + n.y·dy) + n.z·dz) (dx unrounded here!); den == 0 → A;
+     t = −((((n.x·A.x + n.z·A.z) + n.y·A.y) + d) / den);
+     result = (f(dx32·t + A.x), f(dy·t + A.y), f(dz·t + A.z)).
+3. **+0xa0** split plane: n = (f(Ri.z − Lj.z), 0, f(−(Ri.x − Lj.x))), normalised as above (the
+   inline copy of 0x40fcb0 + the 1/len multiply), through Lj.
+4. **+0x80** triangle Li, Lj, Ri: a = f(Lj − Li), b = f(Ri − Li) per component;
+   n = (f(a.y·b.z − a.z·b.y), f(a.z·b.x − a.x·b.z), f(a.x·b.y − a.y·b.x)); normalised; through Li.
+5. **+0x90** triangle Rj, Lj, Ri: c = f(Ri − Rj), d = f(Lj − Rj); n = d × c (same form as 4,
+   a = d, b = c); normalised; through Rj.
+
+Nothing else of the section is written (the only stores outside the stack frame are the four
+0x4b0f20 calls on +0x40, +0xa0, +0x80, +0x90).
+
+Pitfalls (each one changes bits): T is part of the +0x40 normal; in 0x4b0f60 the denominator
+uses the unrounded dx but the result uses the rounded dx, while dy/dz are rounded for both; the
+lengths are rounded to float before 1/len; the products and differences of the cross product
+are unrounded, only the three components are stored. objdump's `fsubp st(2),st` /
+`fsubrp st(1),st` read literally as Intel's (ST(i) = ST(i) − ST(0) / ST(0) − ST(i)) give the
+signs that match memory (n80.y > 0, n90.y < 0).
+
+---------------------------------------------------------------------------------------------
+
+#### 8. After the contact: suspension, lean, crash, collisions, effects, HUD values
+
+(After the ground contact: what 0x45d580 does from 0x466660 on (and the crash, collision and)
+(effect routines it reaches))
+
+Marks: [asm] read in the machine code, [decomp]
+Ghidra's text only, [guess]. Field names `obj+X` (obj = bike object, player 1 0x584421, rider
+number n (1-based) at 0x581218 + n*0x3209, so `obj+0x2dd0` = n); `body+Y` = obj+0x24+Y.
+`C+X` = carac row (brief.md). `dt` = the step (global 0x581014, ms*0.1). Constants are given as
+value and bits; **F** = read as a float (DWORD), **D** = read as a double (QWORD). x87 at the
+process default (53-bit mantissa) [guess, no fldcw in the program].
+
+Units found on the way [asm]: positions are **1/128 m** (`|dpos|/dt * 0.78125` gives m/s:
+1000/1280; the km/h counter is `units/s * 0.028125` = 3.6/128); **speed obj+0x124 = body+0x100
+is in m/s** (22.222 = 80 km/h, 18.0556 = 65 km/h, 5.5556 = 20 km/h, 0.27778 = 1 km/h are the
+thresholds the code uses); dt = ms*0.1, so a timer of 400 dt-units = 4000 ms.
+
+Helpers used below [asm unless noted]:
+- `M*v` = 0x410010(out, v, M) (stdcall, 3x4 row-vector form, M = 12 floats X,Y,Z rows + T):
+  out.x = ((M6*vz + M3*vy) + M0*vx) + M9; out.y = ((M1*vx + M4*vy) + M7*vz) + M10;
+  out.z = ((M8*vz + M2*vx) + M5*vy) + M11, each rounded to float on the store.
+- `LOOKAT(a,b)` = 0x46bdc0(out, a, b): F = b-a (floats), L = |F| (0x40fcb0, 80-bit, stored F);
+  if L != 0: r = 1/L (80-bit), F *= r (each stored). nx = -F.x (F). Y = (nx*F.y, F.z*F.z - nx*F.x,
+  -(F.z*F.y)); X = (F.z, 0, nx); |X| = sqrt(F.z*F.z + nx*nx), if != 0 X.x = F.z*(1/|X|),
+  X.z = nx*(1/|X|); |Y| = sqrt((Y.y^2 + Y.z^2) + Y.x^2), if != 0 Y *= 1/|Y|. out = rows X, Y, F,
+  T = 0.
+- `YAW(M)` = 0x490220(M), returns ST0: z = Zrow+T (3 floats), y0 = Y0+T0, y1 = Y1+T1 (floats);
+  m = sqrt(D 1.0 [0x4d1e48]) * f32(sqrt((z1^2 + z2^2) + z0^2)), stored F; if |m| < D 1e-4
+  [0x4d1e50] return z0 > 0 (int bits) ? F +pi/2 [0x4d1e5c, 3fc90fdb] : F -pi/2 [0x4d1e60];
+  else atan2((y0*z1 + (-z0)*y1)/m, z2/m) (fpatan, 80-bit) — the heading of the Z row.
+- `PITCHF(obj)` = 0x45ca00(obj): the same on the frame matrix obj+0x2e55 (X row +0x2e55,
+  Z row +0x2e6d, T +0x2e79): z = Z+T, x0 = X0+T0, x2 = X2+T2; h = f32(z2^2 + z0^2);
+  m = f32(sqrt(h) * f32(sqrt(z0^2 + (z1^2 + z2^2)))); |m| < D 1e-4 [0x4d0eb8] -> z1 > 0 ?
+  F pi/2 [0x4d0ec0] : F -pi/2 [0x4d0ec4]; else atan2((z2*z1*x0 + (-(z0*z1))*x2)/m, h/m).
+  It is the up/down angle of the frame's forward axis.
+- `WRAPPI(a)` = 0x458da0(float a) -> ST0: while a < D -pi [0x4d0e18] add D 2pi [0x4d0e20] (the
+  loop runs in 80-bit, one store at the end), then while a > D pi [0x4d0e28] subtract 2pi.
+- `WRAP2PI_GE(a)`: if the bits of a are > 0x80000000 (negative, -0.0 excluded): add D 2pi
+  [0x4d0e58] in 80-bit until >= F 0 [0x4d0e54], store F; then if a >= 2pi: subtract 2pi in 80-bit
+  until < 2pi, store. `WRAP2PI_GT`: the same but the second loop runs while a > 2pi. Inline
+  everywhere below; which form is used is said each time (test ah,1 vs test ah,0x41).
+- `SECWALK(hint, p)` = 0x40c7e0 (track 0x52c108), `ROADY(sec, p)` = 0x40c8b0 -> ST0,
+  `0x40ca80` = the edge/wall test (ground fork's), `0x40ec30` = wrap a section index (EAX).
+- `RAND1()` = 0x458cd0 = Rand_Next(1) (the game's stream 1); `CRAND()` = 0x458ce0 = the C
+  library's rand() (msvcrt), NOT the game's streams.
+- COS[] = 0x5fcb80 (16384 floats); angle -> index = ftol(a * D 2607.594587618272 [0x4d0ed0])
+  (truncation), cos = COS[n & 0x3fff], sin = COS[(n - 0x1000) & 0x3fff]. COS[0] = 1,
+  COS[0x2000] (0x604b80) = -1, COS[0x3000] (0x608b80) ~ -1.8e-16. Several routines below build
+  an Euler rotation inline from these (two of the three angles 0); the exact x87 order is at the
+  listed addresses and is the same builder as the menu's (NOTES §4.15.1) [asm located].
+
+---------------------------------------------------------------------------------------------
+
+##### 8.0 Order inside 0x45d580 (for reference) [asm call order, decomp]
+... 0x48d620 (integrate) ; 0x45d110 ; r = 0x468ca0(obj, flat) (ground; r != 0 = wheels on the
+road, see the ground section) ; **0x466660(obj, keys)** (body fork) ; **0x4667e0** ; **0x466940** ;
+**0x466a80** ; **0x461aa0** ; **0x469c60** ; **0x4683e0** ; **0x467b30(obj, r)** ; if r:
+**0x466d70(obj, keys)** ; **0x467930** ; obj+0x31d9 = **0x46d340(obj)** ; obj+0x2dc8 = keys.
+Before the integration: **0x4660f0(obj, dt)** (turbo wheelie, when not in the countdown) and
+`flat = dirt && 0x46c7a0(obj+0x31c1, 8) == 0`.
+After all bikes are stepped, Game_Frame calls the race object's slot +0x18 =
+**0x47ecd0(dt)**: bike-against-bike collisions (§11). 0x467e30 (crash start) is called from
+0x468ca0 (3 places), 0x47ecd0 (bikes) and the ghost (0x47df40).
+
+##### 8.1 0x46c7a0(int sec, int n) -> EAX: "is the road bending ahead" [asm]
+A = 0x40ec30(n*[0x4dc140] + sec), B = 0x40ec30((n*[0x4dc140])/2 + sec) (C division, toward 0;
+0x4dc140 = +1, or -1 when the track runs reversed). Section pos at track[s]+0 (0xfc-byte records,
+array [0x52c108]).
+a = pos[A] - pos[sec], b = pos[B] - pos[sec] (x and z only, each stored F; y set to 0).
+a /= |a|xz, b /= |b|xz (each only if the length != F 0; r = fld1/len, products stored).
+c = f32((by*ay + bz*az) + bx*ax) with the y terms 0; return |c| > D 0.995 [0x4d1300] ? 0 : 1.
+0x45d580 passes (obj+0x31c1 = the bike's section, 8): `flat` = 1 for a **dirt** bike (C+0x120)
+when the road 8 sections ahead is straight within 0.995; it goes to 0x48d620 and 0x468ca0.
+
+##### 8.2 0x4667e0(obj): forward acceleration -> frame dive [asm]
+fwd = 0x48ca10(body) (the velocity's component along the body's Z row, body fork), prev =
+obj+0x2da8 (saved by 0x465fa0 at the start of the step).
+- obj+0xf8 = f32((fwd - prev) / (dt * D 0.01 [0x4d0ed8]))   (forward acceleration)
+- s = ((fwd2 - prev) + obj+0xf4) * F 0.5 [0x4d1018] (fwd2 = a second call, same value), kept in
+  80-bit for the test, stored F as s.
+- if s (80-bit) != obj+0xf4: if s != 0 (bits): v = f32(s * D -0.09817477042468103 [0x4d1108]
+  = -pi/32); if |obj+0x2e39| < |v| -> obj+0x2e39 = v. Then if obj+0x2e39 > D pi/16 [0x4d1110]
+  -> 0x3e490fdb; if < D -pi/16 [0x4d10f8] -> 0xbe490fdb.
+- obj+0xf4 = s.
+- rear wheel sub-object +0xcc (obj+0x3f8, "time off the ground"): 0 if obj+0x2dc0 (rear wheel
+  touching) else += f32(dt * D 6.272 [0x4d1120]); front (obj+0x274) the same with obj+0x2dc4.
+obj+0x2e39 = **frame dive** (decays by 0.01 a step toward 0 at the top of 0x45d580; braking
+gives s < 0 -> a positive kick).
+
+##### 8.3 0x466940(obj): wheel spin angles [asm]
+Skipped when (obj+8 && keys(obj+0x31e9) bit1) — a driven bike braking locks both wheels — or
+(!obj+8 && the previous keys obj+0x2dc8 bit1).
+f = (obj+0xe0 + obj+0xd4, obj+0xe4 + obj+0xd8, obj+0xe8 + obj+0xdc) (Z row + T, each F).
+dr = rear wheel pos obj+0x338 - previous obj+0x344 (x, y, z, 80-bit, not stored);
+obj+0x2e3d += ((dr.z*f.z + dr.y*f.y) + dr.x*f.x) / ((C+0x40 * dt) * F 96 [0x4d102c]).
+df = front obj+0x1b4 - previous obj+0x1c0; obj+0x2e49 += ((df.x*f.x + df.y*f.y) + df.z*f.z) /
+((C+0x3c * dt) * F 96). (RoueRayonAr / RoueRayonAv.) One store each.
+
+##### 8.4 0x466a80(obj): rear suspension and the frame pitch [asm]
+d = dt clamped to [3, 5] by integer compares of the float bits (> 5.0 -> 5.0; < 3.0 -> 3.0).
+1. obj+0x2e9d (spring amplitude) = f32(C+0x5c RessorAmplitudeDec * obj+0x2e9d).
+2. obj+0x2e95 (spring push) = f32(d * D 5.184 [0x4d1128] + obj+0x2e95); if > 0 (int) -> 0.
+3. k = f32(obj+0x2e95 / d).
+4. obj+0x2e99 (phase) = f32(obj+0x2e9d / C+0x64 RessorAmplitudeFactor + obj+0x2e99).
+5. if obj+0x2e9d > k: obj+0x2e99 = 0x3fc90fdb (pi/2); obj+0x2e9d = f32((k - obj+0x2e9d) *
+   F 0.5 + obj+0x2e9d).
+6. if C+0x60 RessorAmplitudeMin > obj+0x2e9d -> obj+0x2e9d = C+0x60.
+7. obj+0x2e8d = 0; obj+0x2e91 (**rear suspension**) = f32(fsin(obj+0x2e99) * obj+0x2e9d).
+8. a0 = f32((PITCHF(obj) - obj+0x2ea5) + obj+0x2e39) — kept as a0; a = WRAP2PI_GT(a0) (the
+   second loop runs while a > 2pi).
+9. p = obj+0x2ea1 (smoothed pitch): while bits > 0x80000000: p += 2pi (stored each time);
+   while p > 2pi: p -= 2pi (stored each time).
+10. diff = f32(a - p); if |diff| > D pi: A = (double)p; if A + pi < (double)a -> a = f32(a - 2pi);
+    then if A - pi > (double)a -> a = f32(a + 2pi); diff = f32(a - p).
+11. obj+0x2ea1 = f32(diff / C+0x20 RetardCadre + p).
+12. obj+0x2e8d (**pitch**) = f32(obj+0x2ea1 - a0); = WRAPPI(...); if > C+0x30 AngleSuspension
+    -> C+0x30; if < -C+0x30 -> -C+0x30.
+Writers of the inputs: obj+0x2e95 is zeroed at the top of 0x45d580, set to -32.0 (0xc2000000) by
+0x4660f0 when a wheelie ends, and by 0x468ca0 at 0x469470 (landing); obj+0x2ea5 by 0x45d580
+and 0x466660 (body fork); obj+0x2e39 above.
+
+##### 8.5 0x4660f0(obj, dt): the turbo wheelie (action 6) [asm]
+Inputs: obj+0x31f9 = action-6 key held (keyboard handler); 0x45d580 copies it into obj+0x2e85
+for a human bike (obj+8 && obj+4) every step before calling this (when not in the countdown).
+- crashed (obj+0x30c1): obj+0x307d = obj+0x3081 = obj+0x2e85 = 0; obj+0xb8 = 1.0; human ->
+  obj+0x31f9 = 0. Return.
+- else if obj+0x2e85 && obj+0x3081 < 200.0 (int compare with 0x43480000): obj+0x307d (wheelie
+  angle) = f32(dt * D 0.0471238898038469 [0x4d10a8] + obj+0x307d); if > D pi/2 [0x4d0eb0] ->
+  0x3fc90fdb; obj+0x3081 (turbo time) = f32(obj+0x3081 + dt).
+- else if obj+0x307d > 0 (int): obj+0x307d = f32(dt * D -0.025132741228718346 [0x4d10b0] +
+  obj+0x307d); if it went negative: obj+0x2e95 = -32.0, obj+0x307d = 0.
+- then obj+0xb8 (power factor, read by the engine) = obj+0x307d != 0 ? ([0x4dc1f8] ? 2.0 : 1.2
+  (0x3f99999a)) : 1.0; and if obj+0x307d == 0 and !obj+0x2e85: obj+0x3081 = 0.
+So: holding the key lifts the front wheel (pi/2 in 33 dt-units = 0.33 s) and multiplies the
+power by 1.2 for at most 200 dt-units (2 s); it can be used again only after the key is released
+and the wheel is down. [0x4dc1f8] is set by 0x45d110 (body fork). obj+0x2e85 is also cleared by
+0x465da0 when braking (bit1) and by 0x466220 in a bike collision.
+
+##### 8.6 0x469c60(obj): the frame matrix, the wheel points and the lean [asm]
+Called from 0x45d580, 0x46bf80 (computer bikes) and twice by 0x47ecd0 after a collision.
+dirt = C+0x120.
+1. s = 0; if obj+0x31d1 (collision timer) != 0: obj+0x31d1 = f32(obj+0x31d1 - dt), < 0 -> 0;
+   s = f32(obj+0x31d1 * F 0.005 [0x4d100c, 3ba3d70a]).
+2. w = f32(F 1.0 - (obj+0x124 / obj+0xb4) * F 8.0 [0x4d1020]); w < 0 -> 0; if s > w: w = s.
+   (obj+0xb4 = C+0x48 RealSpeedMax, +2.0 for a manual box.) w = 1 below 1/8 of the top speed.
+3. U = M*(0,0,1) with M = the bike matrix obj+0xbc (= Z row + T).
+   D = obj+0x18c..+0x194 (body+0x168: the travel direction, body fork); if D.U < 0 (0x46d5e0,
+   80-bit) D = -D.
+4. mix = U*w + D*(1-w) (0x46d540 scales, stored; 0x40ffc0 adds, stored);
+   Mt = LOOKAT((0,0,0), mix) (local; rows X, Y, Z, T = 0).
+5. **Road bike** (dirt == 0): with a = C+0x58*F 96 (80-bit, not stored):
+   br = f32(C+0x40 * F -192 [0x4d1030] + a), cr = f32(C+0x38 * F -48 [0x4d0e94]);
+   rear obj+0x338 = ((cr*Z + br*Y) + T) + obj+0x30 per component (Z, Y, T rows of Mt);
+   bf = f32(C+0x3c * F -192 + a), cf = f32(C+0x38 * F 48 [0x4d0e98]);
+   front obj+0x1b4 = ((cf*Z + bf*Y) + T) + obj+0x30.
+   secF = SECWALK(obj+0x31c1, front), secR = SECWALK(obj+0x31c1, rear);
+   front.y = ROADY(secF, front); rear.y = ROADY(secR, rear) (stored F). (The section hint is not
+   updated here.)
+   If the wheelie angle obj+0x307d > 0: d = front - rear (stored); p = Mt^-1 * d (Mt transposed,
+   translation -(T.X), -(T.Y), -(T.Z) = 0); th = f32(fsin(obj+0x307d) * D -pi/4 [0x4d1218]);
+   n = ftol(th * 2607.594587618272); p' = R(n) p, the inline Euler rotation about the local X
+   axis by th (with COS[0], COS[0x3000] for the other two angles; asm 0x46a343..0x46a4fe);
+   front = Mt * p' + rear.
+   Frame: F = normalize(front - rear) (0x40fcd0); X = (0,1,0) x F; Y = F x X (0x46d610 cross:
+   out = (a.y*b.z - b.y*a.z, b.x*a.z - b.z*a.x, b.y*a.x - b.x*a.y)); normalize X, Y;
+   obj+0x2e55 = X, +0x2e61 = Y, +0x2e6d = F, +0x2e79..+0x2e81 = 0.
+6. **Dirt bike**: the wheel points are not recomputed (they come from 0x468ca0); if the wheelie
+   angle > 0 the front point is rotated about the rear one: q = M^-1 rotated (0x40fe80) * (front -
+   rear) (0x410010), angles (f32(fsin(obj+0x307d) * D -pi/4), 0, 0) -> matrix 0x40fd40 -> q' -> back
+   through M (0x410010 with the copy), front = rear + q'. Then obj+0x2e55 = LOOKAT(rear, front)
+   (0x403a20 copy).
+7. **Lean obj+0x2e1d** (both kinds). A = YAW(Mt), B = YAW(obj+0xbc) (each stored F).
+   - **Human dirt bike** (obj+8 && obj+4 && dirt):
+     A = WRAP2PI_GE(A); B = WRAP2PI_GE(B); if (double)A + pi < (double)B: B = f32(B - 2pi);
+     if (double)A - pi > (double)B: B = f32(B + 2pi);
+     e = B - A (80-bit, compared with 0 then stored F); WRAP2PI_GE(e) (the add loop is entered on
+     the 80-bit sign); then again: bits negative -> add loop; >= 2pi -> subtract loop; if e > D pi:
+     e = f32(e - 2pi).
+     v = obj+0x124 limited to 50.0 (int compare 0x42480000).
+     L = f32(atan((-e / [0x4dc150]) * v * D 1.445912045170292 [0x4d1220])) (fchs, fdiv the float
+     global, fmul v, fmul D, fpatan with 1.0).
+     if L > D 1.04 [0x4d1228] -> 0x3f851eb8 (1.04f); else if L < D -1.04 [0x4d1238] ->
+     0xbf851eb8.
+     k = [0x4dc150] * D 0.02 [0x4d1248], if k > D 1.0 -> 1.0, stored F.
+     obj+0x2e1d = f32((L - obj+0x2e21) * k + obj+0x2e21); obj+0x2e21 = obj+0x2e1d.
+   - **Otherwise**: A, B wrapped and paired as above; e = f32((B - A) * (1 - w)) (stored),
+     WRAP2PI_GE; e2 = f32(e * F 2.0 [0x4d0f60]), WRAP2PI_GE; if e2 > D pi: e2 = f32(e2 - 2pi);
+     clamp: > D pi/3 [0x4d1250] -> 0x3f860a92, < D -pi/3 [0x4d1260] -> 0xbf860a92.
+     - dirt (a computer dirt bike): obj+0x2e1d = f32((e2 / (D 3.0 [0x4d1278] - (obj+0x124 *
+       D 0.045 [0x4d1270]) * D 0.5 [0x4d0f08])) * D -1.3 [0x4d1280]) (one 80-bit chain).
+     - road, not human (obj+8 == 0 or obj+4 == 0) or a replay/demo (0x4e9834 == 1 or 2):
+       obj+0x2e1d = -e2.
+     - road, human: f = [0x4dc150], but 20.0 if obj+0x2e29 == 0 and [0x4dc150] < 20.0 (int
+       compare 0x41a00000); L = f32((e2 / f) * F -30 [0x4d1288]); reloaded: if L > D 0.3
+       [0x4d11f8]: L = f32(L * D 1.4 [0x4d1290] - D 0.11999999999999997 [0x4d1298, 3fbeb851eb851eb6]);
+       else if L < D -0.3 [0x4d12a0]: L = f32(L * 1.4 + 0.11999999999999997); then clamp
+       +-1.04 to +-1.04f as above.
+   **[0x4dc150] is the frame time in ms smoothed by 1/8** (0x4120e0: `x += (ms - x) * D 0.125`
+   every frame before the 200/0 clamps, the recorded ms in a replay at 0x41180f): the lean of a
+   human bike depends on it, so the port must keep it (a steady 60 Hz port: 16.667 limit, the
+   original under timeGetTime alternates 16/17). obj+0x2e29 is written by 0x466240 (steering,
+   body fork).
+   Meaning: the lean is the angle between where the bike points (body matrix) and where it
+   travels (Mt, the velocity blended in above 1/8 of top speed), scaled by speed.
+
+##### 8.7 0x4683e0(obj): the crash tumble [asm]
+Only while obj+0x30c1. Every step:
+1. obj+0x30c5 (timer) = f32(obj+0x30c5 - dt); if negative -> **0x4681d0(obj)** and return.
+2. k = dt * F 0.01 [0x4d1004, 3c23d70a] (80-bit; kept stored as F in a local and reloaded).
+   step = f32(k * obj+0x30d5 * D 128.0 [0x4d0ef8]); P = obj+0x30b5 (the tumbling body's point),
+   old = P; P += D * step (D = obj+0x30c9 unit direction; 0x46d540 then 0x46d510, floats).
+3. sec = SECWALK(obj+0x31c1, P); if 0x40ca80(track, sec, &old, &P, &hit, &D, &out) != 0 (an edge
+   or wall was crossed; D is passed by pointer [guess: reflected]): P = hit; sec =
+   SECWALK(obj+0x31c1, P); obj+0x30d5 = f32(obj+0x30d5 * D 0.5).
+4. g = ftol(ROADY(sec, P)) (truncated to an int).
+   - **P.y < g + 8** (hit the ground): P.y = (float)g; D.y = f32(-D.y * D 0.01); normalize D;
+     obj+0x3085 (tumble matrix) = R(-pi/2, 0, 0) x Ryaw(-YAW(obj+0x3085)) (inline Euler builders,
+     0x40fd40, product 0x403a80; asm 0x468570..0x46869a) — the bike laid flat at its heading;
+     obj+0x30e9 = 0; obj+0x30d5 = f32(k * D -4.166666666666667 [0x4d1190] + obj+0x30d5), < 0 ->
+     0; if D.y > D 0.05 [0x4d1198]: debris 0x467c40(4, P, 7, 4, obj+0x3085) and obj+0x2dac |=
+     0x40 (sound event).
+   - **else** (in the air): D' = (D.x*s, D.y*s + dt * D -0.0981 [0x4d11a0], D.z*s) with
+     s = obj+0x30d5 (each stored F); s' = f32(sqrt((D'z^2 + D'x^2) + D'y^2)); r = D 1.0 / s';
+     D = D'*r (stored); obj+0x30d5 = f32(s' + k * D -0.5555555555555556 [0x4d11a8]), < 0 -> 0.
+5. f = (obj+0x30d5 / obj+0x30d9) * k; angles a = f32(obj+0x30e1*f), b = f32(obj+0x30e5*f),
+   c = f32(obj+0x30e9*f); R = the Euler rotation of (a, b, c) from COS[] (asm 0x468821..);
+   obj+0x3085 (3x4) = obj+0x3085 x R (each row times R, translation row too).
+6. If obj+0x30d5 < D 0.2777777777777778 [0x4d0f70] **and** obj+0x30c5 < 100.0 (int compare
+   0x42c80000): **0x4681d0(obj)**. Else: computer bike (obj+8 == 0): obj+0xec *= D 0.9,
+   obj+0x1a4 *= D 0.9; driven bike: obj+0x124 = f32(obj+0x124 * D 0.9 [0x4d11b8]);
+   0x48cbe0(body, obj+0x124); 0x48edd0(body); obj+0xec = 0x48deb0(body, &obj+0x12c,
+   obj+0x7c, obj+0xec); obj+0x180 *= D 0.9.
+7. obj+0x319d = 1.
+So a crash lasts 300..400 dt-units (3..4 s): the timer starts at 400; it ends early only after
+3 s when the tumble has nearly stopped. The bike body itself (obj+0x30, the integrator's) is not
+moved by the tumble: 0x45d580 skips the throttle (0x465da0) and steering (0x466240) while
+crashed and the speed decays by 0.9 a step here; the tumbling picture is obj+0x30b5 with the
+matrix obj+0x3085.
+
+##### 8.8 0x467e30(obj, float *v): crash start [asm]
+Nothing if already crashed. obj+0x31a1..+0x31a9 = v; obj+0x31ad = 1; obj+0x7c (gear) = 1;
+obj+0x30c1 = 1; obj+0x30c5 = 400.0 (0x43c80000).
+D (obj+0x30c9) = (v.x, f32(v.y + D 0.6 [0x4d1180]), v.z), normalized (0x40fcd0).
+obj+0x30d5 = obj+0x30d9 = f32(obj+0x124 * D 0.15 [0x4d1188]) (tumble speed and its start).
+obj+0x30b5 = (D.x*obj+0x124 + obj+0x30, D.y*obj+0x124 + obj+0x34, obj+0x124*D.z + obj+0x38)
+(the full speed, not 0.15 of it).
+Roll side obj+0x30dd: if obj+0x2e31 (written by 0x468ca0) != 0: its sign (negative -> -pi/2
+0xbfc90fdb, positive -> +pi/2 0x3fc90fdb); else if the lean obj+0x2e1d != 0: its sign; else
+**CRAND() & 1** (odd -> -pi/2, even -> +pi/2).
+obj+0x3085 = R(pi-based constant matrix with COS[0x2000]) x R(YAW(obj+0x3085)) (inline Euler
+builders, product 0x403a80, asm 0x467fb4..0x46816e); obj+0x30e1 = 0, obj+0x30e5 = obj+0x30e9 =
+obj+0x30dd (roll rates). Debris: 0x467c40(6, obj+0x30, 0xf, 0x10, obj+0xbc).
+
+##### 8.9 0x4681d0(obj): end of a crash ("put back") [decomp, asm-checked flow]
+With V = [0x508834] (the rider the camera follows, 1 in Solo) and obj+0x2dd0 = this rider's
+number:
+- driven bike (obj+8), obj+0x2dd0 == V: obj+0x180 = 0, obj+0x124 = 0, 0x48cbe0(body, 0.0),
+  0x48edd0(body), obj+0xec = 0x48deb0(body, &obj+0x12c, obj+0x7c, obj+0xec); obj+0x30c5 = 0,
+  obj+0x30c1 = 0; [0x4ea510] = 1 (the chase camera snaps, 0x46edb9); then every other loaded
+  bike still crashed (obj+0x30c1) gets 0x4681d0 too (recursively).
+- driven bike, not V: the same reset, but only if rider V is not crashed itself.
+- computer bike (obj+8 == 0): obj+0xec = obj+0x1a4 = 0, obj+0x30c5 = obj+0x30c1 = 0,
+  obj+0x31d1 = 200.0, [0x4ea510] = 1; if it is V, the other crashed bikes too; if not V, only when
+  V is not crashed.
+So **other bikes stay down while the followed rider is down** (their timer goes negative and
+0x4681d0 is retried every step), and all get up together. Nothing moves the bike: it restarts at
+standstill where its body slid to (the body was never displaced by the tumble). Keeping it on the
+road is the integrator's and 0x468ca0's job.
+
+##### 8.10 0x467c40(n, x, y, z, kind, mask, matrix M by value): debris pieces [decomp, asm-located]
+Draws RAND1() three times (r1, r2, r3) first, then for each of n pieces: r4 (bit0 -> size), r5,
+r6, r7 (& 3 each -> offsets a, b, c in M's frame), r8 (& mask) -> 0x457620((r8 & mask) + kind,
+x, y + F 32 [0x4d10a0], z, velocity = M rows times (b, a, c) + T, spin = (|r| & 0x1f) * F
+[0x4d1150] of r3, r2, r1, size ((r4&1)*5+5)*8, 0, colour 0x45a2e0(4,4,4) = 0x2104, 5).
+**Stream 1 is drawn 3 + 5n times** (crash start 33, ground bounce 23). 0x457620 takes the first
+free particle of 0x52c498 + i*0x104 (count to 0x534794) and initialises it (0x4afe90, no random).
+
+##### 8.11 0x47ecd0(this, dt): bike against bike [decomp; constants and widths asm]
+Only when the game mode 0x4dc094 != 0 (not in Practice). For each pair (i, j), riders 1..N-1
+with i < j (N = [0x509bac]), both loaded (+0x68), not handled yet this call (a 25x25 table), and
+**0x46c9f0(sec_i, sec_j) < 4** (sec_j - sec_i, plus nsec when negative: only when j is 0..3
+sections ahead of i — a pair with j behind i is never tested [decomp]):
+1. t from the swept test 0x411f00(prev_i obj+0x3c, prev_j, pos_i obj+0x30, pos_j, radii F 48,
+   F 48) [asm]: relative start d0 = prev_i - prev_j, motion dv = (pos_i - prev_i) - (pos_j -
+   prev_j); returns the first root of |d0 + t dv| = 96 (quadratic, F 2.0 / F 4.0 constants,
+   rejected when |dv|^2 < D 1e-5 [0x4d0388] or the discriminant < 0); accepted when
+   D 0.05 [0x4d1988] <= t <= 1.0.
+2. For each: d = pos - prev, s = |d| / dt * D 0.78125 [0x4d1990] (m/s), n = d/|d|.
+   A = the faster (s_i > s_j keeps i as A), B = the other; sA, nA, sB, nB.
+3. hard (crash allowed for A): |sA - sB| > 25.0 (int compare of the bits), or (> D 12.5
+   [0x4d19a0] and |lean| of A or B > D 0.6981317 (40 deg) [0x4d19a8]), or a wheelie on A or B
+   (+0x307d != 0). fall (crash allowed in a head-on): sA or sB > D 22.222 [0x4d19b0] or a wheelie.
+   If (A or B is in the air, +0x2db8 == 0) and (A or B has +8 != 0): hard = fall = 1.
+   **CRAND() & 3 != 0 -> hard = 0** (3 times in 4 a side hit does not crash).
+   headon = nA.nB < 0.
+4. Both moved back to the contact: pos = (pos - prev)*t + prev - n (own direction, one unit);
+   their wheel points recomputed from the matrix (rear = Y*(C+0x40 * F -96) + Z*(C+0x38 * F -48)
+   + T + pos; front = Y*(C+0x3c * F -96) + Z*(C+0x38 * F 48) + T + pos).
+5. A: obj+0x31d1 = 200.0; 0x466220 (turbo off). Driven A (+8): side hit: hard ? (clamp
+   obj+0x124 and sB to 22.222, 0x467e30(A, nA), flags +0x2dac |= 8) : flags |= 4; obj+0x124 =
+   sB * D 0.95 [0x4d19c8]. Head-on: obj+0x174 = nB, obj+0x180 = 5.5555553 (0x40b1c71c); fall ?
+   (crash with nA, |= 0x20) : |= 0x10; obj+0x124 = 0. Then 0x48cbe0(body, obj+0x124), 0x48edd0,
+   obj+0xec = 0x48deb0(...). Computer A: the same choices with obj+0x124 = sB * D 0.9 (side) or
+   5.5555553 and obj+0x18c = nB (head-on); obj+0xec = obj+0x1a4 = obj+0x124.
+6. B: 0x466220. Driven B: side: obj+0x174 = nA (normalized), obj+0x180 = f32((double)sA *
+   D 1.1 [0x4d1940] - obj+0x124), negative -> 0, flags |= 4 (no crash for B on a side hit);
+   head-on: obj+0x174 = normalize(sA*nA + sB*nB), fall ? crash(B, nB) |= 0x20 : |= 0x10;
+   obj+0x180 = sA - sB, < D 5.5556 [0x4d19d0] -> 5.5555553; obj+0x124 = 0; 0x48cbe0(body, 0),
+   0x48edd0, 0x48deb0. Computer B: obj+0x18c = normalize(sA*nA + sB*nB); side: hard ?
+   crash(B, that) |= 8 : |= 4, obj+0x124 = sA; head-on: crash/0x20 or 0x10, obj+0x124 = sA - sB;
+   then obj+0x124 *= D 1.1, < 5.5556 -> 5.5555553; obj+0xec = obj+0x1a4 = obj+0x124.
+   B: obj+0x31d1 = 200.0.
+7. 0x469c60(A), 0x469c60(B). (Link play then sends the hit, 0x456bf0.)
+obj+0x174..+0x180 = body+0x150..+0x15c: the push direction and size the integrator adds and
+decays (body fork, 0x48d620). obj+0x2dac bits 4/8/0x10/0x20/0x40: sound events [guess].
+
+##### 8.12 0x466d70(obj, keys): dust, spray, skid marks [decomp; asm for the window and the draws]
+(At its start a check that would print "ILLEGAL VERSION" is jumped over: `jmp 0x466ea8` at
+0x466d86, GOG's patch [asm].) Only for a bike within sections [s-10, s+30) of rider V's section
+s (0x40ec30 wraps both ends; wrapped window handled) [asm]:
+- ground material m = 0x40ec60(obj+0x31c1, obj+0x30) (on the road: section +0xe4, else +0xe8).
+  If on the ground (obj+0x2db8) and m > 0: q = ftol((obj+0x124 / obj+0xb4) * F 64 [0x4d1060]);
+  if q > 4: spray 0x4576a0((q + 2*ftol(...))/3, ...) while [0x4ea508] < 30.0; [0x4ea508] (a shared
+  timer) advances by dt for rider V, wraps at F 50, reset past 50; [0x4ea50c] toggles. No random.
+- above 5 m/s (bits > 0x40a00000): a new skid trail pair (0x457350 twice -> obj+0x2f71,
+  obj+0x2f75; obj+0x188 = 1.0, 5.0 for a computer bike) when braking starts or a slide starts
+  (obj+0x2da0 set, obj+0x2da4 clear); while braking or sliding with |0x48d0f0(body)| > 0.5 and on
+  the ground, 0x457390 adds a segment under each wheel; obj+0x188 grows by D 2.0 (or shrinks by 1)
+  within [1, 12].
+- **dust burst**: on the ground and (wheelie with obj+0x3081 < 25.0, or braking, or sliding with
+  |...| > 0.5): 24 particles (4 for a computer bike), each drawing **RAND1() six times** (one for
+  the size, three for the spin, two & 3 for the offset; the second offset is negated unless key
+  bit2 = left) -> 144 draws a step for a braking player. Particle kind 0xe, colour 0x2104.
+These are effects only, but they **consume stream 1** every step a bike brakes or slides.
+
+##### 8.13 0x467930(obj): the speedometer, rpm and the computer bikes' gear [asm]
+dist = f32-free 80-bit sqrt((dz^2 + dy^2) + dx^2) of the rear wheel's move (obj+0x338 - +0x344);
+kmh = ftol(dist / (dt * D 0.01) * D 0.028125 [0x4d1160]); obj+0x114 = obj+0x118 = kmh (int).
+Computer bike (obj+8 == 0): obj+0x120 = f32((((float)kmh - (float)old118) / dt * D 100.0 +
+obj+0x120) * D 0.5), limited to [-50, 40] (int compares); obj+0x118 = ftol(obj+0x120 * dt *
+D 0.01) + old118; < 0 -> 0 (a smoothed display speed).
+Human bike (obj+8 && obj+4): obj+0x11c (rpm) = ftol(C+0x74 RegimeMax / C+0x18 MoteurVitesseMax
+* obj+0xec). Others: obj+0xec temporarily = f32(obj+0x118 * D 0.27777777777777778), >= 0;
+r = 0x48e180(body, &obj+0x7c) (gear and fraction from speed, below); obj+0xec restored;
+obj+0x11c = ftol(r * C+0x74), < D 800 -> 800.
+**0x48e180(body, int *gear)** [asm]: v = body+0xc8, R = C+0x48. Road: the first of v < R*D 0.18,
+0.33, 0.48, 0.62, 0.74 (80-bit products) gives gear 1..5 with f = F 0.23, 0.38, 0.53, 0.67, 0.79,
+else gear 6, f = 1.0. Dirt: R*D 0.15, 0.3, 0.45, 0.75 -> gears 1..4, f = 0.2, 0.35, 0.5, 0.8,
+else 5, 1.0. Returns f32(v / (f*R)) clamped to [0, 1]; *gear = the gear.
+
+##### 8.14 0x46d340(obj) -> obj+0x31d9: which lane [asm]
+L = X.(obj+0x30 - pos) - X.(section +0x30 offset) (section X axis at +0xc; the offset is 0);
+line = section +0xb0 (racing line). For k = 0, 1, 2: c = (float)(240k) + line; hi =
+ftol(c + F 120 [0x4d1320]), lo = ftol(c - 120); if lo < L < hi return k. Else: L <= ftol(line -
+120) -> 0; L > ftol(line + F 600 [0x4d1324]) -> 2; else -1. (Lanes 240 units = 1.9 m wide
+starting on the racing line; read by the computer bikes [guess].)
+
+##### 8.15 0x461aa0(obj): shadow points [decomp]
+Six points obj+0x2ea9 + i*12 (i = 0..5): around the wheels at +-40 units across (front-left,
+front-right, mid-right, rear-right, rear-left, mid-left), each put on the road
+(SECWALK(obj+0x31c1) + 0x40c960) and raised F 4.0 [0x4d0f80] (F 8.0 [0x4d1020] for points 2 and
+5). While crashed with NewMotorEngine [0x52c234]: four corners obj+0x30ed..+0x3119 around the
+tumble point from the tumble matrix (F 32, F -2, F 2.0), on the road + 2. Drawing only.
+
+##### 8.16 0x467b30(obj, r) and 0x45d810: the rider's pose; stunts [decomp, asm for the stunt]
+- obj+0x638 (skeleton LOD) from 0x45f160 (camera distance, drawing) unless crashed or obj+0x319d
+  (then 1, the hand skeleton). If r == 0 (wheels not on the road): the bones take PilotRot #0
+  (static) as they are; else 0x45d810(obj, dirt) blends the ROT records (0x51d2a8 + k*0xf4) by
+  speed, frame pitch, lean, the crash timer, etc. **Cosmetic**: 0x45d810 writes only the bones,
+  obj+0x304d/+0x3051/+0x3055..+0x3079 (its own state), obj+0x319d and obj+0x3205.
+- **Stunts** (only the local player's bike, 0x581218 + [0x4ea4c0]*0x3209, and only when r != 0)
+  [asm 0x45dff2..0x45e1b7]: start when in the air (obj+0x2db8 == 0), obj+0x124 > D 18.0556
+  [0x4d0fd0] (65 km/h), rear.y - obj+0x2db0 >= D 64.0 [0x4d0fd8] (half a metre above the ground
+  point 0x468ca0 keeps), action 6 newly pressed (obj+0x3201 && !obj+0x3205) and no stunt running:
+  k = [0x580d0c + obj+0x3061*16] (the j-th "_N_" entry = its PilotRot index); obj+0x3065 = k,
+  obj+0x305d = &rot[k] (0x51d2a8 + k*0xf4), obj+0x3055 = race clock [0x50bbc8] (ms);
+  **Rand_Next(5) is drawn and thrown away**, then obj+0x3061 = clock % [0x5cf4fc] (unsigned).
+  Running: t = clock - obj+0x3055; frames N = [0x580d10 + k*16], length ms = [0x580d14 + k*16];
+  u = f32(fsin(t / len * D pi) * D 1.2), clamped to [0, 1]; i = min(ftol(N*u), N-1); blend rot
+  k+i-1 -> k+i by N*u - i; ends when t > len; obj+0x319d = [0x580d08 + k*16].
+  (The family script parser 0x429e20 stores, for PilotRot k named "_N_x": N at 0x580d10+16k,
+  its first int at +0x14 (length ms), its second at +0x08 (the flag); the list of such k at
+  0x580d0c + 16j, count [0x5cf4fc].) **Stunts change no physics field.**
+- obj+0x3205 = obj+0x3201, obj+0x3201 = 0 at the end of 0x45d810 (so the "pressed" latch lasts
+  until the next pose update with r != 0... [asm: only when 0x45d810 runs, i.e. r != 0 and LOD < 2]).
+
+##### Fields (this part) — read (R) / written (W)
+| field | meaning | by |
+|---|---|---|
+| +0x7c | gear (int) | W 0x467e30 (1), 0x48e180 for computer bikes; R crash/collision |
+| +0xb4 | top speed for ratios (C+0x48, +2 manual) | R 0x469c60, 0x466d70 |
+| +0xb8 | power factor 1.0 / 1.2 / 2.0 (wheelie) | W 0x4660f0 |
+| +0xbc..+0xe8 | bike matrix (X, Y, Z rows, T) | R |
+| +0xec | body+0xc8 (engine/drive speed, body fork) | R/W 0x467930, crash, collisions |
+| +0xf4 / +0xf8 | smoothed forward speed change / forward acceleration | W 0x4667e0 |
+| +0x114 / +0x118 | speed shown (km/h, int); +0x118 smoothed for computer bikes | W 0x467930 |
+| +0x11c | rpm (int) | W 0x467930 |
+| +0x120 | computer bikes' display acceleration | W 0x467930 |
+| +0x124 | speed, m/s (body+0x100) | R; W crash 0.9 decay, collisions, reset |
+| +0x174..+0x180 | push direction / size (body+0x150..+0x15c) | W collisions, reset (+0x180 = 0) |
+| +0x184 / +0x188 | skid width state | W 0x466d70 |
+| +0x18c..+0x194 | travel direction (body+0x168); computer bikes' push dir | R 0x469c60; W collisions |
+| +0x1a4 | computer bikes' speed copy | W crash, collisions |
+| +0x1b4 / +0x1c0 | front wheel point / its previous | W 0x469c60 (road); R spin, effects |
+| +0x274 / +0x3f8 | front / rear wheel time off the ground | W 0x4667e0 |
+| +0x338 / +0x344 | rear wheel point / previous | W 0x469c60 (road) |
+| +0x2da0 / +0x2da4 | sliding now / last step | R 0x466d70 |
+| +0x2da8 | forward speed at the step start | R 0x4667e0 |
+| +0x2dac | sound event bits (0x40 crash bounce; 4/8/0x10/0x20 hits) | W |
+| +0x2db0 | ground height under the rear wheel (0x468ca0) | R stunts |
+| +0x2db8 | on the ground | R |
+| +0x2dc0 / +0x2dc4 | rear / front wheel touching | R 0x4667e0 |
+| +0x2dc8 | last step's keys | R 0x466940, 0x466d70 |
+| +0x2dd0 | rider number (1-based) | R 0x4681d0 |
+| +0x2e1d / +0x2e21 | lean / previous lean | W 0x469c60 |
+| +0x2e29 | steering flag (0x466240) | R 0x469c60 |
+| +0x2e31 | sideways slip sign (0x468ca0) | R 0x467e30 |
+| +0x2e39 | frame dive | W 0x4667e0 (and 0x45d580 decay) |
+| +0x2e3d / +0x2e49 | rear / front wheel spin angle | W 0x466940 |
+| +0x2e55..+0x2e81 | frame matrix (X, Y, Z, T=0) | W 0x469c60 |
+| +0x2e85 | turbo held (copy of +0x31f9) | R 0x4660f0 |
+| +0x2e8d | pitch | W 0x466a80 |
+| +0x2e91 | rear suspension | W 0x466a80 |
+| +0x2e95 / +0x2e99 / +0x2e9d | spring push / phase / amplitude | W 0x466a80 (+0x2e95 0x4660f0, 0x468ca0) |
+| +0x2ea1 | smoothed frame pitch | W 0x466a80 |
+| +0x2ea5 | pitch offset (0x45d580, 0x466660) | R 0x466a80 |
+| +0x2ea9..+0x2eed | 6 shadow points | W 0x461aa0 |
+| +0x2f71 / +0x2f75 | skid trail ids | W 0x466d70 |
+| +0x3055..+0x3079 | pose: stunt start, list position, rot, look-at-rival state | 0x45d810 |
+| +0x307d / +0x3081 | wheelie angle / turbo time | W 0x4660f0 |
+| +0x3085..+0x30b1 | tumble matrix | W 0x467e30, 0x4683e0 |
+| +0x30b5 | tumble point | W 0x467e30, 0x4683e0 |
+| +0x30c1 / +0x30c5 | crashed / crash timer (400 at start) | W 0x467e30, 0x4681d0, 0x4683e0 |
+| +0x30c9 / +0x30d5 / +0x30d9 | tumble direction / speed / start speed | W crash |
+| +0x30dd / +0x30e1..+0x30e9 | roll side / tumble rotation rates | W crash |
+| +0x30ed..+0x3119 | crash shadow corners | W 0x461aa0 |
+| +0x319d | detailed skeleton this step (stunt flag, crash) | W |
+| +0x31a1..+0x31ad | crash impulse, flag | W 0x467e30 |
+| +0x31c1 | section index (hint) | R |
+| +0x31d1 | collision timer (200 after a hit) | W collisions, 0x4681d0; decays 0x469c60 |
+| +0x31d9 | lane 0/1/2/-1 | W 0x46d340 |
+| +0x31f9 / +0x3201 / +0x3205 | turbo held / pressed latch / previous latch | R/W |
+
+##### Random numbers in this part
+- Stream 1 (Rand_Next(1) via 0x458cd0): debris 3 + 5n per burst (crash start n = 6, crash
+  bounce n = 4); dust 6 per particle, 24 (computer 4) particles a step while braking/sliding/
+  wheelie-starting on the ground near rider V.
+- Stream 5: one draw per stunt start (value discarded).
+- The C library's rand() (0x458ce0): crash roll side when lean and slip are both 0; in every
+  tested bike pair `rand() & 3`.
+If any game logic (the computer bikes) also draws stream 1, these effects change the race: the
+port must draw the same numbers in the same order. [open]
+
+##### Open points
+- 0x40ca80's use of the tumble direction (reflected or not) — ground fork.
+- The Euler builders inlined in 0x467e30, 0x4683e0, 0x469c60 (wheelie): transcribe from the
+  listed asm ranges with COS[] (exactness needs COS[0x3000] ~ -1.8e-16, not 0).
+- 0x45d810's blend weights for every case (cosmetic) are only in decomp form here.
+- Is obj+0xbc's translation (T) ever non-zero in the race? Several sums add it (Z row + T).
+- Who else draws Rand_Next(1) (computer bikes 0x46bf80/0x46b120?) — decides whether effects must
+  be exact.
+- 0x47ecd0 checked in decomp only (constants by width from the asm); its x87 order not written.
+
+---------------------------------------------------------------------------------------------
+
+#### 9. Checks against the running original [run]
+
+How: tools/orig.sh start with `-FrameRateMax60` (the GOG launcher's setting), the hidden
+display (Weston :2), Solo → Practice → Speed Bay, SPEED bike 1, automatic or manual box.
+tools/win/memwatch.c (built to build/memwatch.exe) samples every 8 ms: 0x4e9808 (ms as a
+float), 0x4e980c (ms), 0x50bbc8 (the frame's time stamp), 0x4dc0b4 (countdown), 0x5429b0
+(running) and the whole player object 0x584421 (0x3209 bytes); xdotool holds the keys
+(build/phys/drive.sh). The last sample of each frame (same 0x50bbc8) is the state after that
+frame's step. Recordings (build/phys/): w1.bin (no frame limit: 33 ms frames; accelerate into a
+wall), w2.bin (automatic: accelerate 3.5 s, coast, brake), w3.bin (manual: A/Z shifts),
+w4.bin (accelerate, left 0.8 s, right 0.8 s, turbo 1.5 s, into the wall).
+
+Each check runs one step of the reference from the recorded state k and compares with the
+recorded state k+1, bit for bit:
+
+| what | result |
+|---|---|
+| Frame time | with -FrameRateMax60 every race frame is 16 ms (813 in a row), so dt = 1.6 every step; without it 33 ms (dt 3.3) |
+| Engine step 0x465da0 → 0x48ef30 + the gearbox in 0x466660 (speed +0x124, wheel +0x12c, engine +0xec, gear +0x7c) (build/phys/chk_engine.py) | **bit-exact on every step on the ground outside wall contact and turning**: w2 555, w3 427, w4 245, w1 506 steps (dt 1.6 and dt 3.3; automatic and manual shifts, coasting, braking, the turbo). The only differences: steps with a wall hit (+0x2dac ≠ 0) and while turning (the slide 0x45d110 and the steering change the speed after the engine, which that check does not model) |
+| Upshift table 0x48e3a0 | 17.8, 34.5, 50.8998, 65.6996, 72.8995 = the bits in memory |
+| Integration 0x48d620 (position, displacement) (chk_integ.py) | x and z bit-exact on the straight; y differs (0x468ca0 puts the bike on the road after it, not modelled in that check) |
+| Steering 0x466240: angle +0x110 and rate +0x10c (chk_steer.py) | **bit-exact on all 107 steering steps of w4** (left, right, centring) |
+| Heading after 0x45cb00 | the turn predicted with the table rebuild equals the recorded heading change to the 1e−6 printed (median 2e−6), against 6e−4 without the table; the full matrix is not compared bit for bit because 0x468ca0 rebuilds pitch and roll from the road afterwards |
+| Wall spin (0x468ca0, +0x2e31) | after the hit at step 261 the extra heading change is 0.0377 a step and +0x2e31 falls by 0.0377 a step = 3π/400 · dt |
+| Section planes 0x40e5c0 (tools/trkplanes.py) | all 4 planes of all 788 Speed Bay sections bit-exact against the memory dump |
+| Turbo / wheelie 0x4660f0 | the angle +0x307d rises 0.0754 a step (dt · 0.04712), the held time +0x3081 1.6 a step |
+| Shift timers, rpm | 150 / 200 / 300 ms timers seen as the code says; rpm = MVM/(ratio·VMB) · wheel |
+| Genuine-copy flags | 0x4dc1f4 = 0x4dc1f8 = 0x4dc1fc = 1 in the running game (memtool): so always torque ×1.1 with the manual box, turbo power 2.0, no wheel cap, NbSpeed as in the file |
+| The bike's matrix T (+0xe0..0xe8) | 0.0 in every recorded step |
+
+The checks run with the x87's 53-bit default: their bit-exact agreement is the evidence that no
+routine on this path changes the precision control. So **a port in C with `double` for the
+register values and `float` for every store reproduces these steps exactly** (with SSE2 double
+arithmetic, no x87 80-bit, no fused multiply-add: build with -ffp-contract=off; sqrt and the
+divisions are correctly rounded in both). atan2 (fpatan) and its use through f32 and the table
+truncation has not shown a difference yet; a libm atan2 may differ by an ulp of the double now
+and then [guess: harmless after the f32 and the truncation, almost always].
+
+What was **not** checked against the original: the ground contact 0x468ca0 (heights, the matrix
+from the road, landing, walls) beyond the wall-spin decay, the slide 0x45d110, the suspension,
+lean and frame (0x4667e0 … 0x469c60), crashes and getting up, bike-against-bike, the effects.
+Those are mapped from the machine code only ([asm] marks in §7, §8).
+
+#### 10. Open points
+
+Resolved on the way: the FPU precision (53-bit, bit-exact steps), the matrix translation T (0),
+the copy-protection flags (all 1), the plane builder (bit-exact), dt (0x4d1900 is 0.0: dt
+never forced to 1.0 in 0x47df40; 0x45d580 forces 1.0 only for dt ≤ 0).
+
+Open:
+1. 0x468ca0 checked only by reading (and the wall spin): a check of a whole step on the road
+   (y, the matrix's pitch/roll, +0x2db8) needs 0x40c8b0 and 0x40c7e0 in the reference; the
+   planes are now exact, so this is the next check to make.
+2. The slide 0x45d110 and the turn radius 0x45cd10: [asm], not run (needed for the speed while
+   turning to stay exact).
+3. The Euler builders inlined in 0x467e30, 0x4683e0 and 0x469c60 (crash tumble, wheelie frame)
+   are located but not written out instruction by instruction.
+4. 0x47ecd0 (bike against bike) from the decompiler only; not in Practice.
+5. Random numbers: wall-crash chances and the fall side use the C library's rand() (0x458ce0,
+   msvcrt's LCG: seed·214013 + 2531011, bits 16..30), the effects Rand_Next(1), a stunt
+   Rand_Next(5). If the computer riders draw stream 1 too, the effects must be drawn in the same
+   order for a race to stay the same.
+6. The computer riders' step 0x46bf80 / 0x46b120 is not mapped (the task covered the player).
+7. 0x4dc150 (the smoothed frame time) feeds the lean of a human rider (0x469c60): with the
+   port's fixed step it is a constant 16 (it converges to the frame time).
+8. Joystick bits 0x411b30 from the decompiler only.
+9. C+0x28, 0x44, 0x54, 0xa0 have no reader with an absolute address; one through a row pointer
+   is not excluded.
+10. Rounding: the port's step should be dt = 1.6 (16 ms) at 62.5 steps a second to be the
+    original's step; 1/60 s (dt 1.6667) gives slightly different results (not linear in dt).
+
+#### 11. Size of a C port
+
+The routines on the player's path (§4–§8) are about 40–45 KB of x87 code. Written as clean C
+with double registers and float stores:
+- step order, controls, throttle and engine, gearbox, torque: ~900 lines;
+- integration, slide, turn radius, steering, the rotation helpers: ~700 lines;
+- the ground contact with the track helpers (walk, height, walls, planes): ~900 lines;
+- suspension, pitch, lean, frame and wheel points, wheel spins, speedometer, lane: ~700 lines;
+- crash start, tumble, get-up, bike-against-bike: ~600 lines;
+- effects (dust, spray, skid marks) and the rider's pose/stunts: ~500 lines (visual).
+**About 3,500–4,500 lines of C**, of which ~2,500 decide where the bike goes. The cosine table
+and the carac rows come from the player's game.EXE / the BPT files; tools/bikephys.py and the
+recordings in build/phys/ can check each piece step for step.
 
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
