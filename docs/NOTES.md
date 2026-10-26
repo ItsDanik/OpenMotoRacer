@@ -133,7 +133,8 @@ adds ILE10, ILE11 (not on the CD; not in LIST.BPT either).
 ### 4.2 The clock: a variable step
 `timeGetTime` everywhere. 0x4120e0 each frame: elapsed ms since the last frame
 (0x459fa0/0x459fc0) → `0x4e980c` (int) and `0x4e9808` (float); above 200 → 200, below 1 → 30.
-0x47df40 then scales `0x4e9808` by 0.1 (float 0x4d1970), at least 1.0, and steps every bike
+0x47df40 then scales `0x4e9808` by 0.1 (float 0x4d1970) (it compares the result with 0.0,
+float 0x4d1900, not 1.0: any frame of 1–200 ms is simply ms x 0.1) and steps every bike
 by it (0x45d540 the player, 0x45e940 the others). So **one step a frame, of the measured
 time**: the port runs a fixed step (1/60 s → 1.667) which is the original at a steady 60
 frames a second. `-frameratemax N` (0x4dc200) only waits in 0x459fd0 until 1000/N ms have
@@ -5248,6 +5249,1415 @@ The race object 0x52c478 (vtable 0x4d04c8): +0 0x47bf30 defaults, +4 **0x47b420 
   back to the main menu. No physics, rules or dashboard yet. Practice's second record is
   not drawn [guess: it is the time-attack ghost].
 - `input.c`: the keys held, for the race; OMR_INPUT gains `hold:KEY` and `release:KEY`.
+
+### 4.17 The race's rules and state machine (mapped 2026-10-26)
+
+Mapped 2026-10-26 from build/mr.asm (objdump), build/decomp, the image (tools/peek.py reads
+values at their addresses), the LEVEL.BPT scripts (tools/bpt.py) and the memory captures in
+build/trackcap/. Tags: **[asm]** read in the machine code, **[decomp]** Ghidra's text only,
+**[guess]**, **[cap]** checked in a capture of the running original.
+
+Out of scope here (other helpers): the bike physics (race vtable +0x18 0x47ecd0, the rider
+steps 0x45d540 / 0x45e940, the inputs' meaning), the drawing, cameras and HUD (vtable +0x20
+0x47ff90, 0x46f840), the load 0x47b420 and the grid 0x410a50. Link (network) play is only
+marked where it branches.
+
+#### Summary (read this first)
+
+**The frame** (Game_Frame 0x47d660, §1): clock (ms, clamped, §2) → in-race dialogs and the
+event word 0x4e8918 (§3; a dialog with +0x10 holds the race; the event handler 0x4587e0
+unloads / restarts / changes page) → inputs and replay record/playback (part C §4) → start
+countdown and time limit (§4) → dt = ms·0.1 and every rider's step in rider order (§5) → the
+physics step 0x47ecd0 → laps, checkpoints, wrong way, finish, places (part A) → cameras →
+engine sounds, ambience and the voice queue (part C) → the end-of-race machine 0x412a50
+(part B) → position commentary → draw → limiter. The Pause key (or Ctrl+P) sets 0x4dc038 and
+App_OnIdle then skips the race entirely; Escape opens the pause menu (part B §3).
+
+**The rules in one paragraph.** 6 s countdown (0x4dc0a8 from 6000; numbers "3/2/1" at 6, 4,
+2 s and GO, drawn and voiced by the HUD), riders held by the step while 0x4dc0b4. At GO the
+time left = the start section's TimeCheckPoint + TimeSkill[difficulty] (both from the
+track's Level.Spt; table in §4); each checkpoint passed on new ground adds its
+TimeCheckPoint (5 s "extended time" message); the time runs out half a second below zero:
+GAMEOVER voice, the player out (state 3); during that half second below zero the HUD
+warns and TIMEOUT plays (at most every 2 s, so once)
+(single race, championship, time attack; practice has no limit). A lap counts when the line is
+crossed with progress = furthest progress; the first crossing from behind the line counts
+none. At laps = 0x4dc074 the player is finished (state 2), the race is over (0x509ba0) and a
+place voice plays (winner WELLDONE/YEAAH, 4th or worse YOULOST). Then timed end sequences
+(7 s, a winner's 14 s lap of honour with the computer riding the bike, 3 s after time over),
+then per mode: results dialog with REPLAY YES/NO/SAVE (single race / championship), or the
+ghost save + hi-score table + CONTINUE YES/NO (practice); bestscor.dat updated in every Solo
+mode; back to the menu by event bits (page 9 TOP 5, page 6, page 24 podium, 18 championship
+end). No championship points in Solo: a race in the top 3 advances it. Places: finishers by
+race time, racers by progress, then the rest, sorted with MSVC's qsort (same qsort needed).
+
+**Corrections to docs/NOTES.md**: §4.2 "at least 1.0" — the floor in 0x47df40 is a compare
+with 0.0 (0x4d1900 = 0.0f), so the step is ms·0.1 for any frame of 1..200 ms. 0x411b30 is
+the joystick reader, not the computer riders' driving. 0x412e50 is the split time at a
+checkpoint, not the start.
+
+**Confidence**: the frame order, the clock, the countdown/time limit, the rider steps' order,
+laps/checkpoints/places and the end machine are read in the machine code; the dialog engine's
+internals (keys, layout, drawing), the victory lap 0x48acd0/0x48ae40 and Link are not mapped.
+Checked against the captures (0x4dc0a8 during and after the countdown on SNOW_RIDE and
+WEST_WAY, 0x4dc150 ≈ 33 ms at the original's 30 pictures a second, section counts) and the
+TOP 5 capture after QUIT RACE. Nothing was checked against a whole race of the original.
+
+**Size of a C port**: this part ≈ 250 lines (frame, clock, countdown/time limit, steps
+loop, start) + part A ≈ 500 + part B ≈ 900 (+ 600–900 for a dialog engine unless the port
+draws these menus with its own widget) + part C ≈ 950 (sounds ≈ 570, replays/demos ≈ 250,
+joystick ≈ 120) — about 2,600–3,500 lines in all.
+
+**Open points** (each part has its own list below): what +0x2f89 holds; whether the player's
+grid slot is behind the line (then the first crossing also adds section 0's time); race
+object +0xc and +0x10 = 1's writer; 0x4ea4c4 (no writer, 1 in the image); the [SAVE] row's
+condition 0x4e8924 and the replay writer 0x4579b0; obj+0x2da0 and the +0x31f9 button
+(physics); confirm the finish voices and the time-out by a recorded race of the original.
+
+#### 0. Conventions
+
+- **Rider records**: `R(k) = 0x581218 + k·0x3209`, k = 0..24 (25 records; loops that run
+  "0x581218 .. < 0x5cf4f9" cover 0..24, loops "0x584421 .. < 0x5cf4f9" cover 1..24). R(k) is
+  the bike object of NOTES §4.15.2 (0x584421 = R(1)). Riders in a race are k = 1..; the local
+  player is `0x4ea4c0` (1 in Solo), the rider whose keys are read is `0x4dc0fc` (1 in Solo).
+  [asm: the loop bounds in 0x411010, 0x47d660, 0x47dae0]
+- Fields used in this part (offsets from R(k)) [asm unless marked]:
+
+| off | what |
+|-----|------|
+| +0x4, +0x8 | +8 = 1 the player (a human), computer riders +4 = 1 and +8 = 0; Link: +4 = 0, +8 = 1 a remote player (part A; 0x411122 picks 0x4dc0fc in Link from them) |
+| +0x68 | loaded / in the race (loops skip a record with 0) |
+| +0x88 | automatic gearbox: 1 for every computer rider in Solo, the menu's 0x4dc0a0 for R(1) (0x4110c4) |
+| +0x2ddd | race time, ms (int), counts while the rider's state is 0 or 1 (0x47dcdc) |
+| +0x2de1 | best lap ms (0x7f7f7f7f = none) (part A) |
+| +0x2de5 | **rider state**: 0 = not yet over the start line, 1 = racing, 2 = finished, 3 = out of the race (time over 0x47deec; championship quit 0x43791f) (part A) |
+| +0x2f79 (i16) | the next checkpoint's number, 1 at the start (k = 1..count−1) [asm 0x4112b2] |
+| +0x2f7b (i16) | laps completed (indexes the lap-time row 0x5db290; = 0x4dc074 when finished, 0x47eae2) |
+| +0x2f85 | finishing place (Link only, Game_Frame) |
+| +0x31c1 | current track section (0x40c8b0 on the track object 0x52c108 finds it from the position, 0x45eb11) |
+| +0x31e1 / +0x31e5 | control kind (2 or 4 = a joystick, read by 0x411b30) / controller number (part C) |
+| +0x31e9 / +0x31ed | key bits from the keyboard / from a joystick (or'ed together when stepping; part C) |
+| +0x31f1 / +0x31f5 | analog x / y, 0x8000 = centre |
+
+- `0x5db290 + k·0x20`: 8 ints per rider, the **time of each lap** in ms (row k, column = lap
+  index +0x2f7b) [asm 0x47dd1d].
+- `0x509bac`: the number of rider records in use (loops run k = 0 or 1 .. < 0x509bac).
+- `0x4dbffc`: 1 Solo, 0 Link (NOTES §4.12.8). Every "Link only" below is `0x4dbffc == 0`.
+
+#### 1. Game_Frame 0x47d660 (race vtable slot +0x14), the order [asm]
+
+ECX = the race object (0x52c478). Race object fields: +4 = 1 once started (0x410132,
+0x4113a9), +8 = "finish voice played" (Link block below; 0 at start), +0xc = 1 always (set by
+0x410120 in both branches, and by 0x411010 on a restart from a finished race): enables the
+time-out warning, +0x10 = demo/replay stop request (2 = stop, 0x4121e0), +0x14 = 0.
+
+1. If `0x4e4f00 == 1`: call `[0x53be00]->vtable[+0x50]` and clear it (a display object's
+   restore; set at 0x41ae7f) [asm; drawing side].
+2. If `0x4e4f08 == 1` (D3D: not enough texture memory, set by 0x41f223/0x41f245): message box
+   0x43c4e0("[WARNING]", "[TEXTURES : NOT ENOUGH]\n[VIDEO MEMORY]", button "[OK]" 0x4f, id 0xb)
+   and give the dialog 0x4e8910 the close test 0x47dab0; 0x4e4f08 = −1. Else if `0x580a58 == 1`
+   the same with "[NOT ENOUGH VIDEO MEMORY]\n[DIRECT3D NOT AVAILABLE]\n[IN THIS MODE]" (id 0xc).
+   **0x47dab0** closes the box when `0x4e9ce4 != 0` or 10 s after it opened
+   (`0x50bbc8 − box+0x64 > 0x2710`, unsigned) [asm]. D3D only: the port never shows these.
+3. `0x4f0c4c = 0x4dc14c; 0x4dc14c = 0` ("textures changed" flag set by the texture loaders
+   0x40108c, 0x401d00, 0x41c27b…; drawing side) [asm].
+4. **0x4120e0** the clock (§2). `0x51d294 = 0`.
+5. **0x4126a0** the dialogs and the event words (§3). Returns 0 = the race is held this frame.
+   - 0 (held): if the player's control kind `0x4dc11c` is 2 or 4 (a joystick) and not (dialog
+     0x4e8904 exists and its first dword == 9): **0x411a10**, which turns the joystick's
+     directions and button 0 into arrow/Return key messages so it drives the dialog (part C). Then the debug log 0x4961d0(0, "handleMenu is FALSE").
+     Go to step 17.
+   - 1: 0x4961d0(0, "handleMenu is TRUE") — 0x4961d0 is a debug log, nothing for the port
+     [asm: writes only when 0x4f1810 is set].
+6. `0x5429b0 = 1` (the local player's controls are read; see §6).
+7. **0x4121e0** the demo/replay overlay (part C). 0 → step 17 (a caption page is up, the race
+   waits).
+8. **race->vtable[+0x10] = 0x47ec40 → 0x4116f0**: this frame's inputs (keyboard and joystick bits, the
+   replay's record or its recording; part C). The computer riders get no inputs here; the
+   bike step drives them. 0 → step 17 (playback ended).
+9. `0x4e9810 = _ftol(0x4e9808)` — this frame's milliseconds as an int (0x4e9808 is still in ms
+   here; _ftol truncates). `if (0x519fec > 0) 0x519fec −= 0x4e9810` (the "extended time"
+   message's 5 s timer, set to 5000 by 0x47e62f in 0x47e3d0; read by the HUD 0x4823c9,
+   0x483d2b) [asm].
+10. **0x47dae0** the start countdown and the time limit (§4).
+11. **0x47df40** dt to step units, then every rider's step (§5).
+12. **race->vtable[+0x18] = 0x47ecd0(dt)** (physics helper). Link only: 0x457050/0x456380 send
+    this player's state (message 0x66) to the others [asm 0x47d7e4..0x47d86a].
+13. `0x48b7a0(0x5f6778, dt)` (animated decor), `0x459000()` + `0x5429cc = 0x459090(1)`
+    (an rdtsc profiler, debug only), `0x457590(dt)` (128 dust/smoke sprites),
+    **0x47e3d0** (laps, checkpoints, wrong way, finish: part A), **0x47e1e0** (the places
+    sort, part A), `0x4dc0f8 = 0` (the camera/view index the cameras loop over),
+    `0x4583e0(dt)`, `0x458620(dt)` (camera mode and update; drawing helper). dt here =
+    0x4e9808 = step units.
+14. If `0x4dc138 != 0` (a camera flag): `0x467b30(R(k), 1)` (the rider skeleton's pose) for
+    every loaded rider k = 1..24. If `0x4db65c != 0` (sound on): **0x4079e0** (engine sounds
+    and shouts, part C). Always **0x405f30** (ambience, and the voice queue 0x5028c8 where every
+    0x404da0 voice of the race actually starts, part C).
+15. **Link only — all finished** [asm 0x47d905..0x47d9f5]: if no loaded rider k = 1..24 has
+    state +0x2de5 ∈ {0, 1}: `0x509ba0 = 1`, 0x47e1e0 again, then for every rider i = 1..24
+    with R(i)+8 != 0: `R(i)+0x2f85 = 0x459f50(i)` (its place); for the local network
+    player, once (race+8 = 0 → 1): voice 0x404da0(id, 500) with places counted from 0:
+    winner (0) → 0x50 WELLDONE if the random 0x458cd0(−1) < 0x4000 else 0x4f YEAAH;
+    place == 0x509bac − 1 → 0x48 YURALOSR; place ≥ 3 → 0x47 YOULOST; 2nd and 3rd get none.
+    (Solo plays the same set from 0x47e3d0 at the finish, part A.) (Part B maps the Solo end.)
+16. **0x412a50** the end of the race per mode (part B). If it returns non-zero: if kind
+    0x4e9834 == 0 and `0x509ba0 == 0` (not over) and `0x52c238 == 0` (not out of time) and mode
+    0x4dc094 != 0 (not practice) and the player's state == 1: **0x407420** (part B). Then
+    **race->vtable[+0x20](dt, −2)**, the drawing.
+17. `0x5809f4 = 0x459fd0()` the frame limiter (§2.3); `0x4e8918 = 0x4e891c = 0` (the event
+    words are consumed every frame).
+
+So the order of one frame is: clock → dialogs/events → (demo caption) → inputs → timers →
+countdown/time limit → rider steps → physics step → race rules → cameras → sounds → end test
+→ draw → wait.
+
+#### 2. Timing
+
+##### 2.1 0x4120e0 the frame's milliseconds [asm]
+
+- `last = 0x50bbc8; 0x459fa0()` (0x4e9cfc = timeGetTime) `; 0x50bbc8 = 0x459fc0()` (= 0x4e9cfc);
+  `0x4e980c = 0x50bbc8 − last` (u32 ms since the previous frame's reading).
+- If kind 0x4e9834 != 1 (not a .Sav replay): the running mean
+  `0x4dc150 = (f32)( ((double)(int)0x4e980c − 0x4dc150) · 0.125 + 0x4dc150 )` —
+  `fild dword; fsub dword 0x4dc150; fmul qword 0x4d0380 (0.125, bits 3fc0000000000000);
+  fadd dword 0x4dc150; fstp dword`. **Unclamped** ms. Captures: 33.0 ± 0.3 at the original's
+  30 pictures a second under wine [cap: all p*/q* dumps]. Readers: 0x46a893.. (physics:
+  divides by it) — for the physics helper. In replay playback 0x4116f0 does the same mean
+  with the replay's ms.
+- `0x4e9808 = (f32)(u64)0x4e980c` (fild qword with a zero high half). If it is > 200.0
+  (f32 0x4d0398, bits 43480000): 0x4e980c = 200, 0x4e9808 = 200.0. Else if its bits as an
+  int are ≤ 0 (elapsed 0): 0x4e980c = 30, 0x4e9808 = 30.0 (bits 41f00000).
+- `0x4dbfb4 = _ftol((f32)0x4dbfb4 − 0x4e9808)`: the race's mouse-pointer timer (set to 3000 by
+  the dialogs 0x4334dd…; below 0 the pointer animates in 90 ms frames and is hidden after −630,
+  0x45a21b). Then 0x45a190(0x4dbfac) puts that pointer, and 0x4178c0(−1) + 0x418790 on the two
+  text lists 0x53ba68 and 0x53b8e8 (their frame update, NOTES §4.8.3.6).
+
+##### 2.2 The step's dt [asm 0x47df40]
+
+`0x4e9808 = (f32)(0x4e9808 · 0.1f)` (f32 0x4d1970, bits 3dcccccd), compared with
+**0.0f** (0x4d1900, bits 00000000, .rdata): below 0 → 1.0. **Correction to NOTES §4.2**: the
+floor is a test against 0.0, not "at least 1.0"; with ms in 1..200 the step is 0.1..20.0
+units of 10 ms. 0x4e9810 (int ms) is taken before the scaling. Everything after 0x47df40 in the
+frame (the riders' steps, 0x47ecd0, 0x48b7a0, 0x457590, the cameras, the drawing) gets the
+scaled dt. At 60 pictures a second: 16 or 17 ms → 1.6 / 1.7 (the port's fixed 1.6667 is the
+mean).
+
+##### 2.3 0x459fd0 the limiter and the fps counter [asm]
+
+- `prev = 0x5809e0; start = timeGetTime(); 0x5809e0 = start`. If `0x4dc200` (the
+  `-frameratemax N` value) != 0: `wait = 1000 / N` (idiv) and loop
+  `now = timeGetTime(); 0x5809e0 = now` until `now − prev ≥ wait` or `now − start ≥ wait`
+  (both unsigned). So the frame is padded to 1000/N ms from the end of the previous wait, but
+  never waits more than 1000/N in one call.
+- Then the counter: the 24 dwords 0x5809f8..0x580a54 shift up one (oldest out), `0x5809f8 =
+  start − prev` (the frame's time without its wait), the count 0x4e9d00 + 1 (at most 24, cut
+  back to before any entry > 1000 ms); returns `1000·count / sum` (0 if the sum is 0) — the
+  frame rate shown by the debug display (0x5809f4). The port only needs the wait (60 Hz).
+
+#### 3. 0x4126a0 dialogs and events (the "handleMenu" test) [asm]
+
+Four in-race dialog slots (part B §4): **0x4e8910** message boxes and the display-mode list
+(its items write **0x4e891c**, handled by race slot +0x1c 0x47ec50: display re-init, not
+rules), **0x4e890c** F1 help (event word 0x4e8914, unused in practice), **0x4e8904** the
+results / pause / continue dialogs (event word **0x4e8918**), **0x4e8908** the F11 sound and
+F12 display menus (no event word).
+
+1. 0x43e0f0() (part B).
+2. For each of the four, in that order: if it exists and +0x28 != 0: 0x434960(dialog) (its
+   frame).
+3. For each, in the same order: if it exists and has a close test at +0x30 and the test
+   returns non-zero: call +0x38(0) if set, else +0x20 = 1; then if still there and (+0x20 != 0
+   or +0x24 == 0): close it (0x435810, 0x435620, 0x4356d0, 0x435770 respectively).
+4. `if (0x4e891c) race->vtable[+0x1c](&0x4e891c)` (0x47ec50, part B). If bit **0x40000** of
+   0x4e891c, or dialog 0x4e8910 exists with +0x10 != 0 (modal): unless bit **0x80000**, draw
+   the race once `race->vtable[+0x20](dt, 0x4e8910+0x18)`; **return 0** (held).
+5. `if (0x4e8914) 0x4587e0(&0x4e8914)`; the same test with 0x4e890c → return 0.
+6. `if (0x4e8918) 0x4587e0(&0x4e8918)`; the same test with 0x4e8904 → return 0.
+7. Return 1.
+
+So bit 0x40000 in an event word = "hold the race this frame", 0x80000 = "and don't draw it"
+(e.g. the race was unloaded by the event), a dialog with +0x10 = a pause. Note the asm reads
+`0x4e8910+0x18` even when only the bit (not the dialog) caused the hold.
+Since step 17 of Game_Frame clears 0x4e8918 and 0x4e891c (not 0x4e8914) at the end of every
+frame, an event lives one frame.
+
+#### 4. 0x47dae0 the start countdown and the time limit [asm]
+
+Globals: **0x4dc0ac** = 1 for every race (0x410120 sets it to Solo, 0x411010 sets it to 1 in
+Link; nothing clears it) — the routine does nothing when 0. **0x4dc0b4** = 1 while the start
+countdown runs. **0x4dc0a8** = the countdown, then the **time left**, ms (int).
+
+Set-up by 0x411010 (the race's (re)start, called by the load's 0x410ee0, by 0x4587e0 for a
+restart, and by the Link handlers 0x454330/0x454680) [asm 0x411279]:
+`0x5429b0 = 0, 0x4dc0b4 = 1, 0x4dc0a8 = 6000` (0x1770), lap fields of R(1..count−1)
+(+0x2f79 = 1, +0x2f7b = 0), 0x50bbc8 = 0x51d29c = timeGetTime, 0x4e9818 = 0; then replay
+record start 0x4577c0 (kind 0) or playback start 0x4577e0 (part C). (If 0x4dc0ac were 0:
+0x4dc0b4 = 0, 0x5429b0 = 1, no countdown.)
+
+Each frame:
+1. **Link only, while counting**: the synchronised start (0x4e982c, 0x4f0c50, 0x4dbff8 host,
+   0x508030.. player table, DirectPlay latency 0x4dc104->+0x4c, qsort, busy-waits, 0x456d40/
+   0x456d80, 0x4e892c) when ≤ 3000 ms are left. Not mapped (out of scope).
+2. `0x4dc0a8 −= 0x4e9810` — always in Solo (in Link it stops at 3000 until the start is
+   synchronised).
+3. **Not counting** (`0x4dc0b4 == 0`): for every R(k), k = 0..24, loaded (+0x68), state
+   +0x2de5 ∈ {0, 1}, and (k == 0x4ea4c0 or R(k)+8 == 0): `R(k)+0x2ddd += ms` and
+   `0x5db290[k·8 + R(k)+0x2f7b] += ms`. So the race time and the lap times count only after
+   the start, only while the rider races, and in Link only for the local player and the
+   computer riders.
+4. If `0x4dc0a8 < 0`:
+   - **Counting → the start** ("GO"): 0x4dc0b4 = 0. If the track object's start section has a
+     checkpoint (`i16 [0x52c108]+0xd8 ≥ 0`): `0x4dc0a8 = i32 [0x52c108]+0xda` + (Solo:
+     `0x515fe0[difficulty 0x4dc060]`; Link: 120000 = 0x1d4c0). The countdown's own overshoot
+     is dropped (the value is set, not added). Then for every loaded R(k) with (k == local or
+     +8 == 0): race time +0x2ddd = 0 and its 8 lap times = 0. Then for k = 0..0x509bac−1:
+     with s = R(k)+0x31c1 (section) and n = `0x52c10c` (the track's section count):
+     **not reversed**: state +0x2de5 = 1 if 0 ≤ s < n/2 (n/2 = C division, rounded to zero);
+     **reversed** (0x4dc144): state = 1 if s < 0 or s ≥ n/2. Otherwise the state stays 0.
+     [asm 0x47de0d..0x47de35; an earlier reading of mine had the two sides swapped.] So a
+     rider already past the line (first half of the lap; last half when run backwards) races
+     at once (state 1: his next crossing counts a lap), while one still behind it stays 0 and
+     his first crossing only turns him to 1, counting no lap (0x47e3d0, part A). Note this
+     test runs over k = 0..0x509bac−1, the other loops over loaded records. `0x5429b0 = 1`.
+     Return.
+   - **Racing → out of time**: only when not a replay (0x4e9830 == 0), the local player's
+     state is 0 or 1, and (mode 0x4dc094 != 0, or time attack 0x4dc148): if
+     `0x4dc0a8 + 500 < 0` (half a second of grace below zero): `0x52c238 = 1` (time over),
+     0x482120(0,0,0,0,0) (the HUD's "time over" text, 5 pushes), voice **0x404da0(0x39 GAMEOVER, 500)**,
+     player state = **3**. Else, if race+0xc: 0x481af0(0,0,0,0,0) (the HUD's warning) and every
+     2000 ms (`0x4f0c54 + 2000 < 0x50bbc8`, unsigned; 0x4f0c54 = now) voice **0x42 TIMEOUT**.
+     **Practice without time attack has no time limit.**
+
+**The time table** — `0x515fe0[3]` is **TimeSkill** from the track's Level.Spt (0x427e80 at
+0x428a9c: the first int by 0x425bb0, the next two by 0x425080; the image holds zeros), the
+section time +0xda is **TimeCheckPoint** (0x509228.., NbCheckPoint 0x4dbfd0; part A for how
+they map onto sections and how 0x47e3d0 adds them). Values (tools/bpt.py on each LEVEL.BPT):
+
+| track | folder | TimeSkill easy / medium / hard (ms) | NbCheckPoint | TimeCheckPoint (ms) |
+|-------|--------|------|---|------|
+| SPEED_BAY | ile01 | 25000 / 20000 / 15000 | 3 | 15000 15000 13000 |
+| WEST_WAY | ile02 | 50000 / 23000 / 20000 | 3 | 13000 15000 11000 |
+| ROCK_FOREST | ile03 | 33000 / 15000 / 10000 | 3 | 11000 17000 12000 |
+| LOST_RUINS | ile04 | 35000 / 25000 / 20000 | 5 | 21000 20000 18000 20000 20000 |
+| SNOW_RIDE | ile05 | 50000 / 25000 / 20000 | 5 | 15000 16000 14000 13000 13000 |
+| GREAT_WALL | ile06 | 38000 / 24000 / 20000 | 3 | 17000 16000 16000 |
+| RED_CITY | ile08 | 25000 / 15000 / 8000 | 4 | 18000 13000 14000 15000 |
+| DIRT_ARENA | ile09 | 30000 / 25000 / 20000 | 5 | 21000 21000 19000 20000 15000 |
+| (ile10) | ile10 | 25000 / 20000 / 15000 | 3 | 18000 25000 25000 |
+| (ile11) | ile11 | 40000 / 25000 / 20000 | 6 | 12000 15000 14000 18000 11000 12000 |
+
+Check [cap]: the captures of single races on medium (0x4dc060 = 1): SNOW_RIDE right after
+the start q45 0x4dc0a8 = 37752 ≤ 25000 + 15000; WEST_WAY q16 35109 ≤ 23000 + 13000; during
+the countdown (0x4dc0b4 = 1) q14 5434, q15 2264, q43 4079, q44 908, all below 6000. The
+captures never show a value above those sums.
+
+**Where the riders are held on the grid**: not by this routine. While 0x4dc0b4 = 1 the rider
+step 0x45d540 skips its motion call (0x45d722) and plays the rider's start pose from
+`2000 − 0x4dc0a8` (0x45d87d, the last two seconds), 0x45eaf6 skips 0x4660f0, the joystick reader
+0x411b30 gives no bits (0x411be3) — for the physics helper [asm, only the tests read].
+The countdown's numbers, lights and voices come from the HUD (0x413410 → 0x413030 /
+0x413180 reading 0x4dc0a8, part A), so they follow the pictures drawn, not the steps.
+
+#### 5. 0x47df40 dt and the riders' steps [asm]
+
+1. dt scaling (§2.2).
+2. **Time attack in practice** (Solo, mode 0, 0x4dc148): only R(1), the player:
+   0x45d540(R(1), keys = R(0x4dc0fc)+0x31e9 | +0x31ed, ax +0x31f1, ay +0x31f5, dt). The
+   ghost is **R(2)** (0x58762a): if loaded (R(2)+0x68), the ghost player 0x4192a0(0x52c0d8,
+   dt, R(2) fields …) sets its pose from the ghost record, 0x467e30(R(2), …) when it says
+   so, and 0x45e940(R(2), dt) (the passive step). Then the recorder **0x4191c0(0x52c0f0, dt,
+   …R(1)'s position, angles…)** writes the player's run into the new ghost; then
+   `0x5875ce = 0` (R(1)+0x31ad, a one-frame event flag of the player that the recorder
+   takes with R(1)+0x2e85 and +0x31a1..+0x31a9 [asm for the addresses; meaning guess]). (Ghost files: part B / 0x4136a0 / 0x4138c0.)
+3. Otherwise, for k = 1..24 in order: Solo → every loaded R(k): **0x45d540(R(k), keys, ax, ay,
+   dt)** with its own input fields (zero for the computer riders, joystick bits from 0x411b30
+   for a joystick player, filled in 0x4116f0). Link → the local player and (host) the remote humans (type 3 in 0x508048 + k·0x24)
+   get 0x45d540, the others 0x45e940(R(k), dt) (moved by the network).
+
+#### 6. 0x5429b0, "the player has control"
+
+Writers [asm]: 0 at the (re)start (0x41128d), 1 at "GO" (0x47de44), 1 at every running frame
+(Game_Frame step 6), 0 when the local player finishes his last lap (0x47eaf1, in 0x47e3d0,
+together with 0x509ba0 = 1 in Solo). Readers: 0x4116f0 (a joystick player's bits masked to
+the throttle bit and analog y centred when != 1), 0x411b30, and the keyboard/joystick reader 0x431250
+(0x4312f3.., called from the window code 0x4329a5, i.e. between frames). Because Game_Frame
+sets it to 1 before 0x4116f0 runs, the masking in 0x4116f0 never happens during a running
+frame [asm, order]; what it really gates is the window-side key reading between the end of
+one frame and the start of the next [guess: effect ≈ none; the port can drop it].
+
+#### 7. Globals of this part
+
+| address | meaning | tag |
+|---------|---------|-----|
+| 0x4e980c | frame ms (u32), clamped 1..200, 0 → 30 | asm |
+| 0x4e9808 | frame time f32: ms until 0x47df40, then step units (ms·0.1) | asm |
+| 0x4e9810 | frame ms as int (from 0x4e9808 before scaling) | asm |
+| 0x4dc150 | running mean of the raw frame ms (f32, factor 0.125) | asm, cap |
+| 0x50bbc8 | timeGetTime at this frame's start (also "now" for the rules) | asm |
+| 0x4e9cfc | the last timeGetTime read by 0x459fa0 | asm |
+| 0x5809e0 | limiter's last time; 0x5809f8[24] frame times; 0x4e9d00 their count; 0x5809f4 fps | asm |
+| 0x4dc200 | -frameratemax N (0 = no wait) | asm |
+| 0x4dbfb4 | race mouse-pointer timer (ms) | asm |
+| 0x4dc0ac | race has a start countdown (always 1) | asm |
+| 0x4dc0b4 | countdown running | asm, cap |
+| 0x4dc0a8 | countdown ms (6000 →0), then time left ms | asm, cap |
+| 0x515fe0[3] | TimeSkill (Level.Spt) per difficulty | asm + data |
+| 0x52c108 | the track object (sections; +0xd8 i16 checkpoint of the start section, +0xda its time) | asm |
+| 0x52c10c | the track's section count | asm |
+| 0x519fec | "extended time" message timer, ms (5000 at a checkpoint) | asm |
+| 0x52c238 | time over (player out of time) | asm |
+| 0x509ba0 | race over (Solo: player finished; Link: everybody) | asm |
+| 0x4f0c54 | time of the last "hurry" voice 0x42 | asm |
+| 0x5429b0 | player has control (§6) | asm |
+| 0x4e982c, 0x4f0c50, 0x4e892c | Link start synchronisation | asm (not mapped) |
+| 0x5db290 | lap times, 8 ints per rider record | asm |
+| 0x4e4f00, 0x4e4f08, 0x580a58, 0x4dc14c→0x4f0c4c | display/D3D flags (not for the port) | asm |
+| 0x4dc0f8 | the view/camera index (0 after the rules; drawing helper) | asm |
+
+#### 8. 0x411010 the race's (re)start, the rest [asm]
+
+Called by 0x410ee0 (end of the load), 0x4587e0 (restart event), and 0x454330/0x454680 (Link).
+
+1. If `0x504ea0` (set to 1 by 0x412960 at the end of a race, part B): race+0xc = 1, R(1)+8 = 1,
+   0x504ea0 = 0x504eac = 0, R(1)+0xb4 = 0x504ea4, 0x4f0dc8 = 0x4dbe38, 0x4e8944 = 1,
+   R(1)+0x84 = +0x8c = 0, R(1)+0x124 (speed) = R(1)+0xec, 0x48edd0(R(1)+0x24), and
+   R(1)+0xec = 0x48df90(R(1)+0x12c, R(1)+0xec) — putting the player's bike back as it was
+   saved by 0x412960 [asm; meaning: part B].
+2. 0x4b35f0(0) (srand(0) [guess: MSVC runtime]), 0x431230, 0x4dbe30 = 0x4dbe34 = 0,
+   `0x4ea4c0 = 0x457760()` (local player).
+3. For k = 0..24: 0x470fc0(R(k)+0x31e1); R(k)+0x88 = 1 (Solo; the player's = 0x4dc0a0) or the
+   Link player table's value.
+4. 0x4dc0fc = 1 (Solo) / the last local human (Link).
+5. `0x4e982c = 1`, R(local)+0x31e1 = 0x4dc11c (the control device: 2 or 4 make 0x4126a0's
+   held branch call 0x411a10), R(local)+0x31e5 = 0, 0x4e892c = 0, 0x5d26a1/0x5d26a5 =
+   0x7f7f7f7f, bytes 0x5d25b0 = 0x5d25b8 = 0. In playback 0x42e6e0(0x53e4d0, 0, 1) (part C).
+6. `0x52c238 = 0x509ba0 = 0x504ea0 = 0x504eac = 0`; Link: 0x4dc0ac = 1.
+7. Best records: 0x4656c0(0x581118) reads this track's best from Data\bestscor.dat (part B);
+   none → 0x581118 = 0, 0x581209/0x58120d = 0x7f7f7f7f. **The ghost buffer 0x581018**
+   (0xf9 bytes): kept when time attack in practice and a ghost was loaded (0x52c0d8); else
+   filled with 0x7f, and in Solo (not time attack) 0x465290(0x581018, name 0x5161b0) or,
+   failing, the last record 0x465070(0x581018, 0x4654e0() − 1) from bestscor.dat [part B].
+8. The countdown set-up (§4), 0x4e981c = 0, Link host 0x456fb0, 0x457320(), and
+   0x463be0(0x580a78 + k·0x1a, R(k)) for k = 0..24 (part A). race+4 = 1, race+8 = 0.
+
+#### Race rules, part A: places, laps, checkpoints, splits, wrong way, finishing
+
+Scratch part (helper A) for build/notes/race_rules.md. Everything read in the machine code
+unless marked. Addresses of riders: **obj(k) = 0x581218 + k·0x3209**, k = 0..24 (k = 0 is
+the menu's bike, never loaded in a Solo race: +0x68 = 0 in every capture). In a Solo race
+the player is k = 1 and the opponents k = 2.. (loop bound `k < 0x509bac`).
+
+##### 0. The rider's race fields (offsets from obj) [asm]
+
+| offset | size | meaning | written by |
+|---|---|---|---|
+| +0x04 | 4 | "p2" of 0x45bf70: 1 for the player and the computer riders (Solo); in Link 1 only for the host's own type-3 slots | 0x45bf70, 0x410c8d |
+| +0x08 | 4 | "p1": 1 = the player (Solo k = 1), 0 = computer rider; Link: 1 = a player slot | 0x45bf70 |
+| +0x68 | 4 | loaded / in the race | 0x45bf70, grid |
+| +0x2dd4 | 8+1 | rider name (8 chars) | grid (0x410cff copies the player's name 0x5161b0) |
+| +0x2ddd | 4 | **race time, ms** (counted by 0x47dae0 while state is 0 or 1) | 0x47dae0, reset 0x47bf70/0x45bdf0, ghost rider below |
+| +0x2de1 | 4 | **best lap, ms**; 0x7f7f7f7f = none | 0x47e3d0, reset to 0x7f7f7f7f (0x47bf70 at 0x47cf82, 0x45bdf0) |
+| +0x2de5 | 4 | **state**: 0 not yet over the start line, 1 racing, 2 finished, 3 out of the race (time over: 0x47dae0 at 0x47deec; quit from the in-race menu in a championship: 0x43791f) | 0x47e3d0 (0→1, 1→2), 0x47dae0, 0x437602, reset 0 |
+| +0x2f79 | 2 (i16) | **next checkpoint number** (0..ncp−1); 1 at the start | 0x47e3d0, 0x411010 (=1) |
+| +0x2f7b | 2 (i16) | **laps completed** | 0x47e3d0, 0x411010 (=0) |
+| +0x2f85 | 4 | **finishing place**, 0-based (0 = winner); 7 after a reset | 0x47e3d0 at the finish, Game_Frame (Link) |
+| +0x2f89 | 0x30·4 | **split times**: race time at each checkpoint passed, index 0x46d4b0 (≤ 0x30) | 0x412e50; cleared by 0x47bf70 (`rep stos` 0x30 dwords) |
+| +0x30c1 | 4 | crashed (NOTES §4.15) — read by the camera choice 0x4583e0 | physics |
+| +0x31b1 | 4 (float) | signed distance from the section walk (see 0x40c7e0) | 0x47e3d0 via 0x40c7e0 |
+| +0x31b5 | 4 | **progress** = sections advanced since the start (negative while behind the line) | 0x47e3d0, grid/reset |
+| +0x31b9 | 4 | **furthest progress** reached | 0x47e3d0, grid/reset |
+| +0x31bd | 4 | section of the previous frame | 0x47e3d0 |
+| +0x31c1 | 4 | **current section** | 0x47e3d0 (also written by the physics and AI walks 0x45e940, 0x46b120, ...) |
+| +0x31e1.. | | control type and inputs (other helper) | |
+
+Per-rider lap times: **0x5db290 + k·0x20**, 8 ints = the time of lap 0..7 in ms (0x47dae0
+adds the step's whole ms 0x4e9810 to entry [lap] while state is 0/1). 0x5db2b0 is rider 1's.
+
+Initial progress (0x47bf70 at 0x47cff4, and 0x45bd40 / 0x45bb30 the same) [asm]: prev
+section = current; N = section count 0x52c10c, half = N/2 (C division, toward 0).
+- forward: progress = sec − N if sec ≥ half, else sec;
+- reverse (0x4dc144): progress = N − sec if sec ≥ half, else −sec;
+- furthest = progress. So a grid placed just behind the line starts with a small negative
+  progress.
+
+##### 1. 0x47e3d0 — the per-frame lap / checkpoint / finish rules (Game_Frame, after the step)
+
+Called once a frame from Game_Frame after the step and the effects (order there:
+0x48b7a0, 0x459000, 0x457590, 0x459090, **0x47e3d0, 0x47e1e0**, then the cameras).
+
+Locals: `shown` = 0x4119a0() (below); `anyline` = 0.
+
+"**counts(k)**" below = `k == 0x4ea4c0` (the local player) **or** (obj+4 ≠ 0 and (obj+8 ≠ 0
+or 0x4ea4c4 ≠ 0)). 0x4ea4c4 is 1 in the image and no writer by address was found, so in
+Solo every rider counts (player and computer riders); the riders that do not count are
+Link's remote players (obj+4 = 0, obj+8 = 1), whose race state comes from the network.
+
+For k = 1 .. 0x509bac−1, skipping riders with obj+0x68 = 0:
+
+1. `cp = 0, line = 0`. **Section walk**: obj+0x31c1 = 0x40c7e0(track 0x52c108, hint =
+   obj+0x31c1, point = obj+0x30 (body position), out = &obj+0x31b1).
+2. If the section changed (cur ≠ prev = obj+0x31bd):
+   - `d = cur − prev`.
+   - **Forward** (0x4dc144 = 0): if d > half, d −= N. If d < −half: d += N (wrapped
+     past section 0 forwards), and **line = 1** if counts(k) and progress == furthest
+     (checked before adding d).
+   - **Reverse**: d = prev − cur. **line = 1** if 0 ≤ prev < half and cur > half and
+     counts(k) and progress == furthest. Then d −= N if d > half; d += N if d < −half.
+   - progress += d.
+   - If d > 0 and k == shown: 0x4f0c58 = 0 (wrong-way voice may play again) and the
+     wrong-way message (text id 0x4e986c) is removed (0x4177e0 on list 0x53ba68).
+   - If d > 0 and progress > furthest: furthest = progress; for each of the d sections
+     entered, s = 0x40ec30(prev + dir) stepping by dir = 0x4dc140 (±1), s wrapped into
+     0..N−1:
+     - if section s is a checkpoint (i16 at sec+0xd8 ≥ 0): **cp = 1** if counts(k); and
+       if k == shown: **0x4dc0a8 += the int at sec+0xda** (the time bonus, ms; read as a
+       32-bit int at 0x47e614), **0x519fec = 5000**, and the "time out" warning text
+       (id 0x4e9858, made by 0x481af0) is removed.
+     - if k == 0x508834 (the rider the camera follows): 0x486240(int at sec+0xec), the
+       section's event (turn signs, NOTES §4.13).
+   - **Wrong way** (d ≤ 0 and k == shown) [asm 0x47e692]: with f = (float)0x4dc140 and
+     the current section's start-plane normal n = sec+0x40/0x44/0x48:
+     `(f·obj[+0xd4] + obj[+0xe0])·n0 + (f·obj[+0xd8] + obj[+0xe4])·n1 + (f·obj[+0xdc] +
+     obj[+0xe8])·n2 < 0.0` (float 0x4d1900 = 0.0, bits 00000000) → 0x481db0 (wrong-way
+     message, 4000 ms, text id 0x4e986c) and, once until the next forward section
+     (0x4f0c58), **voice 0x46 WRONGWAY** (0x404da0(0x46, 500)). x87 order: the three
+     products summed as (n2-term + n0-term) + n1-term, all in 80-bit registers, one compare
+     [asm]. obj+0xd4.. = third row of the bike matrix (forward axis) [guess],
+     obj+0xe0.. = its translation slot [asm offsets; NOTES §4.15 calls +0xbc..+0xe8 the
+     matrix + translation — so the test is really "forward axis + position·n" without the
+     plane's d; the meaning of +0xe0 here is open, see open points]. Only tested on the
+     frame the rider enters a section backwards (or the same-numbered one after a wrap).
+   - prev = cur.
+3. **Link remote riders** (k ≠ local, obj+4 = 0, obj+8 ≠ 0): line = 1 if the old network
+   record's checkpoint (i16 at 0x580a9e + k·0x1a) is 0 and obj+0x2f79 is 1; cp = 1 if they
+   differ; then 0x463be0 copies obj's race time, best lap, state, cp, laps, place into the
+   record 0x580a92 + k·0x1a (+0x16 = 1). Out of scope (note only).
+4. **Checkpoint passed** (cp and state == 1):
+   - not a replay (0x4e9830 = 0): for a Link remote rider, cp field −1 around the call;
+     **0x412e50(obj, k == shown)** (split time, §3); remote rider: +1 back.
+   - then, if counts(k) (or k == local): obj+0x2f79 += 1, and = 0 when ≥ the checkpoint
+     count **0x4e9844**. (In a replay the split is not taken; the counter still moves.)
+   So +0x2f79 is the number of the next checkpoint: the line is checkpoint 0 (section 0
+   on every track, `tools/track.py info`: ile01 has checkpoints at sections 0, 319, 539;
+   ile04 at 0, 161, 309, 453, 616), the race starts with 1.
+5. **Line crossed** (line):
+   - if counts(k): state 0 → **1** (the first crossing from the grid starts the rider's
+     race; no lap counted); state 1 → **laps += 1**; then
+     - lap == 1 and not a replay: a dead check (0x4e90b4 vs 0x4e90b8, then `nop; jmp`
+       over a text "ILLEGAL VERSION" built on the stack: a copy protection disabled in
+       this build) [asm 0x47e8ce].
+     - if k == 0x508834 and laps == 0x4dc074 − 1 (**final lap**): remove texts 0x4e9870,
+       0x4e985c, 0x4e9860, 0x4e9874, 0x4e9878; 0x481c50 (the final-lap message, 1000 ms,
+       text id 0x4e9864); **voice 0x37 FINLAP**.
+   - if state == 1 (now):
+     - **time-attack ghost** (obj == obj(2) = 0x58762a, loaded, laps == 0x4dc074, practice
+       0x4dc094 = 0, time attack 0x4dc148): race time obj+0x2ddd = ftol(float 0x52c0e8)
+       (the ghost recording's total time); if 0x4dc074 == 1 also lap-0 time 0x5db2d0 and
+       best lap = it.
+     - if counts(k): for i = 0 .. laps−1: if lap time [i] < best lap: best = it, and in Solo
+       **0x458310(obj)** (lap record check, §4).
+     - if k == shown and laps == 0x4dc074: **0x5429b0 = 0**; Solo: **0x509ba0 = 1** (the
+       player has finished: read by 0x4116f0 and Game_Frame); Link: 0x456c80 sends the race
+       time (message 0x6d).
+     - anyline = 1.
+     - **Finish** (laps == 0x4dc074): 0x519fe4 = 0x4dc100 (the number of loaded riders,
+       0x4817a0; the physics picks the finish animation from place vs it, 0x45dad7); if
+       counts(k): **state = 2**, **0x47e1e0()** (places now), and in Solo (or obj+8 = 0)
+       **obj+0x2f85 = 0x459f50(k)** (0-based place). Solo and k == shown: voice by
+       place p: p == 0 → 0x458cd0(−1) (Rand_Next(1), NOTES rand) > 0x3fff ? **0x4f YEAAH**
+       : **0x50 WELLDONE**; p == 0x509bac − 1 → **0x48 YURALOSR**; p > 2 → **0x47
+       YOULOST**; p = 1, 2 → none. All with 0x404da0(id, 500).
+       Note: places are 0-based and 0x509bac = loaded riders + 1, so p == 0x509bac − 1
+       cannot happen in Solo (captures: 0x4dc100 = 0x4dc154 = 23): the "you're a loser"
+       voice is dead there; the last place gets YOULOST [asm + test].
+6. After the loop: if anyline → **0x481800()** (who holds the fastest lap, §5).
+
+###### 0x4119a0 — "shown" = the local player's rider [asm]
+Link: 0x457050(net id, 0). Solo: the first k ≥ 1 with obj+0x68 and obj+8 set (the player,
+1). None: kind 0x4e9834 == 2 (demo) → 0x508834, else −1. So the time bonus, wrong way,
+split and the place voices go to the player only.
+
+###### 0x40c7e0(track, hint, point, float *out) — section walk [asm]
+(NOTES §4.13.) N ≤ 0 → 0. hint ≥ N → 0. dist(s) = 0x4b10c0 = plane +0x40 of section s
+(n·p + d). If dist(hint) < 0.0 (0x4d02d0 = 0.0): step back (wrapping to N−1) until
+dist(s) ≥ 0, out = that dist (≥ 0). Else step forward while dist(next) ≥ 0 (next = (s+1)
+mod N), out = dist(next) of the first next that is < 0, i.e. minus the distance left to
+the next section's start. Returns s.
+
+###### 0x40ec30(s) — wrap a section number into 0..N−1 (loops of ±N) [asm]
+
+##### 2. 0x47e1e0 — the places (sort) [asm]
+
+Builds **0x516ab8[0..0x4dc154−1] = rider numbers in race order** (0x4dc154 = how many).
+For k = 0..24 with obj+0x68, a key (low 27 bits) | k<<27:
+- state 2 (finished): `(~racetime) & 0x7ffffff` → straight into 0x516ab8 (group A);
+- state 0 or 3: `racetime & 0x7ffffff` → group C;
+- otherwise (racing): t = obj+0x31b1 (float); forward: ftol(t + 1024.0) (double 0x4d1978,
+  bits 0000000000009040), reverse: ftol(−t); clamp 0..0xfff; key = t | progress<<12
+  (progress not masked: a negative progress fills the high bits, the compare masks them
+  to 27 bits) → group B.
+- Each group sorted by MSVC's qsort 0x4b3100 with **0x457730 = descending** on the low 27
+  bits (b > a → 1, equal 0, else −1). Then A, B, C concatenated and every entry >> 27.
+So: finishers by race time (fastest first), then racers by (progress, distance into the
+section), then riders not yet over the line / out of time (more race time first).
+**Ties** (equal keys, e.g. riders still on the grid, all race time 0 after the reset at
+GO) keep whatever order MSVC's qsort leaves: a port must use the same qsort algorithm to
+get the same places [asm; consequence].
+
+###### 0x459f50(k) — place of rider k: its index in 0x516ab8, −1 if absent [asm]
+
+##### 3. 0x412e50(obj, isShown) — split time at a checkpoint [asm]
+
+Does nothing while 0x504ea0 ≠ 0 (the race's end phase, set by 0x412960/0x412a50, cleared
+by 0x411010).
+- i = **0x46d4b0(obj)**: cp = obj+0x2f79, L = obj+0x2f7b; cp == 0 → (L+1)·ncp − 1, else
+  L·ncp − 1 + cp (= consecutive numbering of checkpoint passes; cp is the one being passed).
+  If i ≤ 0x30: **obj+0x2f89[i] = race time** obj+0x2ddd.
+- Only if **0x4e984c** (1 in Solo, 0 in Link: set by 0x4100a0 "initRace") and isShown:
+  - 0x5dbc70[0] = 0 (empty text).
+  - Link: the reference is the leader (0x516ab8[0]) when the player's place ≥ 1: its name
+    → 0x581018 (8 chars, 0x581020 = 0) and its 0x30 splits → 0x581025; else 0x581018 =
+    0x7f (none).
+  - Solo: the reference is what 0x581018 already holds: the time-attack ghost / the
+    track's record splits loaded at the start (0x411010 fills 0x581018.. with 0x7f7f7f7f,
+    0x3e dwords + 1 byte, unless time-attack practice with a ghost 0x52c0d8, then loads
+    it with 0x465290/0x465070 in Solo) [asm for the fill; the loaders are the other
+    helpers'].
+  - If 0x581018 ≠ 0x7f and ref = 0x581025[i] is neither 0 nor 0x7f7f7f7f: diff = split −
+    ref (0x4f0e00), shown as |diff| through 0x481730 (ms → min 0x4f0d88 = (ms/1000/60)%60,
+    sec 0x4f0d8c = (ms/1000)%60, hundredths 0x4f0d90 = (ms%1000)/10) with format
+    `" %02d:%02d;%02d"` (0x4dbed0, diff 0), `"-%02d:%02d;%02d"` (0x4dbec0, ahead) or
+    `"+%02d:%02d;%02d"` (0x4dbeb0, behind) into 0x5dbc70, cut at 10 chars (0x5dbc7a = 0).
+    The HUD draws it (other helper).
+
+##### 4. 0x458310(obj) — lap record during the race [asm]
+
+Solo, obj+8 (the player), best lap b valid (≠ 0x7f7f7f7f, ≠ 0) and
+(track record 0x58120d valid and b < it and (b < race best 0x5d26a5 or none)) or
+(no track record and (b < race best or none)):
+0x482dc0(kind 0x4e9834, obj, 0, 0, 0) (the record message), **0x5d26a5 = b**, name →
+0x5d25b0 (8 chars, 0x5d25b8 = 0), **voice 0x3b NEWRECOR**.
+0x581118.. is the track's record read by 0x4656c0 in 0x411010 (best race time 0x581209,
+best lap 0x58120d, both 0x7f7f7f7f and name "" when there is none); 0x5d26a1 / 0x5d26a5
+are this race's best, reset to 0x7f7f7f7f by 0x411010 [asm for the resets; the record
+file is bestscor.dat, other helper].
+
+##### 5. 0x481800 — fastest lap holder [asm]
+Over k = 0..24 with (k == local or (obj+0x68 and (obj+8 or 0x4ea4c4))) and best lap ≠
+0x7f7f7f7f: key = best & 0x7ffffff | k<<27, MSVC qsort ascending (0x4817d0, unsigned) when
+more than one; **0x4f0db8 = first >> 27** (the rider with the fastest lap; the HUD's).
+With no entry it reads an uninitialised stack word (called only after a line crossing,
+so the crosser normally has one).
+
+##### 6. The start: countdown, lights, voices, when control is given
+
+**0x411010 (race object, start/restart of a race)** [asm 0x411010..0x4113bb]: among much
+else (rider reset, Link sync, replay set-up, the reference splits above), if 0x4dc0ac
+(countdown wanted; 1 in Link, set in Solo by 0x410120 [other helper]):
+**0x5429b0 = 0, 0x4dc0b4 = 1 (countdown on), 0x4dc0a8 = 6000 ms**, and riders 1..
+0x509bac−1: next checkpoint (+0x2f79) = 1, laps (+0x2f7b) = 0; the clocks 0x51d29c /
+0x50bbc8 = timeGetTime, 0x4e9818 = 0. Without countdown: 0x4dc0b4 = 0, 0x5429b0 = 1.
+Also: 0x52c238 = 0 (time over), 0x509ba0 = 0 (player finished), 0x504ea0 = 0 (end
+phase), 0x504eac = 0, 0x4e982c = 1, 0x4e892c = 0, race best 0x5d26a1/0x5d26a5 =
+0x7f7f7f7f, record name 0x5d25b0/0x5d25b8 = "".
+
+The countdown is counted down by 0x47dae0 (parent's part: 0x4dc0a8 −= ms per frame; at
+< 0 the countdown ends, 0x4dc0b4 = 0, the time limit is set and 0x5429b0 = 1, riders
+already past the line (section in [0, N/2) forward) get state 1).
+
+**What is shown and heard** — from the HUD, 0x413410 (called by the drawing 0x4804d0 /
+0x4806e0, i.e. once per drawn picture) [asm]:
+- While 0x4dc0b4: **0x413030(race, &0x4dbe44)**: 0x4dbe44 = 500; s = (0x4dc0a8 / 1000)
+  % 60 (0x481730). **Lights** 0x482220(n) with n = 2 if s < 2, 1 if s < 4, else 0 (text
+  id 0x4e9868; the light picture's meaning is the drawing helper's). Solo: 0x482830(1,..).
+  **Number** c = s/2 + 1 (6000..4000 ms → 3, 3999..2000 → 2, 1999..0 → 1); when c ≠
+  0x542854: 0x542854 = c, text "%02d" (0x4dbf0c) → 0x508430 shown 2000 ms (0x4188b0 id
+  0x4e98d0, font 0x42), **0x4082f0(c)** = BIP1 + voice "3"/"2"/"1" (0x30/0x31/0x32, NOTES
+  §4.10.6.4, once per change), and if c > 1 "GET READY" (0x4dbf00) in the game-message
+  font 0x4f0d78 (colours 0xf5,0xff,0xc / 200,200,0), id 0x4e98e8. obj+0x14 of the race =
+  s. So: 3 at 6.0 s, 2 at 4.0 s, 1 at 2.0 s, GO at 0.
+- After it (0x413180, 0x4dc0b4 = 0) the first picture with 0x4dbe44 > 0: when s/2 ≠
+  0x542854, "GO" (0x4dbf14) for 500 ms (the 0x4dbe44 value) id 0x4e98e8 and **0x4082f0(0)
+  = BIP2 + voice GO (0x33)**; then 0x4dbe44 = 0.
+- Because these run in the drawing, the countdown's texts and voices follow pictures, not
+  steps (a 1-picture lag at most) [consequence].
+
+**Control**: the bike step uses 0x4dc0b4 / 0x4dc0a8 directly (0x45d6c4.., 0x45d88b: the
+physics helper's); 0x4116f0 zeroes the computer riders' keys while 0x5429b0 ≠ 1
+(`&= 1`, analog 0x8000) [asm 0x411922..0x411933]. Game_Frame sets 0x5429b0 = 1 at the start
+of every frame that runs the race (0x47d768) — so the "≠ 1" case only lasts within a frame
+after 0x47e3d0 cleared it for the player's finish, or during the countdown frames before
+0x47dae0 ends it [asm; the frame order is the parent's].
+
+**Checkpoint feedback** (0x413180, HUD, per picture) [asm]: while 0x519fec > 0 (set to
+5000 at a time bonus; Game_Frame subtracts the frame's ms) and the followed rider's
+(0x508834) next-checkpoint number differs from race+4, and it is racing (state 1) and not
+the very start (forward: cp ≠ 1 or laps ≠ 0; reverse: cp ≠ 1 or laps ≠ 0x4dc074 − 1):
+race+4 = cp, **voice 6 CHCKPVOX** (the checkpoint chime), texts 0x4e9874/0x4e9878
+removed; practice without time attack: texts 0x4e985c/0x4e9860 removed and 0x481f10 (lap
+time message); otherwise text 0x4e9870 removed and **voice 0x34 CKCKPNT** ("checkpoint").
+
+##### 7. The other per-frame calls (what they are; not rules)
+
+- **0x457590(dt)** [asm]: for the 128 effect records at 0x52c498 + i·0x104 (active flag
+  +0xfc): 0x4b0730(dt) — dust/smoke sprites growing and fading (quads at +0xc0..+0xec).
+  The physics or drawing helper's.
+- **0x459000 / 0x459090(1)** [asm]: an rdtsc profiler, only when 0x4dc12c (debug); 0x459090
+  returns cycles / (0x4e9cec · 100) → 0x5429cc (time of the frame's middle part, for a
+  debug display). Not a rule; the port drops it.
+- **0x48b7a0(0x5f6778, dt)** [asm]: if +4 == 0, for i < [+0]: 0x48b370(dt) on record +8 +
+  i·0x190 — the animated decor (AnimDecor block of the .trk, NOTES §4.13). Not a rule.
+- **0x467b30(obj, 1)** per loaded rider when **0x4dc138** (set by the camera code
+  0x46d750/0x46ea6c/0x46eb78/0x46ec96, cleared 0x46ea48: a camera close enough to show
+  skeletons [guess]) [asm/decomp]: the winner's (place 0, state 2) celebration timer
+  0x5dabd0 −= 0x581014 while 0x504ea0; the skeleton pose (0x45f160 unless crashed +0x30c1
+  or +0x319d, which force LOD 1) and with arg 1 0x45d810(obj, carac PersoAnim). The
+  drawing helper's.
+- **0x4583e0(dt)** [decomp]: the camera mode of camera 0x5161c0 + 0x4dc0f8·0x238 following
+  0x508834 — rules only as inputs: mode 7 during the countdown (+0x34 = 0) and **mode 7
+  with +0x34 = 1 once the followed rider has finished (state 2)**, mode 6 when 0x4dc00c
+  and the rider is not crashed, mode 3 when 0x4dc014, else 7 or 1 (0x4dc020); in replays,
+  demos, the end phase 0x504ea0 or 0x4e8968/0x4dc134, mode 1 and 0x46e9f0 (when
+  0x51a40c > 0). Cameras: other helper.
+- **0x458620(dt)** [decomp]: camera update 0x4700e0; during the countdown a camera value
+  at +0x3c (0x5161fc) moves back to 0 at dt·double 0x4d0e00 / 0x4d0e08. Other helper.
+
+##### 8. Globals (this part)
+
+| address | meaning |
+|---|---|
+| 0x4dc0a8 | ms: the countdown (6000 → 0) while 0x4dc0b4, then the **time left**; += a checkpoint section's int +0xda when the player reaches it on new ground |
+| 0x4dc0b4 | countdown running |
+| 0x4dc0ac | a countdown is wanted at the start (0x411010) |
+| 0x4dc140 / 0x4dc144 | direction ±1 / reverse |
+| 0x4dc074 | laps of the race |
+| 0x4dc100 | number of loaded riders (0x4817a0; 23 in the captures) |
+| 0x4dc154 | number of entries in 0x516ab8 (23 in the captures) |
+| 0x516ab8 | race order: rider numbers, place 0 first (0x47e1e0) |
+| 0x509bac | 1 + riders created (loop bound; places can't reach it − 1 in Solo) |
+| 0x509ba0 | the player has finished (Solo) |
+| 0x5429b0 | 0 while the countdown runs / after the player's finish within a frame; computer riders' keys masked when ≠ 1 |
+| 0x519fec | ms left to show the checkpoint feedback (5000 at a bonus) |
+| 0x519fe4 | 0x4dc100 copied at a finish (finish animation by place) |
+| 0x4f0c58 | wrong-way voice already played (until a forward section) |
+| 0x4f0db8 | rider holding the fastest lap |
+| 0x4e9844 | checkpoints on the track |
+| 0x4e984c | split times shown (Solo) |
+| 0x4ea4c0 | local player's rider; 0x4ea4c4 = 1 (count every rider; no writer found) |
+| 0x508834 | the rider the camera/HUD follows (1 in Solo, 2 in a demo by name, the player in Link) |
+| 0x52c108 / 0x52c10c | track sections pointer / count (captures: 0x288 and 0x29c) |
+| 0x52c0d8 / 0x52c0e8 | time-attack ghost object / its recorded total time (float) |
+| 0x581018.. | reference splits: name 8 chars @0x581018 (0x7f = none), 0x30 splits @0x581025 |
+| 0x581118.. | the track's record: name, best time 0x581209, best lap 0x58120d |
+| 0x5d26a1 / 0x5d26a5, 0x5d25b0 | this race's best time / best lap, the record holder's name |
+| 0x5db290 + k·0x20 | rider k's 8 lap times |
+| 0x5dbc70 | split text (10 chars) |
+| 0x504ea0 | race end phase (0x412a50); no splits taken |
+| 0x542854 | last countdown number shown |
+| 0x4dbe44 | "GO still to show" (500 during the countdown) |
+| text ids | 0x4e9858 time-out warning (0x481af0), 0x4e9864 final lap (0x481c50), 0x4e9868 lights (0x482220), 0x4e986c wrong way (0x481db0), 0x4e9870 lap message (0x481f10), 0x4e985c/0x4e9860/0x4e9874/0x4e9878 other HUD texts, 0x4e98d0 countdown number, 0x4e98e8 GET READY / GO |
+
+##### 9. Checked [test]
+- Captures build/trackcap (single race, 3 laps, tracks 1 and 4): 0x4dc0b4 = 1 with
+  0x4dc0a8 5434, 2264, 4079, 908 (all < 6000) during the countdown; afterwards 0x4dc0b4 =
+  0 and 0x4dc0a8 = 7 493..37 876 (time left); 0x4dc100 = 0x4dc154 = 23; 0x52c10c = 648 /
+  668 sections; obj(0)+0x68 = 0 (slot 0 not raced).
+- Checkpoint layout from tools/track.py (checkpoint 0 at section 0 on ile01 and ile04).
+
+##### 10. Open points
+- The wrong-way vector: obj+0xe0..+0xe8 is called the matrix's translation in NOTES §4.15;
+  adding a position to an axis and dotting with the plane normal without its d is odd —
+  check what the step writes at +0xe0 (a velocity?) when the physics is mapped.
+- 0x4ea4c4 has no writer by address (maybe written through an index from 0x4ea4c0);
+  read it in a capture to be sure it is 1 during a race.
+- The 0x48 voice (last place) cannot trigger in Solo by the arithmetic; confirm with a
+  race finished last (should say YOULOST).
+- Whether the player's grid slot is behind the line (then the first crossing also adds
+  section 0's time to 0x4dc0a8, on top of the time set at GO by 0x47dae0) — needs the
+  grid (0x410a50) and a capture of 0x4dc0a8 just before/after the first crossing.
+- Splits in Solo when no ghost/record exists: 0x581018 filled with 0x7f.. → no split text.
+
+##### 11. Size of a C port (this part)
+0x47e3d0 ≈ 180 lines, 0x47e1e0 + an MSVC-compatible qsort ≈ 60 + 90, 0x412e50 +
+0x46d4b0 + 0x481730 ≈ 60, 0x458310 + 0x481800 ≈ 50, the countdown/GO/checkpoint HUD
+triggers (0x413030/0x413180's rule parts) ≈ 70, section walk (land.c may already have
+0x40c7e0) ≈ 30. **About 500 lines.**
+
+#### Race rules, part B: the end of the race and the way back to the menu
+
+(Scratch part for build/notes/race_rules.md. Read from build/mr.asm unless marked. Tags:
+[asm] read in the machine code, [decomp] Ghidra's text only, [guess].)
+
+Rider objects: obj(k) = 0x581218 + k·0x3209 (obj(1) = 0x584421 = the Solo player, obj(2) =
+0x58762a). Fields used here [asm, meaning from the code that uses them]:
+
+| obj+ | what |
+|------|------|
+| +0x8 | 1 = driven by a human (0 = AI; the winner's lap sets it 0) |
+| +0x68 | rider present (loaded) |
+| +0xb4 | top speed (float; ×0.8 during the winner's lap) |
+| +0x2dd4 | rider name (string; the record's +0 in bestscor) |
+| +0x2ddd | race time, ms (int; +dt each frame in 0x47dae0) |
+| +0x2de1 | best lap, ms (int; min of the lap times, set in 0x47e3d0 at 0x47eaae) |
+| +0x2de5 | state: 0/1 racing (1 = after the start [guess 0 = on the grid]), 2 finished, 3 out (time over, quit, abandon) |
+| +0x2f79 / +0x2f7b | i16 / i16, +0x2f7b = laps done (compared with 0x4dc074 at 0x47eae2) |
+| +0x2f85 | place, 0-based (0 = first), written when the rider finishes (Link: Game_Frame tail) |
+| +0x2f89 | 0xc0 bytes (48 ints) copied into score/ghost records at +0xd [guess: lap/checkpoint times] |
+| +0x31e1.. | input block (control type +0x31e1; 0x470fc0 clears +8..+0x20 of it: keys 0, analog 0x8000) |
+
+The running order: 0x459f50(i) [asm] = the index of rider i in the order array 0x516ab8
+(0x4dc154 entries), i.e. the current place 0-based, or −1. (Who fills the array: 0x47e3d0 /
+0x47e1e0, the rules part A.)
+
+##### 1. Game_Frame's tail (0x47d905..0x47da5d) [asm]
+
+After the drawing-independent rules, in this order:
+1. **Link only** (0x4dbffc == 0): the all-finished test. Walk obj(1).. (stride 0x3209, to
+   0x5cf4f9): a rider with +0x68 != 0 and state +0x2de5 ∈ {0,1} means "still racing" → stop.
+   If none: 0x509ba0 = 1, 0x47e1e0 again, then for every network player i (obj(i)+8 != 0,
+   i = 1.. until 0x5d247e): obj(i)+0x2f85 = 0x459f50(i); for the local one (i ==
+   0x457050(net+0x400, 0)) and once (race+8 == 0, then race+8 = 1) a voice by 0x404da0(id,
+   500): place 0 → 0x458cd0(−1) = random stream 1 (0x4b1160(1)) ≤ 0x3fff ? 0x50 WellDone :
+   0x4f yeaah; place − 0x509bac == −1 (last) → 0x48 yuralosr; place ≥ 3 → 0x47 youlost;
+   places 1, 2 → nothing. (Ghidra drops the −1 argument of 0x458cd0.) Out of scope; noted.
+2. `r = 0x412a50()` (the end-of-race machine, §2). If r != 0:
+   - **position commentary** 0x407420 (§6) if kind 0x4e9834 == 0 and 0x509ba0 == 0 (race
+     not over) and 0x52c238 == 0 (not time over) and mode 0x4dc094 != 0 (not practice) and
+     the local player's state obj(0x4ea4c0)+0x2de5 == 1;
+   - the drawing: race vtable +0x20 (0x47ff90)(dt 0x4e9808, −2).
+   If r == 0 (only the Link paths that changed page) nothing is drawn.
+3. Always: 0x5809f4 = 0x459fd0() (limiter/fps), 0x4e8918 = 0, 0x4e891c = 0.
+
+##### 2. 0x412a50, the end-of-race machine (returns 1 = draw, 0 = race gone) [asm]
+
+Globals: **0x509ba0** race over (Solo: set at 0x47eb04 in 0x47e3d0 when the local player's
+laps +0x2f7b == 0x4dc074; Link: Game_Frame tail); **0x542a20** race ended by the network
+server (Link, 0x4556bd); **0x52c238** time over (0x47deac); **0x4e9824** finish timer,
+**0x4e9828** time-over timer (both −1 after the race reset 0x47bf70 at 0x47c0a9; ms, counted
+down by the int frame time 0x4e980c); **0x504ea0** winner's lap on, **0x504eac** winner's
+sequence started; **0x4f15f4** the "generic" text sequence running (0x48aca0 sets it,
+0x48ae40/0x48b070 clear it). All of these are cleared by 0x410120 (race state, load) and
+0x411010 (start / restart) [asm 0x4101fc.., 0x4111b7..].
+
+Order:
+1. Replay playback (0x4e9830 != 0) → return 1.
+2. **Race over** (0x509ba0 or 0x542a20):
+   - 0x4e9824 == −1 (first frame): 0x4e9824 = 7000; voice **0x3e racecmpl** queued
+     (0x404da0(0x3e, 500)). If 0x504ea0 == 0 and 0x412960() != 0 (the winner's lap, below):
+     0x4e9824 = **14000**. Return 1.
+   - 0x4e9824 > 1: 0x4e9824 −= 0x4e980c; if negative → 1. Return 1.
+   - 0x4e9824 == 1:
+     - winner's lap on and not started (0x504ea0 && !0x504eac): race+0xc = 0;
+       0x48aca0(rand() > 0xfff) (C rand 0x4b3600, so 1 with 7/8 chance: stored in 0x4f1634,
+       0x4f1638 = −1, 0x4f15f4 = 1, **CD track 12** 0x404990(12, 0) — the victory music;
+       the sequence itself is drawn by 0x48acd0 from 0x47ff90, drawing helper); 0x504eac = 1;
+       0x4dc00c = 0.
+     - winner's lap on and the sequence over (0x4f15f4 == 0): give the bike back — race+0xc
+       = 1, obj(1)+8 = 1, 0x504ea0 = 0x504eac = 0, top speed obj(1)+0xb4 = 0x504ea4 (saved),
+       0x4f0dc8 = 0x4dbe38 (saved), 0x4e8944 = 1, obj(1)+0x84 = obj(1)+0x8c = 0,
+       obj(1)+0x124 = obj(1)+0xec, 0x48edd0 on obj(1)+0x24, obj(1)+0xec = 0x48df90(obj(1)+0x12c,
+       old +0xec) (float in ST0, stored with fstp) → **0x4e9824 = 0**. Return 1.
+     - winner's lap on, sequence still running → wait (return 1).
+     - no winner's lap → 0x4e9824 = 0. Return 1.
+   - 0x4e9824 == 0, **the results** (runs once: every dialog below sets +0x10, which stops
+     Game_Frame before 0x412a50 from the next frame):
+     - (replay → return 1); kind != 1 → **0x452090** (podium data, §5).
+     - mode 2 championship: Solo → **0x437b70** (results dialog, §4.2). Link → 0x4644e0
+       (Link points), race vtable +0xc (unload), host (0x4dbff8) → 0x4580f0 else page 24;
+       return 0.
+     - mode 1 single race: Solo → 0x437b70. Link → 0x4644e0, unload, page 24; return 0.
+     - mode 0 practice: if time attack 0x4dc148 and obj(1) place 0x5873a6 == 0 → **save the
+       ghost** (§7); then **0x464680** (hi-score table, §8) and **0x4358b0** (the
+       "[CONTINUE]" dialog, §4.3).
+     - Then (all modes, Solo, kind 0): if the race's best-lap record 0x5d25b0 has a lap
+       (+0xf5 = 0x5d26a5 not 0x7f7f7f7f and not 0): +9 = 'TINI' (0x494e4954), **0x4658b0(0x5d25b0)**
+       saves it as the track's best lap (§8), 0x5d26a5 = 0x7f7f7f7f. Return 1.
+3. **Time over** (0x52c238): 0x4e9828 == −1 → 3000, return 1; > 0 → count down, when
+   negative → 0, return 1; == 0 → Solo and not replay → **0x4358b0** (§4.3). Return 1.
+4. Otherwise return 1.
+
+**0x412960, the winner's lap** [asm]: kind 0x4e9834 != 0 → 0x504ea0 = 0, return 0. Already
+on → 1. Only Solo single race (0x4dbffc != 0, 0x4dc094 == 1) and the local player's place
+obj(0x4ea4c0)+0x2f85 ≤ 0 (won): 0x504ea4 = obj(1)+0xb4 (top speed), obj(1)+0xb4 ×= double
+0x4d03a8 = 0.8 (bits 9a9999999999e93f; fld float × qword, fstp float), 0x4dbe38 = 0x4f0dc8,
+obj(1)+8 = 0 (the AI drives the player's bike), obj(1)+0xec = obj(1)+0x1a4 = obj(1)+0x124,
+0x504ea0 = 1, 0x470fc0 on obj(0x4dc0fc)+0x31e1 (inputs released), obj(1)+0x2dc8 (0x5871e9)
+= 0, 0x4f0dc8 = 0x4e8944 = 0x4dc00c = 0; return 1. So a single-race win gets 14 s of the
+AI riding a lap at 80 % top speed with the victory sequence, before the results.
+**Escape** during it (0x431250, §3): 0x504eac = 1, 0x48b070(1) if 0x4f15f4 (stop the
+sequence), 0x4e9824 = 1 → the bike is handed back and the results come next frame.
+
+##### 3. Keys during the race: 0x431250 (WM_KEYDOWN, from the race's message handler 0x4329a5) [asm]
+
+0x4329a5 first gives a key to the open dialogs, in the order 0x4e8908, 0x4e8910, 0x4e890c,
+0x4e8904 (each 0x433ec0 = the dialog's key/mouse handler; a dialog whose +0x20 (done) is set
+is closed there: 0x4354e0 + free). Only then 0x431250. If the menu is active (menu+0 != 0)
+0x431250 hands the key to the menu (0x40a0f0). The seven control keys (table 0x53eae0, 8-byte
+records, compared with the key) are handled first when kind == 0 (inputs helper). Then a
+switch on the virtual key (byte table 0x432668 indexed by vk−9, jump table 0x4325c4):
+
+| key | what (rules part) |
+|-----|-------------------|
+| **Escape 0x1b** | if not paused (0x4dc038 == 0): winner's lap on → skip it (§2); else Solo → **0x436420(1)** the pause menu (§4.1); Link → 0x43b700(0x4326e0) (Link menu, texts 165–169) |
+| **Pause 0x13**, **Ctrl+P / Ctrl+Pause** | Solo only: 0x4dc038 ^= 1; 0x4096e0(paused) pauses/resumes the CD (0x4b1660 on 0x503528 if CD music on 0x4db66c); 0x409700(paused) → 0x424090 pauses/resumes every sound. While 0x4dc038 is set **App_OnIdle 0x415960 does not call the race frame at all** (0x41599a), so the picture freezes; the clock is not stopped, so the first frame after has the clamped dt 200 ms (0x4120e0). 'P' without Ctrl does nothing here. |
+| Shift 0x10 / Ctrl 0x11 | 0x4dc10c = 1 / 0x4dc108 = 1 (held flags; cleared by CONTINUE and key-up) |
+| F1 0x70 | 0x43cf90 the help overlay (HELP.GEN) in slot 0x4e890c, pausing sound/CD |
+| F11 0x7a / F12 0x7b | sound menu 0x43a400 / display menu 0x438f70 in slot 0x4e8908 (toggles; F12 also 0x43c2b0 message box) |
+| F2 0x71, F3 0x72, F4 0x73 | screen size / display mode changes (0x474cf0, 0x4dc0c8/0x4dc0cc/0x4e9ce4) — not rules |
+| F5 0x74, F6 0x75, F7..F10, Tab, Insert, A D F G H J K L S T U V, numpad * + - / | cameras, HUD and debug toggles (0x46d750 camera, 0x4847f0, 0x4188b0 texts...) — drawing helper / debug, not mapped here |
+
+##### 4. The in-race dialogs (slot 0x4e8904; event word 0x4e8918)
+
+###### 4.0 The dialog object (0x78 bytes, ctor 0x4338b0) and the four slots [asm/decomp]
+Slots: **0x4e8904** results / pause / continue (this file), events **0x4e8918**;
+**0x4e8908** sound menu F11 / display menu F12; **0x4e8910** message boxes 0x43c570 (the
+video-memory warnings Game_Frame makes from 0x4e4f08 / 0x580a58; the display-mode list whose
+items write their +0x3c into **0x4e891c**, handled by race slot +0x1c **0x47ec50**: a mode
+index (low word) with a flag in the high word → 0x4dc0d0/0x4dc0cc/0x4dc0c8, 0x4e9ce4 = 1
+display re-init — not rules); **0x4e890c** help F1, events **0x4e8914** (no writer found
+besides 0x4587e0's reset: unused in practice).
+Fields (dword index ×4): +0 kind (4 results, 6 pause, ...), +0xc 1, **+0x10 = 1 stops the
+race** (0x4126a0 returns 0: no step, the drawing gets +0x18 as its 2nd argument), +0x14,
++0x18 = −10 (draw argument), **+0x20 done** (the item handler sets it; 0x4126a0 /
+0x4329a5 then close and free it: 0x4356d0 for 0x4e8904, 0x435620 0x4e890c, 0x435770
+0x4e8908, 0x435810 0x4e8910 which also puts the arrow cursor back), +0x24 shown, +0x28
+active (0x434960 runs each frame: gives each row a hotkey letter not used by the control
+keys/F-keys, table 0x53eb20 built by 0x43e0f0 each frame, then 0x434860 layout), +0x30
+optional "close?" test, +0x38 optional close callback, +0x3c 1, +0x48/+0x4c item arrays
+(+0x50 count), +0x58 rows (0x6c bytes each, +0x5c count), +0x64 creation time 0x50bbc8.
+Items 0x415dd0 (0xc4 bytes, text 0x416300(item, text, font), colours 0x4163e0). Each row has
+two items (normal / highlighted: colours 0x4f0de8 / 0x4f0dec) and callbacks: +0x80 0x4361c0
+(highlight), +0x84 0x436150 (move: plays 0x29 select), +0x88 0x436140 (enabled: 1), +0x8c
+the action. The engine (0x433xxx–0x435xxx: keys, mouse, layout, drawing) is not mapped here.
+Texts: text[id] = *(0x53b5e8 + 4·id) (NOTES §4.8.4.1).
+
+###### 4.1 Pause menu 0x436420(arg) (Escape: arg 1; after a single race's results: arg 0) [asm]
+0x424090(1) pauses the sounds, plays effect 3 (continue) 0x4049f0(3, 0), replaces any dialog
+in 0x4e8904; kind 6, +0x10 = 1, +0xc = 1, +0x18 = −10, +0x3c = 1, +0x14 = (arg != 1).
+Title "MOTO RACER" (0x4e8aec) font 9. Rows (font 0x20):
+1. replay playback (0x4e9830) → **[NEXT DEMO]** (107) → 0x437680; else **[RESTART]** (104) → 0x437610.
+2. playback → **[QUIT DEMO]** (106) → 0x4376d0; else **[QUIT RACE]** (105) → 0x437890.
+3. only arg 1: kind 0 → **[CONTINUE RACE]** (110); kind != 0 → playback ? [CONTINUE DEMO]
+   (108) : [CONTINUE REPLAY] (109) → 0x437ae0.
+4. only arg 1 and ((kind 1, not playback, mode 2: watching a championship race's replay) or
+   (Link host)): Link host → [ABANDON] (113) → 0x437b40; else **[QUIT REPLAY]** (111) → 0x437760.
+
+Actions (each sets +0x20 done first; 0x424090(0) resumes the sounds where shown) [asm]:
+- **RESTART 0x437610**: 0x424090(0), 0x424020; kind 1 → 0x463ca0 (results back); Solo →
+  **0x464680** (the finished human riders go into the hi-score table, §8); events |= 8|1|2
+  (kind 0, race reset vtable +8, 0x411010 restart).
+- **QUIT RACE 0x437890**: events = 0; kind 1 → 0x463ca0; Solo → 0x464680; championship →
+  the local player's state (0x457760) = 3; events |= 8|4 and Solo 0x200 (page 9 / champ
+  0x4580f0) or Link 0x1000 (page 7); then draws picture id 0xb1 at once (a waiting screen,
+  0x43e8e0/0x43ede0, through the D3D/soft calls 0x499ba0 640x480, 0x49a0e0/0x49a100(1912.0)).
+- **CONTINUE 0x437ae0**: 0x470fc0 on obj(0x4dc0fc)+0x31e1 (inputs released), 0x4e8964 =
+  0x4dc10c = 0x4dc108 = 0, 0x424090(0).
+- **NEXT DEMO 0x437680**: events |= 0x100000 | 0x20000.
+- **QUIT DEMO 0x4376d0**: if 0x4dbf80 → 0x471e00 only; else 0x49a120(1.0), events |=
+  4|0x8000|0x2000 (unload, stop the demo script, page 14), race vtable +0 (defaults 0x47bf30).
+- **QUIT REPLAY 0x437760** (championship only, not playback; else does nothing): Link host
+  message 0x6c; kind 1 → 0x463ca0; Solo → 0x464680; 0x4ea4c0 = 0x457760(); events |= 8;
+  local state 2 and place +0x2f85 ≤ 2 → (Link 0x4644e0) events |= 4|0x200; otherwise
+  events |= 0x40 (the continue dialog).
+- **ABANDON 0x437b40** (Link): events = 0x1000000 (local state 3 unless finished).
+
+0x457760 = the local player [asm]: Solo → the first k ≥ 1 with obj(k)+8 != 0 (k <
+0x509bac), else the value of 0x508834; Link → network.
+
+###### 4.2 Results dialog 0x437b70 (Solo single race and championship, at 0x4e9824 == 0) [asm+decomp]
+0x424020 (stop sounds), effect 3; replaces 0x4e8904; kind != 1 → **0x463c30** saves every
+rider's results (obj(1..23): +0x2ddd, +0x2de1, +0x2de5, +0x2f79, +0x2f7b, +0x2f85; 0x1a
+bytes each at 0x5d26ca, +0x16 = 1) so that a replay can be watched and the results put back
+(0x463ca0). Kind 4, +0x10 = 1, +0x14 = 1, +0xc = 1, +0x18 = −10, +0x3c = 1.
+Title **[REPLAY]** (100) font 9; rows **[YES]** (101) → 0x438650, **[NO]** (102) →
+0x438690, and **[SAVE]** (114) → 0x438680 only if 0x4e8924 (a replay can be saved [guess]).
+- **YES 0x438650**: events = 0x13 (bit 0x10 kind = 1: watch the replay, 1 race reset, 2
+  restart) — the race replays from the recorded inputs.
+- **SAVE 0x438680**: 0x4579b0(0) writes the `.Sav` replay (dialog stays).
+- **NO 0x438690**: events = 0; 0x463ca0 (results back); Solo → **0x464680**; then
+  - championship: 0x4ea4c0 = 0x457760(); place = state 2 ? +0x2f85 : 0x459f50(player);
+    place > 2 → events |= **0x40** (continue dialog: try again); else (Link 0x4644e0)
+    events |= 8|4|**0x200** (unload → 0x4580f0);
+  - single race: events |= 8|**0x80** → the pause menu with arg 0 ([RESTART] / [QUIT RACE]).
+  (Practice never gets here.)
+
+###### 4.3 The continue dialog 0x4358b0 (practice end, time over, championship not in the top 3) [asm]
+0x424020, **voice 0x44 tryagain** (0x4049f0(0x44, 0)), replaces 0x4e8904; +0x10 = 1, +0x14 =
+1, +0xc = 1, +0x18 = −10, +0x3c = 1. Title **[CONTINUE]** (99) font 9; rows **[YES]** →
+0x436210, **[NO]** → 0x436250.
+- **YES 0x436210**: events = 9 (Link client) or **0xb** (Solo, or Link host): kind 0, race
+  reset (vtable +8) and 0x411010 — the same race again.
+- **NO 0x436250**: events = 8, Solo: single race → 0x40c (unload, **page 6**), practice or
+  championship → 0x20c (unload, **page 9**, champ via 0x4580f0). Then the waiting picture
+  0xb1 as QUIT RACE.
+
+##### 5. Podium data 0x452090 (results, kind != 1) [asm+decomp]
+Name strings 0x53f7e8 (3 × 0x20) all set to text[183] "Computer" (0x53b8c4). Count 0x4e9120
+= Solo 0x509bac − 1 (Link: players), at most 3. For place p = 0..count−1: the rider (obj(1..
+0x509bac−1), +0x68 != 0) whose +0x2f85 == p: human (+8) → name copied from +0x2dd4; race
+time +0x2ddd → **0x540998**[p], skin +0x5fc → **0x540c90**[p]. **0x4e911c** = place of
+0x4119a0() (the local player) + 1, at most 4. Unfilled 0x540c90 entries (from the number
+found to 3) = rand() & 7. Page 24 (podium, start 0x452240) reads these; it plays voice 0x5b
+yutrygan and music 11 when the player is not in the top 3, else music 12 (NOTES §4.10).
+
+##### 6. Position commentary 0x407420 (each drawn frame, conditions in §1) [asm]
+Voices on (0x4db668), not paused, at most every **60000 ms** (0x54299c + 0xea60 < now
+0x50bbc8; 0x54299c = now), only if 0x4ea4c0 == 0x508834. place/count = finished (state 2)
+? (+0x2f85, 0x519fe4) : (0x459f50(i), 0x4dc100). Only if count > 1:
+- place 0: id = table 0x4db988[r & 1] = {0x41 stillrun, 0x40 running4}, r = 0x4b1160(4);
+  appended to the voice queue 0x5028c8 with delay 500 (ring index 0x5028d8, full when
+  (index+1)&7 == 0x5028d4; 0x5028cc = 0 makes it busy).
+- count − place == 1 (last): if 0x4b1160(4) is even and the last voice 0x502898 != 0x49:
+  0x502898 = 0x49 and **0x49 yurdalst** played at once (0x423fd0(handle 0x51a11c, 4),
+  volume 0x4db654).
+- (count > 2 and count − place == 2) or (count > 3 and count − place ∈ {2,3}): id = table
+  0x4db990[r % 3] = {0x38 fuel, 0x3c onegear, 0x3f runlast}, r = 0x4b1160(4), queued with 500.
+- 0x50353c = place, 0x5028b8 = count (also when nothing was said).
+(Note the countdown is reset only when the 60 s have passed, even if nothing is said.)
+
+##### 7. The ghost (time attack, practice) [asm]
+At the end of a practice race with 0x4dc148 and obj(1)'s place 0x5873a6 == 0 [the ghost is
+rider 2 and is in the order, so the run "counts" when the player beat it: guess, the order is
+part A's]: float 0x52c100 (recorder +0x10) = (float) obj(1)+0x2ddd (fild, fstp); 0x4190d0
+copies the live recorder **0x52c0f0** into **0x52c0d8** (+0 count, +8, +0xc samples of 0x34
+bytes copied, +0x10 time, +4 = +0x14 = 0); 0xc0 bytes obj(1)+0x2f89 → 0x581025; strcpy
+0x581018 = "SHADOW" (0x4dbea8); 0x581018 → 0x581118 (0xf9 bytes); **0x4138c0(0x52c0d8,
+0x581018)**: file `<0x4e8380 ""><track dir>timatak` + (Reverse ? "R" : "_") + (Pocket ?
+nothing : "_") + laps `%1d` + `.bin`, mode "wb". **Bug kept by the loader 0x4136a0 too**: with
+Pocket the "P" is appended to the wrong buffer 0x53f3c0, so the name just lacks a letter.
+Contents: u32 pocket 0x4dc078, u32 reverse 0x4dc068, u32 laps 0x4dc074, the 0xf9-byte
+record, u32 rec+0 (count), u32 rec+8, u32 rec+0x10 (time, float bits), count × 0x34-byte
+samples. No time comparison: the file is overwritten whenever the condition holds.
+
+##### 8. bestscor.dat writes [asm]
+File `Data\bestscor.dat` (0x4ea590), "r+b", else created "w+b"; u32 magic 0x312e3030 "00.1"
+(a different first word → the file is recreated). Blocks of 0x20-byte key + one 0xf9 best-lap
+record + 8 × 0xf9 race records; the key as the port's scores_key() (track name + "POC" +
+"REV" + practice "%s%s%d" "TRA" laps). Missing block → appended (key, best lap 0x7f with
+name +9 = 0 and +0xf5 = 0x7f7f7f7f, 8 records of 0x7f).
+
+**0x464680, the race table** (practice end; RESTART, QUIT RACE, QUIT REPLAY, results NO in
+Solo): 25 records in a frame array (0x7f), the file's 8 read into 0..7 (fseek −0x7c8 back to
+them). For every rider i = 1..**25** (0x19 inclusive: the last is past the 24 objects, reads
+0x5cf4f9.. [edge]) with state +0x2de5 == 2 and +8 != 0 (finished humans): record **slot 6**
+(always the same slot, so the last one wins; Solo has one): +0 strcpy name +0x2dd4, +9 =
+'TINI' (page 9's "new row" marker), +0xd = 0xc0 bytes from +0x2f89, +0xcd = 0, +0xf1 = race
+time +0x2ddd, +0xf5 = best lap +0x2de1. Then exact duplicates removed (0xf9-byte compare,
+later ones shifted out, slot 24 refilled 0x7f), qsort 25 by +0xf1 (0x4644a0: a − b, so
+0x7f7f7f7f sorts last), slots 6..24 refilled 0x7f, **8 written back** (rows 6, 7 always
+0x7f: the table keeps 6), the first 6 copied to 0x5cf500 (page 9's rows), fclose.
+**The best lap**: during the race 0x458310(obj) (from 0x47e3d0 when a rider's best lap
+improves, Solo, humans only): new lap L = +0x2de1 (valid, != 0) counts if it beats the
+stored best lap 0x58120d (the track's record, loaded into 0x581118 by 0x4656c0 at each start
+0x411010; 0x7f7f7f7f if none) and this race's 0x5d26a5 (or that is empty) → 0x482dc0(kind,
+obj, 0, 0, 0) (the "new record" HUD [guess]), 0x5d26a5 = L, strncpy(0x5d25b0, name, 8),
+0x5d25b8 = 0, **voice 0x3b newrecor** (0x404da0(0x3b, 500)). At the race end (§2) the record
+gets 'TINI' and **0x4658b0** writes it as the block's best lap (same file logic; seek
+−0x8c1 = 9 records back, write the record and the 8 read rows unchanged). Page 9 then finds
+the 'TINI' markers, asks for the 3-letter name and saves again (NOTES §4.12.5).
+
+##### 9. 0x4587e0, the event handler (from 0x4126a0 for 0x4e8914 / 0x4e8918, from 0x4116f0
+and Menu_Frame) [asm]
+Bits on *p, in this order:
+| bit | action |
+|-----|--------|
+| 0x800000 | |= 0x1000 \| 4 (Link: unload, page 7) |
+| 0x1000000 (else) | race exists: 0x4ea4c0 = 0x4119a0(); its state = 3 unless 2 (abandon) |
+| 0x200000 / else 0x400000 | 0x438f70(0) display menu / 0x43a400(0) sound menu |
+| 0x100000 / else 0x8000 | demo script 0x53e4d0: next item 0x42e550 / close it 0x4246e0, 0x4e8944 = 1, replay 0x4e9830 = 0, kind 0x4e9834 = 0 |
+| 0x10 / else 0x20 / else 0x8 | kind 0x4e9834 = 1 (watch the replay) / 2 / 0 |
+| 0x1 | race vtable +8 (0x47bf70, the race reset) |
+| 0x2 | 0x411010 (start / restart: riders back on the grid, timers, the race's records) |
+| 0x4 | race vtable +0xc (0x47d620 unload); "page changed" |
+| 0x40 / else 0x80 | 0x4358b0 continue dialog / 0x436420(0) pause menu after a race |
+| 0x100 | page 5 |
+| 0x200 | championship (mode 2) → 0x4dc07c = 0x4580f0(); else page 9 |
+| 0x400 | page 6 |
+| 0x1000 | page 7 |
+| 0x800 | page 1 (reload: restart from the loading page) |
+| 0x2000 | page 14, menu+0x24 = timeGetTime |
+| 0x4000 | page 8 (does not count as a page change) |
+| 0x8000000 | championship → 0x4dc07c = 0x4580f0(); else page 24 |
+| 0x20000 | replay playback: next demo from the script (0x42e580 name/time/picture; 0x457bf0 sets the race from it; 0x542995 = its time; 0x542891 = its picture name, 0x104 chars): another track → unload + page 1; same track → reset + 0x411010; no more → unload, kind = replay = 0, page 14 |
+| 0x10000 | not playback: 0x4580f0(); goes on → busy cursor, race vtable +4 load(track, kind) (fail → page 5), arrow cursor; over → page 5 |
+Then *p = **0xc0000** if a page change / unload happened (0x40000 = the race does not step,
+0x80000 = and is not drawn this frame), else 0. Pages via 0x409eb0(menu 0x4dc0c4, page); the
+last call wins.
+
+##### 10. 0x4580f0, championship advance (no points in Solo) [asm]
+Page 9 if Solo and obj(1)'s state 0x587206 != 2, else page **24** (podium) (Link: always 24).
+Link client (!Solo, !host) → return 1. **Solo: only if obj(1)'s place 0x5873a6 ≤ 2 (top 3)**:
+race r = 0x509ba8 of the table 0x508934 (0x50 bytes a race): +0x2c != 0 → 0x4dc03c (Pocket
+unlocked) = it, page **17**; +0x28 != 0 → 0x4dc040 (Reverse unlocked), page **16**; the track
+named at +0x30 (strcmp with each track record's +4, 0x51d298 tracks) gets +0x128 = 1
+(unlocked); 0x509ba8 += 1. (Not top 3: nothing, the same race comes again.) Then 0x509ba8 ≥
+0x5083b4 (races) → Solo championship → page **18** (championship end), return 0; else return
+1. Link: same unlocks without the place test. The caller stores the result in 0x4dc07c
+(page 9's Continue: 0 → page 5, 1 → page 6). Link points: 0x4644e0 (not mapped).
+
+##### 11. Paths, summed up (Solo)
+- **Practice**: last lap done → 0x509ba0 → "race completed" voice, 7 s → [ghost if TA and
+  beaten] → table → best lap → "[CONTINUE]" (try again voice): YES = same race again
+  (0xb), NO = page 9 TOP 5.
+- **Single race**: finish → 7 s (14 s + victory lap and CD 12 if won; Escape skips) →
+  "[REPLAY] YES / NO / SAVE": YES watches the replay (kind 1; its Escape menu has CONTINUE
+  REPLAY), NO → table → [RESTART] / [QUIT RACE]: RESTART = again (table written again: the
+  duplicate test drops the same record), QUIT RACE = page 9 (capture
+  build/ref/orig_after_race_top5.png).
+- **Championship**: as single race, NO → top 3: page 24 podium (or 17/16 unlocks, 18 at the
+  end), else "[CONTINUE]": YES again, NO page 9 (TOP 5) with the same race next.
+- **Time over** (0x47dae0 sets 0x52c238, voice 0x39 gameover, state 3): 3 s →
+  "[CONTINUE]": YES again; NO: single race → page 6, others → page 9.
+- **Escape**: pause menu RESTART / QUIT RACE / CONTINUE RACE (sounds paused, race stopped
+  by +0x10).
+
+##### Open points
+- The dialog engine (keys/mouse/layout/drawing, 0x433ec0, 0x434860, 0x4354e0, 0x435090...)
+  is only outlined; which keys move and press (arrows, Return, the row hotkeys from
+  0x434960, mouse 0x200..0x205) needs reading before the port's dialogs.
+- 0x48acd0/0x48ae40 (the victory "generic" sequence: which .GEN, what 0x4f1634 picks).
+- obj+0x2f89 (0xc0 bytes) and record +0xd: lap or checkpoint times (part A).
+- Whether the ghost rider is counted in the order 0x516ab8 (decides when the ghost is saved).
+- 0x4e8924 (the [SAVE] row's condition) and 0x4579b0 (.Sav writer) not read.
+- race+0xc (0 during the winner's sequence; read in 0x47dae0 for the time-out warning) [guess: HUD on].
+
+##### Size of a C port (this part)
+End machine 0x412a50 + winner's lap ~150 lines; event handler and page hand-over ~150;
+the three dialogs' contents and actions ~200; bestscor writes (table + best lap) ~150; ghost
+save ~60; championship advance + podium data ~100; position commentary ~60; race keys
+(Escape/Pause/F1/F11/F12 only) ~60. About **900 lines**, plus the dialog engine (not mapped,
+roughly 600–900 more) unless the port draws these menus with its own small widget.
+
+#### Race rules, part C: race sounds per frame, replays and demos (mapped 2026-10-26)
+
+Scope: 0x4079e0 (engines, Doppler, rider shouts), 0x405f30 (ambience + voice queue),
+0x4116f0 (race vtable +0x10: inputs, replay record/playback, demo clock), 0x411b30
+(joystick → rider inputs), the `.Sav` file (0x4579b0 / 0x457bf0), the demo list, 0x4121e0
+(demo captions: dead in this build), 0x411a10 (joystick → menu keys). Sound basics are in
+NOTES §4.10 and not repeated here.
+
+Tags: [asm] read in the machine code, [decomp] Ghidra's text only, [guess].
+Rider object: obj(k) = 0x581218 + k·0x3209 (k = 1 is 0x584421, the player in Solo; the bike
+number is obj+0x78 = 0x581290 + k·0x3209). Offsets below are from obj(k).
+Constants read with `tools/peek.py` (bits in brackets).
+
+---------------------------------------------------------------------------------------------
+
+##### 1. 0x4079e0 — engine sounds of the bikes near the camera [asm]
+
+Called by Game_Frame only when the engine switch **0x4db65c** is on (after the cameras
+0x4583e0/0x458620 and 0x467b30, before 0x405f30). Does nothing unless effects **0x4db664**
+are on and the race is not paused (**0x4dc038** = the pause flag, toggled by VK_PAUSE in the
+key handler 0x431250 at 0x4314f7, Solo only; while it is set App_OnIdle does not call the
+race at all, 0x41599a).
+
+Globals:
+| addr | what |
+|------|------|
+| 0x4dc0f8 | current camera index; camera records at 0x516258 + cam·0x238 (+0 position x,y,z; +0xc the point looked at) |
+| 0x5032b0/b4/b8 | the camera position of the previous call (float ×3), stored at the end of every call (and at the start when 0x4dc138 is set — the camera was cut, so no Doppler jump) |
+| 0x508834 | the **followed rider** (whose engine is "the own one"): 1 at the grid, **2 in a demo** (0x410d3d), cycled by a key once the local rider is out (0x432029) |
+| 0x5028bc | the followed rider of the last call |
+| 0x5034b0 | engine-sound object (0x78 bytes) of the followed bike |
+| 0x5032c0 + i·0x78, i = 0..3 | engine-sound objects of the 4 nearest other bikes |
+| 0x504210 + i·0xc | the 4 slots for them: +0 used, +4 rider index, +8 distance |
+| obj+0x3049 | the rider's distance to the camera (float), written here |
+| obj+0x68 | rider present (only riders with it set are heard) |
+| obj+0x30 / obj+0x3c | position now / position of the previous step (body sub-object +0xc / +0x18) |
+| 0x509bac | rider slots + 1 (riders are 1..0x509bac−1) |
+
+Order:
+1. If 0x4dc138 (camera cut): previous camera position = current one.
+2. For every present rider 1..0x509bac−1: obj+0x3049 = |obj+0x30 − camera position|
+   (float sums in the order dx, dy, dz stored as floats, then sqrt of dy²+dz²+dx²... the
+   asm sums y², then z², then x² with fsqrt; write it as the asm 0x407a64..0x407acb).
+3. If 0x508834 changed since the last call: stop the own engine object (0x406190 stops its 9
+   voice handles +0x10..+0x30) and reset its fields (handles −1, states 0); remember it.
+4. **Own bike**: pitch factor f = 1.0, **except in a replay or demo (0x4e9834 != 0)** where
+   the Doppler factor below is used (in a race the camera rides with the bike).
+   Volume = ftol((10240.0 − obj+0x3049) · 0.033203125) clamped to 0..255.
+   `0x406290(own object, obj, volume, pan 0, own = 1, f)`.
+   own = 1 lets 0x406290 play the start sounds 0x1d..0x1f (§4.10.6.3).
+5. If the followed rider is the local player (0x4ea4c0) and not a replay/demo: **0x407600**
+   (rider shouts, §2).
+6. Other bikes: list (1, index, distance) for every present rider except the followed one;
+   `qsort` by distance (0x4079a0, ascending); take the leading ones closer than **10240.0**
+   (bits 0x46200000 compared as an int), **at most 4**.
+7. Slot matching: clear all 4 `used`; a listed rider already in a slot keeps it (distance
+   updated, marked used, its list entry consumed). Unused slots: index = 0 and their sound
+   object stopped (0x406190). Each remaining listed rider takes the first free slot from a
+   running index; that slot's sound object is reset (handles −1, states 0).
+8. Camera forward on the ground: (look-at − position).xz normalised → (fz, fx) =
+   ([esp+0x50], [esp+0x54]) = (dz/L, dx/L).
+9. For each used slot (in slot order): Doppler f, volume as in 4, pan:
+   - p = ndx·fz − ndz·fx with (ndx, ndz) = (bike − camera).xz normalised (the sine of the
+     angle off the camera's axis);
+   - dead zone: p ≥ 0.15 → p − 0.15; p ≤ −0.15 → p + 0.15; else 0 (the test is on the float
+     bits: below 0xbe19999a unsigned, i.e. positive or above −0.15, gives 0);
+   - pan = ftol(p · 75.29412) (= 64/0.85, so ±64).
+   `0x406290(slot object, obj, volume, pan, own = 0, f)`.
+10. Previous camera position = current.
+
+**Doppler** (0x407b99..0x407d1b and 0x408075..0x4081c7) [asm]:
+k = 1.0 / (0x4e9808 · 0.01) — 0x4e9808 is by now the step in 10 ms units (0x47df40 scaled
+it by 0.1), so k turns a per-step move into units per second.
+vc = (camera − previous camera)·k, vb = (obj+0x30 − obj+0x3c)·k, u = (camera − bike)
+normalised (left as is if its length is 0.0).
+f = (1 + (u·vc)·C1) · (1 + (u·vb)·C2), C1 = −1/46080, C2 = +1/46080.
+The sums are formed y, z, then x (u·vc = uy·vcy + uz·vcz + ux·vcx); copy the asm order.
+
+| constant | value | bits |
+|----------|-------|------|
+| 0x4d0268 double | 0.01 | 3f847ae147ae147b |
+| 0x4d0150 double | 1.0 | 3ff0000000000000 |
+| 0x4d0134 float | 0.0 (length test) | 00000000 |
+| 0x4d0270 double | −2.170138888888889e−05 (−1/46080) | bef6c16c16c16c17 |
+| 0x4d0278 double | +2.170138888888889e−05 | 3ef6c16c16c16c17 |
+| 0x4d0280 float | 10240.0 (hearing range) | 46200000 |
+| 0x4d0284 float | 0.033203125 (= 340/10240) | 3d080000 |
+| 0x4d012c float | 0.15 (pan dead zone) | 3e19999a |
+| 0x4d0138 float | 75.29412 | 42969697 |
+
+So a bike is at full volume (255) within 2560 units and silent beyond 10240; only the 4
+nearest other bikes are heard, plus the followed one.
+
+##### 2. 0x407600(rider) — the rider's shouts (local player only) [asm]
+
+Clock: 0x50bbc8 (ms, the race's `now`). Random: Rand_Next 0x4b1160(4) (stream 4).
+Voices go through the sound server directly (0x423fd0 play, 0x424030 volume), with the voice
+switch 0x4db668 and "last voice" 0x502898 / "last effect" 0x502710 rules of 0x4049f0
+(§4.10.3.5, flag 4: not the same id twice in a row).
+Bike kind: carac row +0x120 (0x509398 + bike·0x124) != 0 → dirt bike (the same test picks
+the KTM engine table in 0x406290).
+
+a. **Drifting** — obj+0x2da0 (set by the bike step 0x45d540 when on the ground,
+   obj+0x2db8, and |0x48d0f0(body)| ≥ 0.04 (double 0x4d0f40) [asm]; a slide angle [guess]):
+   held continuously for more than **3500 ms** (0x503534 start, 0x5034a8 flag) and more than
+   **4000 ms** since the last shout of this kind (0x5028ac, pulled back to now if it is in
+   the future): once per episode (0x503548), **1 in 3** (Rand_Next(4) % 3 == 0) voice
+   **0x4e "yeees"** (not through 0x4049f0: no repeat test; 0x502898 = 0x4e).
+b. **Dirt bikes, airborne** — obj+0x2db8 == 0 (not touching the ground) for more than
+   **1200 ms** (0x504560, flag 0x5034a0) and more than 4000 ms since the last (0x503540):
+   once per jump (0x5028b4), 1 in 3: a random one of the four ids at 0x4db978 =
+   **0x4c yeehaaa, 0x4a opopadow, 0x51 wouaou, 0x3a lechef** (Rand_Next(4) & 3), played with
+   flags 4 (all four are voices; an id outside 0x2f..0x5c would go the effect way).
+c. **Road bikes, flat out** — speed obj+0x124 / carac+0x48 (RealSpeedMax) > **0.93** (float
+   0x4d0260, bits 3f6e147b) for more than **15000 ms** (0x503558, flag 0x5034a4): voice
+   **0x45 "watarokt"** put in the voice queue ring (0x5028c8: ids +0x24, delays +0x44,
+   delay 500) unless the ring is full, **once per race** (0x50352c, cleared by the race
+   sound set-up 0x4084e0 and the switches 0x408900/0x408b30).
+
+##### 3. 0x405f30 — ambience and the queued voices, every race frame [asm]
+
+1. If effects 0x4db664, ambience 0x4db660 and not paused 0x4dc038:
+   - **0x405bc0(0x503568)**: the track's ambience set (from Sound.Spt, §4.10.6.2) placed in
+     the world. Set layout [decomp]: +0 count (at most 40), entries of 0x10 at +4: +0 kind,
+     +4 object, +8 section-kind index, +0xc decor object; sound objects (0x40 bytes,
+     §4.10.6.2) at +0x284 + i·0x40; +0xc6c section numbers by kind; +0xc84 seven section
+     numbers found near the camera by 0x40d3b0(track 0x52c108, out, range 0x28).
+     Kind 0 = anchored to a decor object (its position transformed by the object's angles
+     through the cosine table 0x5fcb80; only if visible within 0x3c sections, 0x40d350,
+     and only when the detail level 0x4dc098 > 0); kind 1 = at the position of a track
+     section (0x52c108 + n·0xfc, +0 x,y,z); kind 2 = not positional. Each then goes to
+     0x405030 (the object's state machine, NOTES §4.10.6.2) with (audible, x, y, z).
+   - **Detail level 0x4dc098** (0..4, F-key in the race) went to 0: every kind-0 entry's
+     sound is stopped (handle −1, +0x3c = 1). Went from 0 to above 0: kind-0 entries are
+     re-armed (0x404ee0). 0x503550 = the level seen last.
+2. Always (sound off or paused too): the 8 queued-sound records 0x504240..0x504560 and the
+   race's **voice queue 0x5028c8** are updated (0x404b30, §4.10.3.6). This is where every
+   0x404da0 voice of the race (countdown, lap, finish, time-out) is actually played.
+
+##### 4. 0x4116f0 — race vtable +0x10 (via 0x47ec40): inputs, replay, demo clock [asm]
+
+Called by Game_Frame after 0x4121e0; if it returns 0 the frame does no step and no drawing
+of its own (the race is ending). Game_Frame then sets **0x4e9810 = ftol(0x4e9808)** (ms,
+truncated) — see the main notes.
+
+Globals:
+| addr | what |
+|------|------|
+| 0x4e9830 | **playback** (1 while a demo or a `.Sav` replay runs; set by 0x409a30, cleared by events 0x8000 / end of the demo list) |
+| 0x4e9834 | race kind: 0 a normal race (recording), 1 a `.Sav` replay, 2 a demo by track name (events 0x8/0x10/0x20 set 0/1/2) |
+| 0x4e9814 | replay/demo clock, ms (int): + dt each recorded frame, + dt each played frame; reset by 0x4577c0/0x4577e0 |
+| 0x4e9838 | frames recorded (or loaded); 0x4e983c playback index |
+| 0x558aa8 | the replay buffer: 0x4fb0 = 20400 records of 8 bytes (to 0x580828) |
+| 0x542995 | header +0x135: the demo's length in ms (from the .dem; −1 in a saved replay) |
+| race object +0x10 | 0 running; **2 = end the playback now** (0x4121e0 sets it when the demo time is up; 0x410120 clears it); 1 = end it when the caption ends (writer not found) |
+| 0x4dc0fc | the local input slot (1 in Solo; 0x411116/0x411138) |
+| obj+0x31e9 | key bits held from the keyboard (WM_KEYDOWN/UP in 0x431250, only when 0x4e9834 == 0) |
+| obj+0x31ed | key bits from a joystick, rebuilt every frame |
+| obj+0x31f1 / +0x31f5 | analog steering / throttle 0..0xffff, 0x8000 = centre |
+| obj+0x31e1 / +0x31e5 | control kind (2 or 4 = a joystick) / controller number |
+| obj+0x31f9, +0x31fd, +0x3201 | a held button (+0x31f9), its previous state (+0x31fd), and a one-shot press (+0x3201, cleared by the bike routine 0x45d810 at 0x45e372 after copying it to +0x3205); the key handler sets +0x31f9 and +0x3201 together (0x43144f); its meaning is the physics helper's (a put-back/reset request [guess]) |
+
+Order:
+1. Local slot: +0x31ed = 0, +0x31f1 = +0x31f5 = 0x8000.
+2. Kind 1, or playback with kind 2 — the playback part:
+   - It ends (go to 3) when playback and any of: (0x509ba0 "all finished" or 0x542a20 (a Link
+     "race over" message, 0x4556bd)) and the end timer 0x4e9824 == 0; or time over
+     0x52c238 and its timer 0x4e9828 == 0; or kind 1 and index ≥ count; or race +0x10 == 2.
+     (0x4e9824/0x4e9828 are the end-of-race delays of 0x412a50, −1 → 3000/7000/14000 ms:
+     a replay plays on through the finish sequence and stops when it is over.)
+   - Kind 1: **0x4578a0(&0x4e980c, &keys +0x31e9, &+0x31f1, &+0x31f5)** reads the next
+     record (fails at the end → 3). Then the clocks follow the replay: 0x50bbc8 = 0x4e9814,
+     0x459fb0 sets the `now` 0x4e9cfc to it, **0x4e9808 = (float)recorded dt**, and the
+     smoothed frame time 0x4dc150 += (dt − it)·0.125 (double 0x4d0380). So a replay runs on
+     its recorded steps whatever the real frame time.
+   - Kind 2 (demo by track name): 0x4e9814 = ftol(0x4e9814 + 0x4e9808) — the real frame
+     time in ms; nobody's inputs are read (the bikes drive themselves; the camera follows
+     rider 2).
+3. Playback over: if 0x4e9830: **0x4e8918 = 0x120000** (0x100000 = advance the demo list
+   0x42e550, 0x20000 = load the next entry), **0x4587e0(&0x4e8918)**, draw (vtable +0x20 with
+   0x4e9808 and −1) unless the result has 0x80000; return 0. (Kind 1 without playback, not
+   reachable: message 0x53b7b8 for 5000 ms and kind = 0.)
+4. Kind 0 (a normal race) only:
+   - for riders 1..0x509bac−1: kind 2 or 4 → +0x31ed = **0x411b30(i)** (joystick bits),
+     +0x31f1 = joystick X 0x51bcf8 + n·0x38, +0x31f5 = joystick Y 0x51bcf4 + n·0x38
+     (n = +0x31e5); **before the race is running (0x5429b0 != 1): +0x31f5 = 0x8000 and only
+     bit 1 (throttle) kept**. Other kinds: 0, 0x8000, 0x8000.
+   - **0x4577f0(0x4e980c, +0x31e9 | +0x31ed, +0x31f1, +0x31f5)** records the local slot.
+5. Return 1.
+
+###### 4.1 The replay record (0x4577f0 record, 0x4578a0 play) [asm]
+Two dwords a frame at 0x558aa8 + i·8:
+- word 0: bits 24..31 = **dt in ms** (0x4e980c, min(dt, 255)); bits 0..23 = the key bits,
+  with **bit 7 = obj+0x31f9 and bit 6 = obj+0x3201** of the local slot written in.
+- word 1: (analog steering +0x31f1 << 16) | analog +0x31f5 (not masked).
+Recording stops silently when 20400 frames are full (5 min 40 s at 60 frames a second; at
+the original's variable rate a long race can outrun it, and the replay then ends early).
+Playback: dt = w0 >> 24, keys = w0 & 0xffffff, X = w1 >> 16, Y = w1 & 0xffff; 0x4e9814 +=
+dt; index + 1; +0x31f9 = (keys & 0x80) != 0; keys & 0x40 → +0x3201 = 1. Past the end: keys
+= 0, returns 0.
+**Only the local rider's inputs and the frame times are stored**: every other rider, the
+random streams and the physics must replay the same way from the same start (0x411010 at
+race start/restart: kind 0 → 0x4577c0 clears count, index, clock; else 0x4577e0 rewinds
+index and clock). For the port: the race must be exact step for step for `.Sav` files to
+play, and a port at fixed 1/60 s steps would record dt = 16/17 ms values like the
+original's limiter does.
+
+###### 4.2 The .Sav file [asm 0x4579b0, asm+decomp 0x457bf0]
+Header = the race parameter block 0x542860 (0x139 bytes; page 1 copies the menu choices into
+it at load, NOTES §4.12.7):
+| off | what |
+|-----|------|
+| +0x00 | 0x139 (header size; checked) |
+| +0x04 | 0x400 (version; checked) |
+| +0x08 | track index |
+| +0x0c | laps |
+| +0x10 | mode |
+| +0x14 | rider count (set at page 1; not rewritten by the save) |
+| +0x18 / +0x1c / +0x20 | reverse / pocket / transmission |
+| +0x24 | bike of the local player (obj+0x78 of 0x4ea4c0) |
+| +0x28 | name, 8 chars, +0x30 = 0 |
+| +0x31 | loading picture path (0x104 chars, +0x134 = 0); empty in a saved file |
+| +0x135 | demo length ms (−1 in a saved file) |
+Then int32 count, then count × 8 bytes of records. Written with `wb` (0x4dbf40).
+
+- **Save 0x4579b0(name)**: the in-race menu's "save replay" button (0x438680 → name 0)
+  opens a Windows file dialog (`*.Sav`, "Record Files (*.Sav)|*.Sav|All Files (*.*)|*.*||",
+  the current folder saved and restored around it). Fills the header from the menu globals
+  (track 0x4dc08c, laps 0x4dc074, mode 0x4dc094, reverse 0x4dc068, pocket 0x4dc078,
+  transmission 0x4dc0a0, bike, name 0x5161b0), writes header, count, records; message
+  0x53b7c0 (language table) for 2000 ms.
+- **Load 0x457bf0(name)**: open (0x42ee60, `dsi_fopen` with 0x4db238), read 0x139 bytes;
+  needs +4 == 0x400 and +0 == 0x139, else message 0x53b7bc "REPLAY COMPATIBILITY ERROR"
+  style (only if the menu is not active) and a log line "Version of replay file %s is
+  incompatible...". In playback (the only way it is reached): kind 0x4e9834 = 1, the menu
+  globals and the name taken from the header, mode forced to 1; count read (< 0x4fb0) and
+  the records; message 0x53b7c4 for 2000 ms.
+  If the file cannot be opened or is refused, and playback: the name is compared
+  (strncmp, 0x20) with the track table's names (record +4, 0x51d298 tracks): a match is a
+  **demo by track name**: kind 2, mode 1, reverse 0, pocket 0, automatic, bike 0, 23
+  opponents, 3 laps, 0x4ea4c0 = 1, name kept.
+  The branch for "not in playback" (same track, mode 1, same reverse/pocket → laps and bike
+  taken) and the file dialog (name 0) have no caller in this build (0x457bf0's two callers,
+  0x409a30 and 0x4587e0, always pass a name with 0x4e9830 = 1) [asm].
+
+###### 4.3 The demo list (title page → demos) [asm/decomp]
+`Data\Demo\EA.dem` (BMG.dem in the GP edition), loaded at start-up into the script object
+0x53e4d0 (0x42e370): `NbItems: 2`, `Demo1: WEST_WAY 90000 Data\\menu\\bitmap\\pagdem.lez`,
+`Demo2: SNOW_RIDE 90000 Data\\menu\\bitmap\\logomr.lez` (GP: logomrGP.lez). Each entry
+(0x42e5a0, key `Demo%d`): a `.Sav` name or a track name, the length in ms, the loading
+picture. +0x11a current index, +0x11e count (+0x122 / 0x53e5f2 = has entries).
+- **0x409a30** (page 14 after 30 s, NOTES §4.4.2.3 step 6): 0x4e9830 = 1, 0x4e8944 = 0,
+  reads the current entry, 0x457bf0(name); on success 0x542995 = length, 0x542891 = picture,
+  0x4dbffc = 1 (Solo), tears the menu down and goes to page 1 (the loading screen shows the
+  entry's picture). On failure: list closed, kinds 0, 0x4e8944 = 1, "Error in demo script"
+  box only with the `-d` switch.
+- Both GOG entries are track names → **kind 2**: a 23-opponent single race of 3 laps, nobody
+  steered from the keyboard, the camera on rider 2, real frame times, **ending when the demo
+  clock 0x4e9814 passes 90000 ms** (0x4121e0 → race +0x10 = 2 → 0x4116f0 → events
+  0x120000).
+- 0x4587e0 with 0x100000: the index + 1, wrapping to 0 (0x42e550); with 0x20000 (and
+  0x4e9830): the next entry via 0x457bf0; the same track → race restart in place (vtable +8
+  and 0x411010), another track → unload (vtable +0xc) and page 1; no entry → unload, kinds
+  0, playback off, page 14 (title). So the demos loop WEST_WAY, SNOW_RIDE, WEST_WAY, ...
+  until a key (the menu's business).
+- The in-race menu (0x436420) during playback offers two other buttons: 0x437680 (sound on,
+  events 0x100000 | 0x20000: the next demo) and 0x4376d0 (events 4 | 0x8000 | 0x2000: unload,
+  close the demo list 0x8000 → 0x4e8944 = 1, playback off, page 14; with `-d` 0x471e00
+  instead). In a race: 0x437610 = restart (8 | 1 | 2) [asm].
+
+##### 5. 0x4121e0 — demo captions, dead in this build [asm]
+
+Game_Frame calls it once the dialogs let the race run; it returns 1 except while a caption
+holds the race.
+- Not in playback (0x4e9830 == 0 or kind 0): free the caption sprite 0x5d3a20 if it holds
+  pixels (0x5d3a50), return 1.
+- Playback: **if 0x542995 > 0 and 0x4e9814 > 0x542995: race +0x10 = 2** (the demo's time is
+  up). The rest is a caption system: an entry 0x4e9840 (picked by 0x42e6f0 from the demo
+  clock: +4 duration, +8 kind 0 picture / 1 text, +0xc file or text, +0x10 0 = the race
+  waits while it shows, +0x14 clear the screen to colour +0x1c..+0x1e first, +0x18 shown)
+  shown through the text list 0x53b9a8 with id 0x4e98e4, the sound paused (0x424090(1),
+  0x4096e0(1)) and DIVERS\PAUSE (0x2e) looping meanwhile. **But 0x42e6f0 is a stub
+  (`xor eax,eax; ret 8`), 0x4e98e4 stays 0, and 0x4179f0 with id 0 finds nothing** — so no
+  caption ever shows: 0x4e9840 is set to 0 every frame and 1 is returned.
+  (If a caption were showing and not blocking, the race would be drawn with the dt of the
+  current replay record, (float)(record >> 24), and −1.)
+- Port: only the time check. 
+
+##### 6. 0x411a10 — the joystick drives the in-race menu [asm]
+
+Game_Frame calls it when 0x4126a0 returned 0 (a dialog holds the race) and the controller
+type 0x4dc11c is 2 or 4 (a joystick), unless the dialog 0x4e8904 is of kind 9 (the key
+redefinition box [guess]). Polls the controller 0x51ae88 (0x418da0(0)); on each change of
+the direction bits 0x51bd04 (bit 0 up, 1 down, 2 left, 3 right) and button bit 0 of
+0x51bd00 it posts WM_KEYDOWN (0x100) / WM_KEYUP (0x101) of VK_UP 0x26, VK_DOWN 0x28,
+VK_LEFT 0x25, VK_RIGHT 0x27, VK_RETURN 0xd to the window 0x52c068 (PostMessageA 0x70d9cc).
+Last states 0x4dbe30 / 0x4dbe34. Port: feed SDL controller presses to the menu as these
+keys.
+
+##### 7. 0x411b30(rider) — joystick → key bits (not the AI) [decomp, structure asm-checked at the call]
+
+For a rider whose control kind is a joystick: polls controller n = +0x31e5 (fails → 0);
+maps the stick directions and each button (count 0x51b06c + n·0x194) through the player's
+assignments 0x431190(code) (−4/−5 = up/down, −2/−3 = left/right, 0.. = buttons) to the
+actions: 0 → bit 1 (throttle), 1 → bit 2 (brake), 2/3 → bits 4/8 (with the analog axis
+mirrored or centred), 4/5 → bits 0x10/0x20 (gear up / down; only once the start is over,
+0x4dc0b4 == 0, and the race runs, 0x5429b0), 6 → +0x31fd = 1 (only while 0x5429b0).
+Brake cancels throttle. Controller type 0x4dc11c != 2 → both analog values 0x8000 (digital
+pad); == 2: the X axis is centred when a direction is assigned to the stick (0x53eae4,
+0x53eaec). +0x31fd changing to 1 sets +0x31f9 and +0x3201, to 0 clears +0x31f9. The AI's
+driving is not here: AI riders get zero inputs here and are driven inside the bike step
+(physics helper).
+
+---------------------------------------------------------------------------------------------
+
+##### Open points
+- What obj+0x2da0's quantity is exactly (0x48d0f0 of the body; a slip angle [guess]) and
+  what the +0x31f9/+0x3201 button is: the physics helper's.
+- Who sets race +0x10 = 1 (not found; only the dead caption path reads it).
+- The language strings 0x53b7b8/0x53b7bc/0x53b7c0/0x53b7c4 (replay messages) not resolved
+  to text.
+- Whether the AI in a kind-2 demo also drives rider 1 (0x45d540/0x45e940, physics helper).
+
+##### Rough size of a C port
+- Engines near the camera, Doppler, pan (0x4079e0) + shouts (0x407600): ~200 lines (on top of
+  the engine voice 0x406290 already planned, ~250).
+- Ambience placement (0x405bc0, 0x405f30) on top of the §4.10.6.2 objects: ~120 lines.
+- Replay record/playback, .Sav load/save, demo list and the kind-2 flow: ~250 lines
+  (the file dialog replaced by a fixed name or a switch).
+- 0x4121e0: 5 lines. 0x411a10 / 0x411b30 (SDL game controller): ~120 lines.
 
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
