@@ -81,6 +81,13 @@ void font_set_colors(Font *f, const unsigned char *fore, const unsigned char *ba
     }
 }
 
+void font_store_rgb(Font *f, const unsigned char *fore, const unsigned char *back)
+{
+    /* 0x490a30, 0x490a60 alone: the table is not rebuilt */
+    memcpy(f->fore, fore, 3);
+    memcpy(f->back, back, 3);
+}
+
 void font_set_rgb(Font *f, const unsigned char *fore, const unsigned char *back)
 {
     /* 0x490a30, 0x490a60, then slot 1 (1, 0xff): set and rebuilt every time */
@@ -312,9 +319,28 @@ static void draw_char(const Font *f, int c, int x, int y, int level)
     }
 }
 
+/* 0x492c20: the block's place */
+void font_place(const Font *f, const char *text, int *x, int *y, int flags, int *w, int *h)
+{
+    int bw, bh;
+    font_measure(f, text, &bw, &bh, 0);
+    switch (flags & 0x1f) {
+    case 2: case 4: *x = (g_scr_w - bw) / 2; break;
+    case 8: case 0x10: *x = g_scr_w - *x - bw; break;
+    }
+    switch (flags & 0xe0) {
+    case 0x40: *y = (g_scr_h - bh) / 2; break;
+    case 0x80: *y = g_scr_h - *y - bh; break;
+    }
+    if (w)
+        *w = bw;
+    if (h)
+        *h = bh;
+}
+
 void font_draw(Font *f, const char *text, int x, int y, int flags, int level)
 {
-    int bw, bh, left, lw, lh;
+    int bw, left, lw, lh;
     const unsigned char *s = (const unsigned char *)text;
     if (!f || !f->loaded || !*s)
         return;
@@ -322,18 +348,9 @@ void font_draw(Font *f, const char *text, int x, int y, int flags, int level)
         level = (level << 11) / 100 >> 8;
     else if (f->type == FT_AA8_TRANSP)
         level = level * 0xe000 / 100 >> 8;
-    /* 0x492c20: the block's place */
-    if (flags != 0x21) {
-        font_measure(f, text, &bw, &bh, 0);
-        switch (flags & 0x1f) {
-        case 2: case 4: x = (g_scr_w - bw) / 2; break;
-        case 8: case 0x10: x = g_scr_w - x - bw; break;
-        }
-        switch (flags & 0xe0) {
-        case 0x40: y = (g_scr_h - bh) / 2; break;
-        case 0x80: y = g_scr_h - y - bh; break;
-        }
-    } else
+    if (flags != 0x21)
+        font_place(f, text, &x, &y, flags, &bw, 0);
+    else
         bw = 0;
     /* 0x493490: each line, aligned in the block for flags 4 and 0x10 */
     left = x;

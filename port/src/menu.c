@@ -1,6 +1,7 @@
 /* The front end's machinery (menu\menu.cpp, menuTools.cpp; NOTES §4.4): the menu object,
    its pages, the page change, the buttons and how the keyboard and mouse work them. */
 #include "menu.h"
+#include "font.h"
 #include "sound.h"
 #include "clock.h"
 #include "pages.h"
@@ -323,6 +324,37 @@ void menu_add_button(Bitmap *pic, Bitmap *hl, unsigned nb, int hotkey, int group
     b->flags = flags;
 }
 
+void menu_add_text_button(int x, int y, const char *text, int font, unsigned nb, int style,
+                          int hotkey, int flags)
+{
+    Button *b;
+    Font *f = font_get(font);
+    int w = 0, h = 0, px = x, py = y;
+    if (g_menu.nbuttons >= MENU_BUTTONS) {
+        fprintf(stderr, "openmotoracer: MAX BUTTON reached\n");
+        return;
+    }
+    b = &g_menu.b[g_menu.nbuttons++];
+    memset(b, 0, sizeof *b);
+    b->kind = 1;
+    snprintf(b->text, sizeof b->text, "%s", text);
+    if (f)
+        font_place(f, text, &px, &py, style, &w, &h);     /* 0x492a90 */
+    b->rect[0] = px;
+    b->rect[1] = py;
+    b->rect[2] = px + w - 1;
+    b->rect[3] = py + h - 1;
+    b->tx = x;
+    b->ty = y;
+    b->font = font;
+    b->style = style;
+    b->hotkey = hotkey;
+    b->group = -1;
+    b->nb = nb;
+    b->px = b->py = -1;
+    b->flags = flags;
+}
+
 int menu_hit(void)
 {
     int i;
@@ -337,7 +369,9 @@ int menu_hit(void)
             if (p->x <= g_mx && g_mx <= p->x + p->w && p->y <= g_my && g_my <= p->y + p->h)
                 return i;
         }
-        /* (text buttons: their rectangle; with the text system) */
+        else if (b->rect[0] <= g_mx && g_mx <= b->rect[2] && b->rect[1] <= g_my
+                 && g_my <= b->rect[3])
+            return i;
     }
     return -1;
 }
@@ -354,8 +388,25 @@ void menu_draw_buttons(void)
     for (i = 0; i < g_menu.nbuttons; i++) {
         Button *b = &g_menu.b[i];
         int state = 0;
+        if (b->kind == 1) {
+            /* white, or yellow while selected (fore and back alike), drawn at the place
+               given with the style; the yellow is stored again afterwards, unbuilt */
+            static const unsigned char white[3] = { 255, 255, 255 }, yellow[3] = { 255, 255, 0 };
+            Font *f = font_get(b->font);
+            if (!f)
+                continue;
+            if (g_menu.sel == i) {
+                font_set_rgb(f, yellow, yellow);
+                font_draw(f, b->text, b->tx, b->ty, b->style, 0);
+                font_store_rgb(f, yellow, yellow);
+            } else {
+                font_set_rgb(f, white, white);
+                font_draw(f, b->text, b->tx, b->ty, b->style, 0);
+            }
+            continue;
+        }
         if (b->kind != 2)
-            continue;           /* (text buttons: with the text system) */
+            continue;
         if (b->px != -1 && b->py != -1)
             bitmap_place(b->pic, b->px, b->py, 0);
         if (g != -1 && b->group == g)

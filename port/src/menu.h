@@ -27,6 +27,12 @@ typedef struct {                /* 0x58 bytes in the game, at menu + 0x44 + i * 
     int *var, value;            /* +0x48, +0x4c: shown "on" while *var == value */
     int blink;                  /* +0x50 */
     int flags;                  /* +0x54: bit 0 = pressed again every frame while held */
+    /* text buttons (kind 1, 0x40bd60) */
+    int rect[4];                /* +0: x0, y0, x1, y1, the text's box (inclusive) */
+    char text[64];              /* +0x18 (the game keeps the caller's pointer) */
+    int font;                   /* +0x1c */
+    int style;                  /* +0x28: font_draw's flags */
+    int tx, ty;                 /* +0x2c, +0x30: the place as given */
 } Button;
 
 typedef struct {                /* the menu object, 0xd4c bytes at *0x4dc0c4 */
@@ -66,6 +72,9 @@ void menu_capture(void);                            /* 0x40c4a0: the glass trans
 void menu_clear_buttons(void);                      /* 0x40bd40 */
 void menu_add_button(Bitmap *pic, Bitmap *hl, unsigned nb, int hotkey, int group,
                      int value, int *var, int blink, int x, int y, int flags); /* 0x40bef0 */
+/* 0x40bd60: a line of text as a button, in font `font`, placed by `style` */
+void menu_add_text_button(int x, int y, const char *text, int font, unsigned nb, int style,
+                          int hotkey, int flags);
 int menu_hit(void);                                 /* 0x40c0c0 */
 void menu_draw_buttons(void);                       /* 0x40c1f0 */
 void menu_transition(void);                         /* 0x40c500 */
