@@ -55,6 +55,11 @@ void race_key(int vk, int down)
         camera_key(vk, down);
         return;
     }
+    if (vk == 0x76) {                           /* F7: the dials */
+        if (down)
+            hud_key(vk);
+        return;
+    }
     for (a = 0; a < ACTIONS; a++)
         if (g_binding[a][0] == vk)
             bikephys_key(&g_phys[g_player], b, a, down, g_control);
@@ -467,9 +472,7 @@ void race_frame(void)
             if (lod < 2)
                 from_rider(&g_phys[i], &g_rider[i]);
         }
-    /* 0x484810: the speed O+0x118, the rev needle's target rpm / bike+0x70 x 16000 */
-    hud_bike(b->kmh, (int)(b->rpm / (double)g_bikes[me->bike].phys[(0x70 - 0x14) / 4]
-                           * 16000.0), b->gear);
+    hud_bike(b);
     hud_dials_3d();
     r3d_render();
     hud_draw();

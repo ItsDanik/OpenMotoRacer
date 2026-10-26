@@ -42,8 +42,9 @@ static void usage(void)
          "                     a letter),\n"
          "                     move:X,Y (the mouse), click (left button down and up),\n"
          "                     down, up (the left button alone)\n"
-         "  OMR_CHOICES=MODE,TRACK,LAPS[,REVERSE,POCKET]  the race chosen (MODE 0 practice,\n"
-         "                     1 single race, 2 championship), for OMR_PAGE=9 and on\n"
+         "  OMR_CHOICES=MODE,TRACK,LAPS[,REVERSE,POCKET,MANUAL]  the race chosen (MODE 0\n"
+         "                     practice, 1 single race, 2 championship; MANUAL 1: the\n"
+         "                     manual gearbox), for OMR_PAGE=9 and on\n"
          "  OMR_TILE=SX,SY     the menu's chequered tile scrolled so far at the start\n"
          "  OMR_TURN=ANGLE     page 10's turntable held at this angle (radians)\n"
          "  OMR_TEXT=\"FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT\"  a text object on the\n"
@@ -186,7 +187,8 @@ static void scripted_input(const char *script, int frame)
         { "return", VK_RETURN }, { "escape", VK_ESCAPE }, { "space", VK_SPACE },
         { "tab", VK_TAB }, { "backspace", VK_BACK }, { "left", VK_LEFT },
         { "right", VK_RIGHT }, { "up", VK_UP }, { "down", VK_DOWN }, { "shift", VK_SHIFT },
-        { "minus", VK_SUBTRACT }, { "plus", VK_ADD },
+        { "minus", VK_SUBTRACT }, { "plus", VK_ADD }, { "f5", 0x74 }, { "f6", 0x75 },
+        { "f7", 0x76 },
     };
     const char *s = script;
     while (s && *s) {
@@ -298,7 +300,10 @@ int main(int argc, char **argv)
     if ((env = getenv("OMR_TEXT")))
         test_text(env);
     if ((env = getenv("OMR_CHOICES"))) {
-        sscanf(env, "%d,%d,%d,%d,%d", &g_mode, &g_track, &g_laps, &g_reverse, &g_pocket);
+        int manual = 0;
+        sscanf(env, "%d,%d,%d,%d,%d,%d", &g_mode, &g_track, &g_laps, &g_reverse, &g_pocket,
+               &manual);
+        g_gearbox = !manual;
         if (g_track < 0 || g_track >= g_ntracks)
             g_track = 0;
     }

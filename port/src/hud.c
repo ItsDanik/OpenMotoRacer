@@ -5,6 +5,8 @@
    gear-change hint of the digits-only dashboard, the split against the leader (0x412e50), the riders' labels (Link and
    time attack), the CD data's picture messages (0x4dc180 = 0) and GAME OVER. */
 #include "hud.h"
+#include "bikephys.h"
+#include "bikes.h"
 #include "choices.h"
 #include "clock.h"
 #include "config.h"
@@ -31,8 +33,15 @@ static int g_laps_mode = -1;    /* 0x4f0e18 */
 static int g_last_count = -1;   /* 0x542854: the countdown number shown */
 static int g_go;                /* 0x4dbe44: GO still to show, its lifetime */
 static int g_last_cp;           /* the race object's +4: the checkpoint last told */
-static int g_bikes;             /* 0x4dc100 */
+static int g_loaded;            /* 0x4dc100 */
 static int id_laps, id_count, id_ready, id_finish, id_timeout, id_final, id_wrong, id_check;
+
+static uint32_t ubits(float f)
+{
+    uint32_t u;
+    memcpy(&u, &f, 4);
+    return u;
+}
 
 static int halving(void)        /* the small fonts, or not 640x480 */
 {
@@ -359,7 +368,7 @@ static void time_pos(void)
     if (place > 0) {
         colours(F_SPRITES, COL_WHITE, -1);
         put(F_SPRITES, "A", 0, 0x96, 8, 0, r1);
-        snprintf(s, sizeof s, "<%d", g_bikes);
+        snprintf(s, sizeof s, "<%d", g_loaded);
         put(F_LOW_CHRONO, s, 8, 0xab, 8, 0, r2);
         x = r1[2] - r1[0] > r2[2] - r2[0] ? r1[2] - r1[0] : r2[2] - r2[0];
         x++;
@@ -375,14 +384,14 @@ static void practice_pos(void)
 {
     int place, r[4], x;
     char s[16];
-    if (g_racer[me()].state == RS_GRID || g_bikes < 2)
+    if (g_racer[me()].state == RS_GRID || g_loaded < 2)
         return;
     place = rules_place_of(me()) + 1;
     if (place <= 0)
         return;
     colours(F_SPRITES, COL_WHITE, -1);
     put(F_SPRITES, "E", 8, 5, 8, 0, 0);
-    snprintf(s, sizeof s, "<%d", g_bikes);
+    snprintf(s, sizeof s, "<%d", g_loaded);
     put(F_LOW_CHRONO, s, 8, 0x34, 8, 0, r);
     x = r[2] - r[0];
     if (halving())
@@ -424,6 +433,7 @@ typedef struct {                /* 0x485be0's: the centre, start angle, radians 
 static struct {
     int speed, rev, gear;       /* the shown bike's O+0x118, the rev needle's target, O+0x7c */
     int rev_shown;              /* 0x4f0e10 */
+    int hint;                   /* the gear-change hint (hud_bike) */
     int built, type, small;     /* 0x4f0e34 / 0x4f0e30 / 0x4f0e40: the layout's settings */
     int bx, by;                 /* 0x5dbc80, 0x5dbc84 */
     int sx[3], sy[3], rx[3], ry[3], dx, dy, gx, gy;
@@ -512,11 +522,50 @@ static void needle(Face *f, const int (*xy)[2], int colour)
     r3d_screen_faces(r3d_screen_points(3, xy, 2048.0f), 1, f, 4.0f);
 }
 
-void hud_bike(int speed, int rev, int gear)
+/* 0x484810's reads: the speed O+0x118, the rev needle's target ftol(O+0x11c / bike+0x70
+   x 16000), the gear O+0x7c; and the gear-change hint's state (0x484d97) */
+void hud_bike(const BikePhys *b)
 {
-    g_dash.speed = speed;
-    g_dash.rev = rev;
-    g_dash.gear = gear;
+    float nb = g_bikes[b->bike].phys[(0x70 - 0x14) / 4];        /* NbSpeed */
+    float g;
+    g_dash.speed = b->kmh;
+    g_dash.rev = (int)(b->rpm / (double)nb * 16000.0);
+    g_dash.gear = b->gear;
+    /* 0 none, 2 sliding or crashed, 3 shifting, 1 in the band, 4 change down, 5 up */
+    g_dash.hint = 0;
+    if (g_gearbox || g_counting)
+        return;
+    if (b->slide || b->crashed) {
+        g_dash.hint = 2;
+        return;
+    }
+    if (b->shift) {
+        g_dash.hint = 3;
+        return;
+    }
+    if ((int32_t)ubits(b->engine) <= 0 || b->gear <= 0)
+        return;
+    g = (float)b->gear;
+    if (g > nb || (ubits(b->table[1]) & 0x7fffffff) == 0)
+        return;
+    if (nb > g && b->wheel + 2.0 > b->table[b->gear])
+        g_dash.hint = 5;
+    else if (b->gear > 1 && b->wheel - 2.0 < b->table[b->gear - 1] - 2.0)
+        g_dash.hint = 4;
+    else
+        g_dash.hint = 1;
+}
+
+void hud_key(int vk)
+{
+    if (vk != 0x76)             /* F7 (0x432107; it needs 0x4e8944: the race's drawing) */
+        return;
+    if (g_show_counter && g_counter_type == 1)
+        g_counter_type = 2;
+    else if (g_show_counter && g_counter_type)
+        g_counter_type = 0, g_show_counter = 0;
+    else
+        g_show_counter = 1, g_counter_type = 1;
 }
 
 /* 0x484810 calls (1) and (2), and 0x486310's slot 0: before the 3D is drawn */
@@ -599,7 +648,21 @@ static void dials_digits(void)
         s[1] = 0;
         font_draw(font_get(23), s, g_dash.bx + g_dash.gx, g_dash.by + g_dash.gy, 0x21, 0);
     } else if (g_counter_type) {
-        /* (the gear-change hint bar of font 11: not yet) */
+        /* 0x484d70: with the manual box, a blinking bar of font 11 near the top (change
+           up) or the bottom (change down), as wide as an eighth of the screen allows */
+        if ((g_dash.hint == 4 || g_dash.hint == 5) && !(g_frames & 4)) {
+            Font *f = font_get(F_SPRITES);
+            char bar[160];
+            int n = f && f->width['W'] ? g_scr_w / 8 / f->width['W'] : 1;
+            if (n < 1)
+                n = 1;
+            if (n > (int)sizeof bar - 1)
+                n = (int)sizeof bar - 1;
+            memset(bar, 'O' + (g_frames & 3), (size_t)n);
+            bar[n] = 0;
+            colours(F_SPRITES, COL_RED, -1);
+            put(F_SPRITES, bar, 0, g_scr_h / 16, (g_dash.hint == 4 ? 0x80 : 0x20) | 2, 1, 0);
+        }
         snprintf(s, sizeof s, "%d\n%c", v, g_speed_unit == 1 ? ';' : ':');
         font_draw(font_get(28), s, 6, 4, 0x90, 0);
     }
@@ -676,8 +739,8 @@ void hud_draw(void)
     int k;
     g_frames += g_ticks;
     dials_digits();
-    for (g_bikes = 0, k = 1; k < g_riders; k++)        /* 0x4817a0 */
-        g_bikes += g_racer[k].loaded;
+    for (g_loaded = 0, k = 1; k < g_riders; k++)        /* 0x4817a0 */
+        g_loaded += g_racer[k].loaded;
     if (!g_race_over) {
         if (g_time_over)
             text_remove(id_finish);     /* (GAME OVER 0x482120: not yet) */

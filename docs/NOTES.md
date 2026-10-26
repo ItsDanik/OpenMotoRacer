@@ -9409,8 +9409,8 @@ Marks: [asm] read in build/mr.asm, [decomp] Ghidra text only, [px] confirmed on 
 number, GET READY, GO and their voices), the lap, best-lap, TIME / POS and practice panels,
 the finishing place, TIME OUT / FINAL LAP / WRONG WAY / CHECK POINT. Its pictures pass
 tools/hud_text.py as the captures do (q17's 12 texts exact, q14's countdown the same).
-Not yet: the split line (0x412e50), labels (3.7), the CD data's sprite messages, GAME OVER,
-the dials' gear-change hint (3b; the dials themselves are written: 0 pixels differ from
+Not yet: the split line (0x412e50), labels (3.7), the CD data's sprite messages, GAME OVER
+(the dials, F7's three states and the gear-change hint bar are written: 0 pixels differ from
 tools/hud_dials.py, `r3d_screen_points/faces`). The port's single race has 24 bikes, as the original's (q14/q17's "/23" was the attract demo, §4.17.9).
 
 ##### 3.0 Fonts, coordinates, frame counters
