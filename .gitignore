@@ -1,0 +1,14 @@
+# the game itself and everything made from it: never in the repository
+/Moto Racer/
+/CD/
+/build/
+# builds
+/port/build/
+__pycache__/
+*.pyc
+# what the program writes when it is run from here: settings, saves, pictures
+*.ppm
+*.png
+*.wav
+# release packages
+/dist/
