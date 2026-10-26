@@ -12,3 +12,4 @@ __pycache__/
 *.wav
 # release packages
 /dist/
+/Moto Racer CD/
