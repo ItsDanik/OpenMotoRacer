@@ -144,8 +144,10 @@ passed; GOG's launcher passes `-FrameRateMax60`.
 (0x43f840), the button blink (0x4dbd08), the drifting texts (0x416b40) and frame-counted
 blinks, the title's "FULL D3D VERSION" every 21 pictures. Started without
 `-FrameRateMax60`, under wine on an unsynchronised display, the original ran its main menu
-at ~95 pictures a second (the tile's scroll read from memory, 0x504880 → +0x18). With GOG's
-switch it runs at 60. The port's clock is the real time in a window, and those counts go
+at ~95 pictures a second (the tile's scroll read from memory, 0x504880 → +0x18). The
+limiter 0x459fd0 is called only by `Game_Frame`, so `-FrameRateMax60` holds the race at 60
+but not the menu: there the original's counts ran at the screen's refresh (1997's 60-75 Hz
+monitors). The port takes 60, the race's rate. The port's clock is the real time in a window, and those counts go
 by 60ths of a second (`g_ticks`), so the port has the original's speed at any refresh
 rate (Danik's 180 Hz screen ran the old port 3 times too fast). Measured: 23 pixels of
 scroll in 0.386 s (23.1 expected). Under `--shot` the clock is 1000/60 a picture, one
