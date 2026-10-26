@@ -94,9 +94,12 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   5 SELECT MODE (`page_mode.c`), 6 SELECT RACE (`page_track.c`), 10 CHOOSE BIKE
   (`page_bike.c`, `bikes.c`; no 3D bike yet), 9 TOP 5 (`page_top5.c`, `scores.c`:
   bestscor.dat), 1 loading (`page_load.c`: back to page 3 until the race exists), 20/21
-  championship Load/Save (`page_champ.c`); the race
+  championship Load/Save (`page_champ.c`), 11 Options, 12 controls, 13 diagnostic, 23 data
+  disk (`page_options.c`, NOTES §4.14); the race
   settings and track lists in `choices.c` (NOTES §4.12). A page not written yet ends the
   program with a message. Starts on 25, as the game.
+- Settings: `config.c` reads CONFIG.BPT (the player's home copy first, else the game's)
+  and writes it to the home folder when the program ends, as the game does (NOTES §4.14.5).
 - 3D (NOTES §4.9): `r3d.c` the software renderer (float transform, depth buckets, s-buffer,
   affine triangles), `model.c` 3DF+MAP, `rand.c` the game's random streams (seeds from
   game.EXE). The glass transition is `menu.c`'s.

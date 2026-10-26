@@ -30,6 +30,16 @@ void page_load_champ_frame(void);   /* 0x450800 */
 void page_save_champ_start(void);   /* 21: championship Save, 0x450d20 */
 void page_save_champ_frame(void);   /* 0x450f40 */
 
+void page_options_start(void);  /* 11: OPTIONS, 0x443000 */
+void page_options_frame(void);  /* 0x443200 */
+void page_settings_start(void); /* 12: SETTINGS (the controls), 0x444b10 */
+void page_settings_frame(void); /* 0x444f30 */
+void page_diag_start(void);     /* 13: DIAGNOSTIC, 0x4458a0 */
+void page_diag_frame(void);     /* 0x4459d0 */
+void page_datadisk_start(void); /* 23: DATA DISK, 0x451d10 */
+void page_datadisk_frame(void); /* 0x4514e0 */
+void page_datadisk_end(void);   /* 0x451fc0 */
+
 void page_title_start(void);    /* 14: the title, 0x4465f0 */
 void page_title_frame(void);    /* 0x446b80 */
 void page_title_end(void);      /* 0x446b40 */

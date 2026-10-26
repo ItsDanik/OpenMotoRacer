@@ -331,6 +331,7 @@ int main(int argc, char **argv)
         sound_frame();
         clock_frame();
     }
+    config_save();              /* (the game: on WM_DESTROY) */
     sound_quit();
     video_quit();
     SDL_Quit();

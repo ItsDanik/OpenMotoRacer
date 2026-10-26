@@ -66,6 +66,10 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   spans and see-through kinds, the horizon. `OMR_RACEVIEW` draws a track from a still
   camera: the same to the pixel as tools/track.py on eight captures of the original;
   only the bikes, riders, shadows and HUD differ from the original's screens.
+- Pages 11 Options, 12 controls, 13 diagnostic, 23 data disk (NOTES §4.14): equal to the
+  original's captures but for the pointer (and the CD volume, which wine never offered).
+  The settings (CONFIG.BPT) are saved to the home folder when the program ends; sound
+  switches and the three volumes work. No joystick yet. Page 13 shows the port's machine.
 - The tracker shows Claude's messages at its bottom ("From Claude", the `messages` dataset)
   and Danik writes from it (comments sent to Claude): keep it watched.
 
@@ -77,9 +81,10 @@ Read this first in a new session, then CLAUDE.md, then the NOTES sections for th
   the original, or a user folder? (For now a user folder, the game's read as a fallback.)
 
 ## Next, in order
-1. Page 11 options (+12 controls, 13 info, 23 data disk); then the 3D bike
-   on page 10 (the race's bike object, 0x45bf70 family, NOTES §4.12.10 7b).
-2. Sound: CONFIG.BPT's switches and volumes, pause on losing focus, the race's sounds.
+1. The 3D bike on page 10 (the race's bike object, 0x45bf70 family, NOTES §4.12.10 7b;
+   a helper mapped .SKL/.PIV/.ROT, the drawer 0x45f290 and the camera 0x46dab0 into
+   build/notes/bike_object.md and tools/bikeparts.py).
+2. Sound: pause on losing focus, the race's sounds. Joysticks (SDL game controllers).
 3. The race: the bike object (shared with page 10's 3D bike), the chase camera
    (0x46f840), the race loop and its physics; billboards and AnimDecor on the track.
 4. The CD's `MOTO.EXE`: line it up with GOG's `game.EXE` (which tables the port reads).

@@ -4121,6 +4121,625 @@ strip, dark-blue fill above, orange fill below, and the strip moves with the yaw
 - Not yet: billboards (+0x5c), AnimDecor, the 512x384 and 320x240 horizons, the bikes'
   pages 0 and 1.
 
+### 4.14 The Options pages: 11 OPTIONS, 12 SETTINGS (controls), 13 DIAGNOSTIC, 23 DATA DISK (mapped 2026-10-26)
+
+Mapped 2026-10-26 from build/mr.asm (every number below was read in the machine code unless
+marked otherwise) with build/decomp as a guide, and checked against the captures
+build/ref/orig_p11_options.png, orig_p12_settings_keyboard.png, orig_p13_diagnostic.png,
+orig_p23_datadisk.png. Confidence marks: **[asm]** read in the machine code, **[decomp]**
+Ghidra's text only, **[guess]** an interpretation, **[px]** seen in a capture.
+
+Conventions as in §4.12 / §4.4:
+- Picture ids are those of the table 0x4e3e20 (id = (pointer variable − 0x504880)/4);
+  `L` after a name = language folder (data\MenuUs\...), else data\menu\bitmap\. Every
+  picture used here has table mode 1 (colour 0 transparent), except the tiles (mode 4).
+- 0x40bef0(pic, hl, nb, hotkey, group, value, var, blink, x, y, flags) = picture button;
+  0x40bd60(pos[2], text, font, nb, style, hotkey, flags) = text button (kind 1, NOTES
+  §4.4.3.2). Neighbour bytes nb: byte0 Left, byte1 Right, byte2 Down, byte3 Up, 0xff none.
+  "x,y −1" = the picture stays where it was placed.
+- 0x43fa40(pic, pt, align) place; 0x43f9a0(pic, target, seconds, kind, align) slide (kind 1 =
+  sine ease); 0x43fab0(pic, dx, dy, 0, 0) step (tile scroll / slide step);
+  0x43ede0(pic, surface, mode, pct_h, pct_w) draw (mode 5 = the picture's own mode).
+- Text: 0x4903d0(n, 0) = Font_Get(n); "SetColors(f, a, b)" = font vtable slot 0 (0x490b00:
+  fore = a, back = b, a NULL keeps the old one, then rebuilds the colour table);
+  0x493ee0(font, text, x, y, flags, level, 0, 0, 0) = DrawString (flags 0 = top-left at
+  x,y). Colours: white = 0x4f0dd4 (255,255,255), yellow = 0x4f0de8 (255,255,0).
+- T<n> = language string n, `*(char**)(0x53b5e8 + 4n)` (table 0x4e2920; English given).
+- Frame skeleton common to all four pages (NOTES §4.4.6): 0x49b1c0 present, 0x49a160(0,0)
+  begin (+ hover 0x4099a0), ... page ..., 0x40c500 glass shards, 0x49ad90 3D list (only if
+  0x504e74 == 0 and software), mouse pointer (id 0x55 at the mouse, if fullscreen and
+  DirectDraw), 0x49b0e0 end, 0x49ad70 if 0x504e74. Below only the page's own part is listed.
+- No page here plays a sound of its own: only the core's 0x29 (hover) and 3 (click).
+
+Font 12 = "Messages" (AntiAlias8Transp, height 21, spacing 1,1, chars 32..255); font 24 =
+"Keyboard" (Pal, height 31, HiRes\Keyb [27..174] + Keyb2 [205..245]); font 31 =
+"DataDiskMenu" (Direct, height 21, chars 32..90) (NOTES §4.8.2.2).
+
+---------------------------------------------------------------------------------------------
+
+#### 4.14.1 Page 11 OPTIONS (row 0x4dbbe8: start 0x443000, frame 0x443200, no end routine)
+
+Reached from the main menu's Options button (glass). Exits: config → 12, Accept → 3,
+Info → 13, Data disk → 23, **all four with the glass** (the capture 0x40c4a0 is taken after
+0x49b0e0 when a local flag [ebp−0x30] was set by those four cases) [asm 0x444937..0x444a62].
+**Escape does nothing on this page**: no button has a hotkey [asm 0x4443f5..0x4443fc].
+
+##### 4.14.1.1 Start 0x443000 [asm]
+1. Place (all align 0): optitre.lez (id **0x3c** L, 640x81, "OPTIONS" title bar) at (0,0);
+   accept.lez (**0x46** L, 120x40) at (500,420); btinfo.lez (**0xaa**, 121x40, "Info") at
+   (25,420); DATADISK.lez (**0xb7** L, 121x40, "Data disk") at (275,420). No slides.
+2. Controller index **0x4e90d0** from InputDevice **0x4dc11c**: 1 → 0 (KEYBOARD), 4 → 1
+   (JOYPAD), 2 → 2 (JOYSTICK); any other value leaves 0x4e90d0 as it was.
+3. SetColors(font 9, white, white); SetColors(font 12, white, white) (font 12 only if it
+   exists).
+4. **The data-disk scan**: path = the data prefix string 0x4e8380 (filled at start-up; the
+   game folder prefix, normally empty [guess]) + `Data\List*.bpt` (0x4e9290);
+   0x4dc04c = 0; `_findfirst`/`_findnext` (0x4b5830/0x4b5980/0x4b5ac0); for every entry
+   whose attributes lack 0x10 (not a directory): `0x51a420[0x4dc04c++] = (short)
+   atoi(name + 4)` (so LIST.BPT → 0, LIST01.BPT → 1). **0x51a420 is never read anywhere**
+   [asm: the only reference is this write]; only the count **0x4dc04c** matters: page 23
+   steps the list number 0..count−1 directly. GOG: LIST.BPT + LIST01.BPT → 2; the CD has only
+   LIST.BPT → 1 (then the "Data disk" button is not made).
+5. Direct3D only: if 0x4dc06c && !0x4dc070 && the D3D driver record (0x53c754 +
+   0x53be30*0x194) is 0: detail 0x4dc098 = 0. (Software: never.)
+
+##### 4.14.1.2 Frame 0x443200 [asm]
+Everything is rebuilt every frame: the buttons are cleared and re-added after the hover test,
+so the hover result `sel` of this frame refers to last frame's buttons (identical layout).
+
+1. 0x49b1c0, 0x49a160(0,0).
+2. Tile paralax2.lez (id **0x01**, 128x128, mode 4): step (**−1, −1**), draw mode 5, 100, 0.
+3. `sel` = 0x40c0c0 (the selected button index, −1 none).
+4. optitre (id 0x3c) draw mode 5 (no step).
+5. 0x40bd40 (clear buttons).
+6. The 15 rows (table 1.3), each: SetColors(font 12, c, c) with c = yellow if `sel` is the
+   row's button (or one of its two), else white; DrawString(font 12, label, **x 50**, y,
+   flags 0); then the value button(s) (text buttons in font 12, style 0, hotkey −1, flags as
+   listed), and for the volume rows the gauge.
+7. Accept / Info / Data disk picture buttons (1.4).
+8. Controller check: if 0x4e90d0 is 1 or 2 and 0x418b60(&0x51ae88, 0) == 0 (no joystick
+   known: it re-runs the joystick detection 0x4189c0 and tests again) → 0x4e90d0 = 0. This
+   happens **after** the value button was built, so without a joystick a press on
+   CONTROLLER shows JOYPAD for exactly one frame, then KEYBOARD again [asm 0x44448f].
+9. SetColors(font 12, white, white); 0x40c1f0 draws the buttons (text buttons: yellow when
+   selected, else white; picture buttons without highlight: dimmed mode 3 unless selected).
+10. p = 0x40c1b0; if p != −1: 0x40c1e0, 0x409bf0. Switch p (jump table 0x444aac, 23
+    cases; 1.5).
+11. Text list 0x53b8e8: 0x418790, 0x417840, 0x418860 (normally empty here).
+12. 0x40c500, 0x49ad90, pointer, 0x49b0e0, glass capture if a page change was made, 0x49ad70.
+
+##### 4.14.1.3 The rows (labels at x 50; value buttons at x 300 unless noted) [asm]
+
+| # | y | label (T id) | button(s) (index: text, nb, flags) | value shown |
+|---|---|---|---|---|
+| 1 | 100 | T25 "DIFFICULTY : " (yellow if sel==0) | 0: value, nb 0xff01ffff (Down 1), flags 0 | **0x4dc060**: 0 T26 "EASY", 1 T27 "MEDIUM", 2 T28 "HARD" (other: no button made) |
+| 2 | 120 | T29 "CONTROLLER : " (sel==1) | 1: value, nb 0x000302ff (R 2, D 3, U 0); when 0x4e90d0 == 2 nb 0x0003ffff (no Right) | **0x4e90d0**: 0 T30 "KEYBOARD", 1 T31 "JOYPAD", 2 T32 "JOYSTICK" |
+| – | 120 | – | 2: **picture** BtConfig.lez (**0x57** L, 52x30, "config"), hl 0, nb 0xffffff01 (Left 1), hotkey −1, group −1, value 0, var 0, blink 0, **x 475, y 120**, flags 0 | – |
+| 3 | 140 | T33 "DETAIL LEVELS : " (sel==3) | 3: text "%d" (0x4e4ed8) of 0x4dc098+1 into buffer 0x53f678, nb 0x0104ffff (D 4, U 1) | **0x4dc098** 0..4 shown 1..5 |
+| 4 | 160 | T34 "OPPONENTS : " (sel==4) | 4: nb 0x0305ffff | **0x4dbfdc** (NbComputerCut): 0 → "24" (0x4e92e0), 1 → "12" (0x4e92e4) |
+| 5 | 180 | T35 "D3D : " (sel==5) | 5: nb 0x0406ffff | 0x4dc06c == 0 → T41 "NOT DETECTED"; else 0x4dc070 != 0 → T39 "OFF"; else 0x53be0c ? T42 "FILTERED" : T40 "ON" |
+| 6 | 200 | T36 "VOICES : " (sel==6) | 6: nb 0x0507ffff | sound server 0x516aa0+4 == 0 → T132 "CANNOT USE SOUND RESOURCE"; else **0x4db668** 0 T39 "OFF" / 1 T40 "ON" |
+| 7 | 220 | T37 "SOUNDS : " (sel==7) | 7: nb 0x0608ffff | same test → T132; else **0x4db664** OFF/ON |
+| 8 | 240 | T38 "MUSIC : " (sel==8) | 8: nb 0x0709ffff | CD object 0x503528 null or its +8 (opened) 0 → T133 "CANNOT USE CD PLAYER"; else **0x4db66c** OFF/ON |
+| 9 | 260 | T43 "SCREEN MODE : " (sel==9) | 9: text buffer 0x53f3c0, nb 0x080affff | see 1.6 |
+| 10 | 280 | T44 "16/9 MODE : " (sel==10) | 10: nb 0x090bffff | **0x504e80** 0 OFF / 1 ON |
+| 11 | 300 | T93 "WAVE OUTPUT : " (sel==11) | 11: text buffer 0x53f2b8, nb 0x0a0cffff | see 1.7 |
+| 12 | 320 | T82 "MASTER VOLUME :" (sel 12 or 13) | mixer line 0 present (0x5d2960): 12 "-" (0x4dd198) at (300,320) nb 0x0b0e0dff flags **1**; 13 "+" (0x4e92a8) at (400,320) nb 0x0b0eff0c flags **1**. Absent: 12 T71 "Not available." at (300,320) nb 0x0b0effff flags 0; 13 "" (0x4dbea4) at (300,320) nb 0xffffffff flags 0 | gauge 1.8, channel 0 |
+| 13 | 340 | T83 "WAVE VOLUME :" (sel 14/15) | line 2 present (0x5d2c48): 14 "-" nb 0x0c100fff, 15 "+" (400,340) nb 0x0c10ff0e, flags 1. Absent: 14 "Not available." nb 0x0c10ffff, 15 "" nb −1 | gauge, channel 2 |
+| 14 | 360 | T84 "CD AUDIO VOLUME :" (sel 16/17) | line 1 present (0x5d2ad4): 16 "-" nb 0x0e1211ff, 17 "+" (400,360) nb 0x0e12ff10, flags 1. Absent: 16 "Not available." nb 0x0e12ffff, 17 "" nb −1 | gauge, channel 1 |
+| 15 | 380 | T189 "SESSIONS REFRESH RATE : " (sel 18/19) | 18 "-" at (300,380) nb 0x101413ff flags 1; 19 "+" at (400,380) nb 0x1014ff12 flags 1 | value drawn directly (not a button) at **(312, 380)**, font 12 in the label's colour: 0x4dc044 == 0 → T190 "manual", else "%d %s" (0x4e92a0) of 0x4dc044 and T191 "sec." |
+
+Flags 1 = the button repeats every frame while the left mouse button is held (Menu_Frame
+step 8), so the −/+ buttons auto-repeat at the frame rate. The empty "" button only keeps
+the index count at two per row; its measured rectangle has no width [guess], so it can
+hardly be hovered. The labels of the volume rows have no trailing space (strings as in
+the table). In the capture "D3D : NOT DETECTED", "WAVE OUTPUT : 16 bits / 22 Khz /
+stereo", "CD AUDIO VOLUME : Not available.", the gauges for master and wave [px].
+
+##### 4.14.1.4 Bottom buttons [asm 0x4443df..0x44448a]
+- **20** Accept: accept.lez (0x46 L), hl 0, nb **0x12ffff15** (Left 21, Up 18), hotkey −1,
+  group −1, value 0, var 0, blink 0, x,y −1 (stays at (500,420)), flags 0.
+- If **0x4dc04c > 1** (two or more List*.bpt): **21** Info: btinfo (0xaa), nb **0x12ff1416**
+  (Left 22, Right 20, Up 18); **22** Data disk: DATADISK (0xb7 L), nb **0x12ff14ff** (Right
+  20, Up 18). Else **21** Info: btinfo, nb 0x12ff14ff. All other fields as Accept.
+  (So Info is always button 21; the arrows between Info and Data disk run the "wrong" way:
+  Left from Info goes to Data disk, which is to its right — as in the machine code.)
+
+##### 4.14.1.5 Presses (switch at 0x444504) [asm]
+| p | action |
+|---|---|
+| 0 | 0x4dc060 = (0x4dc060 + 1), 3 → 0 (difficulty cycles 0,1,2) |
+| 1 | 0x4e90d0 = +1, 3 → 0 (then 1.2 step 8 next frame may force it back to 0) |
+| 2 | config: 0x4dc11c = {0→1, 1→4, 2→2}[0x4e90d0]; **0x4311c0** (see 1.9); glass; **ChangePage(12)** |
+| 3 | detail: unless (0x4dc06c && !0x4dc070 && D3D record +0x16c == 0): 0x4dc098 + 1, 5 → 0 |
+| 4 | 0x4dbfdc ^= 1 |
+| 5 | D3D (only if 0x4dc06c): if 0x4dc070 == 0: if the driver can filter (record 0x53c778+idx*0x194): 0x53be0c 0 → 1 (FILTERED), 1 → 0 with 0x4dc070 = 1 (OFF); else 0x53be0c = 0, 0x4dc070 = 1; if 0x4dc070 != 0: 0x4dc070 = 0. Then 0x4e9cf8 = −1 and the glass mesh 0x504c70 is deleted and rebuilt from vitre.3df (0x479470, 0x41f770, 0x420590, 0x479630). **D3D only; in software 0x4dc06c = 0 and nothing happens** |
+| 6 | 0x408f30 voices toggle (1.10) |
+| 7 | 0x408b30 effects toggle |
+| 8 | 0x409410 CD music toggle |
+| 9 | screen mode (1.6) |
+| 10 | 0x504e80 ^= 1 |
+| 11 | 0x409570 wave output (1.7) |
+| 12 / 13 | 0x470e90(&0x5d2958, **0**) down / 0x470d90(.., 0) up — master |
+| 14 / 15 | down / up channel **2** — wave |
+| 16 / 17 | down / up channel **1** — CD |
+| 18 | 0x4dc044 − 1, below 0 → 0 |
+| 19 | 0x4dc044 + 1, above 30 → 30 |
+| 20 | Accept: 0x4dc11c from 0x4e90d0 as case 2; 0x4311c0; glass; **ChangePage(3)**. **No config file is written here** |
+| 21 | glass; **ChangePage(13)** |
+| 22 | glass; **ChangePage(23)** |
+
+##### 4.14.1.6 SCREEN MODE [asm 0x443afa..0x443c13, 0x444787..0x444874]
+**0x504bc4** is the menu's copy of ScreenMode **0x4dc0c8** (0 = 320x240, 1 = 512x384, 2 =
+640x480): on entering the menu 0x409f70 saves 0x4dc0c8 → 0x504bc4 and forces 0x4dc0c8 = 2;
+the loading page (0x40ba3e) copies 0x504bc4 back into 0x4dc0c8 when the race starts. Same
+pair for 16/9: **0x504e80** ↔ Mode_169 **0x4dc0d4** (0x4dc0d4 forced 0 in the menu).
+- **Window** (fullscreen flag 0x4dbff0 == 0): each frame the text is chosen from 0x504bc4:
+  0 "320*240" (0x4e92d0), 1 "512*384" (0x4e92c8), 2 "640*480" (0x4e92c0) into 0x53f3c0.
+  Press: 0x504bc4 + 1, 3 → 0, text refreshed.
+- **Fullscreen**: each frame `i = 0x474cf0(0x4dc0cc, 0)` = the display-mode table entry
+  (0x5d8960, 36 bytes: +0 w, +4 h, +0xc pixel count, +0x10 mode index; count 0x4ee984)
+  whose pixel count equals 0x4dc0cc (the current w*h: 0x12c00, 0x30000 or 0x4b000); if
+  none, it loops calling 0x474cf0(.., 1) until one is found; then 0x4dc0cc = entry.pixels,
+  0x504bc4 = entry.index, 0x4dc0d0 = i, text "%d*%d" (0x4e92d8) of w, h. Press:
+  0x474cf0(0x4dc0cc, 1) = the entry with the smallest pixel count above the current one
+  [decomp for 0x474cf0's wrap-around]; if found: the same four assignments; if not found
+  (and still fullscreen) nothing. Windows/DirectDraw only: the table holds the enumerated
+  modes [guess: only the three the game supports]. **Port**: use the window branch (the
+  three fixed strings); the chosen mode is the in-race resolution.
+
+##### 4.14.1.7 WAVE OUTPUT [asm for the text, decomp for 0x409570]
+Text (each frame into 0x53f2b8): if 0x516aa0 == 0 or *0x516aa0 == 0 or (*0x516aa0)+0x1038
+== 0 (no DirectSound buffer): T71 "Not available."; else sprintf "%d %s / %d %s /%s"
+(0x4e92ac): (Wave16Bits 0x4db670 ? 16 : 8), T47 "bits", (server+0x24 = sample rate)/1000,
+T48 "Khz", (server+0x2c stereo ? T61 " stereo" : T62 " mono") → "16 bits / 22 Khz /
+stereo" [px].
+Press 0x409570 [decomp]: if the buffer exists: if server+0x1c != 1 and the card does 16-bit
+(+0xc): 0x4db670 ^= 1, recreate the primary buffer 0x4414c0(stereo, 16bit, rate), then
+0x4db670 = (actual bits == 16); if now 16-bit, stop. Otherwise change the rate: 22050 if the
+current rate ≤ 0x4099 (16537), else 11025, recreate; and if the old rate was below 16537 and
+the card does stereo (+0x14): toggle stereo, 0x4db674 = the new stereo flag. Starting at
+16/22/stereo the presses cycle 8/11/st → 16/11/st → 8/22/mono → 16/22/mono → 8/11/mono →
+16/11/mono → 8/22/st → 16/22/st [decomp, derived]. **Port**: keep the cycle and the text;
+the mixer can resample to its own output.
+
+##### 4.14.1.8 Volume gauges and −/+ [asm for the drawing, decomp for the mixer]
+Mixer object **0x5d2958** (Windows mixer; lines: 0 master, 1 CD, 2 wave; per line 0x174
+bytes; line present = +8+line*0x174 = 0x5d2960 / 0x5d2ad4 / 0x5d2c48; steps =
+0x5d2dbc + 4*line = 0x5d2dbc / 0x5d2dc0 / 0x5d2dc4, **32** per NOTES §4.10.5.5).
+- 0x470c70(line) = current value 0..steps (MulDiv of the control onto 0..steps).
+- 0x470d90(line) up / 0x470e90(line) down: v ± 1, applied only if 0 ≤ v ± 1 ≤ steps
+  (no wrap), written to the control (mixerSetControlDetails). Nothing if the line is absent.
+- Gauge (only when the line is present), drawn right after the label, before the buttons:
+  featacc.lez (id **0x32**, 81x9) placed at **(312, y+8)** (328 / 348 / 368), drawn mode 5,
+  pct_h 100, **pct_w = (−100 × v) / steps + 100** (C integer division, truncation toward
+  zero), i.e. that percentage of its columns cut off on the right: full bar at v = steps.
+- The values are read back from the mixer each time, so they are system volumes.
+  **Port**: keep three integers 0..32 (initial from CONFIG.BPT MasterVolume / CDVolume /
+  WaveVolume; GOG 0/32/32, CD 19/19/19) and use them as gains (NOTES §4.10.5.5); treat
+  every line as present (or keep "Not available." for CD if the port has no separate music
+  volume — the GOG capture under wine shows CD "Not available.").
+
+##### 4.14.1.9 0x4311c0 (controller set-up, not the config writer) [decomp]
+If 0x4dc11c == 2 (joystick) or 4 (joypad): **JoyType 0x4dc120** = the same value, re-detect
+the joystick (0x4189c0 on 0x51ae88); if none connected (0x51bcd4 == 0): 0x4dc11c = 1
+(keyboard), return 0. Else return 1. Also called at start-up (0x472c40).
+
+##### 4.14.1.10 The three sound switches [decomp; NOTES §4.10.6.1]
+- **0x408f30 VOICES**: if the sound server is not running yet (0x516aa0+4 == 0) and the menu
+  is active it first tries to create it (0x423f50/0x423eb0) and reloads the effect and voice
+  sets; if it still cannot: a message "[%s]" (0x4dbb20) of T134 "CANNOT USE SOUND RESOURCE"
+  is added to the text list **0x53ba68** (0x4188b0: 2000 ms, centred, y 30, blinking) —
+  a list only the race draws, so **nothing is visible on page 11** [asm: no menu page draws
+  0x53ba68]. Otherwise **0x4db668 ^= 1**; switching on loads the voice samples if they were
+  not loaded (0x503554). In the race it also posts "VOICES ON/OFF" (T122/T123).
+- **0x408b30 SOUNDS**: same server start; then **0x4db664 ^= 1**, engine 0x4db65c = ambience
+  0x4db660 = the new value; off → stop all sounds (0x424020); on → reset the sound
+  channels. In the race "SOUND ON/OFF" (T120/T121).
+- **0x409410 MUSIC**: if the CD object exists but is not open and the menu is active, it
+  reopens the CD (0x4b15a0, 0x4b1460). If open: **0x4db66c ^= 1**; 0 → stop (0x4b1720),
+  1 → play the current track again (0x4b19f0, track +0x14, or 0x4db67c if none). In the
+  race "AUDIO-TRACK ON/OFF" (T124/T125). If no CD: the "[CANNOT USE CD PLAYER]" message
+  (T135) to 0x53ba68 (invisible in the menu).
+**Port**: VOICES/SOUNDS/MUSIC = plain toggles of the three flags (stop the music on OFF,
+restart the menu track on ON); the "CANNOT USE" texts only if the port has no audio.
+
+---------------------------------------------------------------------------------------------
+
+#### 4.14.2 Page 12 SETTINGS / controls (row 0x4dbbf8: start 0x444b10, frame 0x444f30)
+
+Reached only from page 11's "config" button (glass). Exit: Accept (Escape) → glass → 11.
+
+##### 4.14.2.1 Start 0x444b10 [asm]
+Place (align 0 unless said): setting.lez (**0x6e** L, 640x81, "SETTINGS" title bar) at
+(0,0); accept.lez (0x46 L, 120x40) at (0, 420) **align 1** (x centred: 260); padcard.lez
+(**0x6a** L, 186x306, "Joypad" card), clavcard.lez (**0x6b** L, "Keyboard" card),
+joycard.lez (**0x6c** L, "Joystick" card) all at (36, 101); choset.lez (**0x6d** L, 351x47,
+"Choose your settings") at (251, 101). **0x53f790 = 0** (the row being redefined:
+Accelerate). (0x53f790 is also cleared by pages 20 and 21 — shared scratch [asm].)
+
+##### 4.14.2.2 Frame 0x444f30 [asm]
+1. 0x49b1c0, 0x49a160(0,0); `sel` = 0x40c0c0.
+2. Tile paralax3.lez (id **0x02**): step (**−1, −1**), draw mode 5.
+3. setting.lez step + draw mode 5.
+4. **0x5409b4 = 0**. By controller **0x4e90d0**:
+   - **0 keyboard**: clavcard step + draw. If 1 ≤ `sel` ≤ 7 (a row is selected):
+     k = menu last key (+0xc). If k is not a digit 0x30..0x39, not a letter 0x41..0x5a and
+     not one of **0x0d Return, 0x10 Shift, 0x11 Ctrl, 0x14 CapsLock, 0x20 Space, 0x21..0x28
+     (PgUp, PgDn, End, Home, Left, Up, Right, Down), 0x2d Insert, 0x2e Delete, 0x60..0x69
+     (numpad 0..9), 0x6c (Separator), 0x6e (numpad Decimal)** → +0xc = 0 (byte table
+     0x44580c / jump table 0x4457e8). Then if keyboard mode (menu+4 == 0) and +0xc != 0:
+     **0x4310f0(0x53f790, k)** (bind).
+   - **1 joypad**: padcard step + draw. b = 0x418c60(&0x51ae88, 0) − 1 → 0x5409b4. If b !=
+     −1: **0x431140(0x53f790, b)** (no restrictions).
+   - **2 joystick**: joycard step + draw. b as above; if b != −1, by row 0x53f790 (jump
+     table 0x445870):
+     - 0 Accelerate / 1 Brake: b = −2 or −3 (left/right) refused; else bind (row, b); if
+       b == −4 (up) also bind (other of 0/1, −5 down); if b == −5 also bind (other, −4).
+     - 2 Turn Left / 3 Turn Right: b = −4 or −5 refused; bind (row, b); b == −2 → (other of
+       2/3, −3); b == −3 → (other, −2).
+     - 4 Higher Gear / 5 Lower Gear: only buttons (b ≥ 0).
+     - 6 Turbo/Stunts (and any other): anything.
+   Joypad/joystick polling happens every frame whatever the selection or input mode:
+   holding a button binds it to the last selected row.
+5. choset step + draw mode 5.
+6. 0x40bd40; **button 0** Accept: accept.lez, hl 0, nb **0x03ff0506** (Left 6, Right 5, Up 3),
+   hotkey **Escape 0x1b**, group −1, value 0, var 0, blink 0, x,y −1, flags 0.
+   **Buttons 1..7** (rows i = 0..6): pic = set.lez (**0x6f**, 351x37) when i == 0x53f790,
+   else set2.lez (**0x70**, 351x37); hl 0, nb **0xffffffff** (arrows do nothing, so they
+   can be bound), hotkey −1, group −1, value 0, var 0, blink 0, **x 251, y 148 + 37 i**
+   (148, 185, 222, 259, 296, 333, 370), flags 0.
+7. 0x40c1f0 (rows without a highlight picture: dimmed mode 3 unless hovered/selected).
+8. The 7 rows' texts, y = **156 + 37 i**, bindings at 0x53eae0 + 8 i (+0 key, +4 button):
+   name = T0 "Accelerate", T1 "Brake", T2 "Turn Left", T3 "Turn Right", T4 "Higher Gear",
+   T5 "Lower Gear", T6 "Turbo/Stunts" (row 6 goes through sprintf with T6 as the format).
+   SetColors(font 12, white, white) each row. Then:
+   - keyboard (0x4e90d0 == 0), key k = +0: k == −1 → "%s None" (T8) at (255, y) font 12;
+     else name ("%s", T7) at (255, y) font 12, and the key cap: the one character
+     **k + 0x13** ("%c", 0x4e92e8) in **font 24** at **x = 590 − width24[k + 0x13]**
+     (right-aligned on 590; the width table is font+0x618), **y − 5**.
+   - joypad/joystick, b = +4: b ≥ 0 → "%s Button %d" (T9; b as stored, so the first button
+     shows "Button 0"); b == −2 / −3 / −4 / −5 → the name at (255, y), then jleft.lez
+     (**0xcd**) / jright.lez (**0xce**) / jtop.lez (**0xcc**) / jbas.lez (**0xcf**) (48x35)
+     at **(550, y − 7)**, mode 5; anything else (−1) → "%s None". (T10..T13 "%s Stick
+     Left/Right/Up/Down" exist but are not used here.)
+9. 0x40c500, 0x49ad90, pointer, 0x49b0e0, 0x49ad70. (No text list on this page.)
+10. p = 0x40c1b0; if p != −1: 0x40c1e0, 0x409bf0. **p == 0**: glass 0x40c4a0, then
+    **ChangePage(11)**. **1 ≤ p ≤ 7**: 0x53f790 = p − 1. Finally **if 1 ≤ sel ≤ 7: 0x53f790 =
+    sel − 1** (the hovered row becomes the row to redefine).
+
+##### 4.14.2.3 How redefining works (consequences of 2.2, for the port)
+- The row to redefine is the last hovered/selected row (highlighted with set.lez from the
+  next frame). Moving the mouse onto a row and pressing a key: the key switches the menu to
+  keyboard mode (except Shift/Ctrl), the selection stays, the key is bound that frame.
+- Keys reach the page through menu+0xc after the core's handling (0x40a0f0): Escape is
+  Accept's hotkey (leaves, never bound); Return/Space press the selected row (pressed = row)
+  and are also bound (the bind runs before the press is cleared); Tab moves the selection and
+  is filtered out; arrows do not move (rows have no neighbours) and are bound. From Accept,
+  Left → row 6, Right → row 5, Up → row 3 (its nb), so the keyboard can reach the rows.
+- Since +0xc is only cleared by a press or a new key, a held allowed key keeps re-binding the
+  same row every frame (harmless).
+- **0x4310f0(row, key)** [decomp, 74 bytes]: row outside 0..6 → nothing; every action whose
+  key == key gets −1; then key[row] = key. **0x431140(row, btn)**: the same on the +4
+  (button) column. So a key/button is never bound twice.
+- **0x418c60(joy 0)** [decomp]: joyGetPosEx-style poll (flags 0x483); returns 1 + the index
+  of the lowest pressed button; else by the axes (0..0xffff): x < 0x2000 → −1, x > 0xdfff →
+  −2, y < 0x2000 → −3, y ≥ 0xe000 → −4, else 0. After the page's "− 1": button n → n, none →
+  −1, **left −2, right −3, up −4, down −5** (the values stored in the +4 column).
+- Bindings **0x53eae0[7][2]** (key, button): defaults by 0x430f20 at start-up [decomp]:
+  keys Up 0x26, Down 0x28, Left 0x25, Right 0x27, Higher gear 'Z' 0x5a, Lower gear 'A'
+  0x41, Turbo Space 0x20; buttons 0, 1, −2, −3, 2, ... — then CONFIG.BPT overrides them
+  (Action%dKey / Action%dBtn). GOG CONFIG.BPT: keys 38, 40, 37, 39, 65 'A', 90 'Z', 32;
+  buttons 0, 1, −2, −3, 2, 3, −1 — matching the capture (Higher Gear A, Lower Gear Z).
+  Read by the race input (0x431250 WM_KEYDOWN, 0x432700 WM_KEYUP, 0x411b30/0x431190 for
+  the buttons, 0x43e0f0) [asm refs].
+
+---------------------------------------------------------------------------------------------
+
+#### 4.14.3 Page 13 DIAGNOSTIC (row 0x4dbc08: start 0x4458a0, frame 0x4459d0)
+
+Reached from page 11's Info button (glass). Exit: Back (Escape) → glass → 11.
+
+##### 4.14.3.1 Start 0x4458a0 [asm]
+1. diagnos.lez (**0xc5** L, 640x81, "DIAGNOSTIC" title bar) at (0,0); Btback.lez
+   (**0x51** L, 121x40) at (500, 440).
+2. Button 0: Btback, hl 0, nb **0x0bffffff** (a stale Up 11; irrelevant), hotkey **Escape**,
+   group −1, value 0, var 0, blink 0, x,y −1, flags 0.
+3. SetColors(font 12, white, white).
+4. **0x540ccc = 0x440540()**: the system information record (static at 0x53f278):
+   +0 CPU name, +4 speed string or NULL, +8 OS name, +0xc memory string (see 3.3).
+5. Icons (75x75) at x 32: proc.lez (**0xb3**) y 85, video.lez (**0xb4**) y 185, son.lez
+   (**0xb5**) y 285, joy.lez (**0xb6**) y 385.
+
+##### 4.14.3.2 Frame 0x4459d0 [asm]
+1. 0x49b1c0, 0x49a160(0,0), 0x409bf0.
+2. Tile paralax1.lez (id **0x00**): step (**+1, −1**), draw mode 5.
+3. Draw mode 5: diagnos, proc, video, son, joy. Then 0x49ad90 (unconditionally here).
+4. The lines, all font 12 (white from the start routine), **x 128**, flags 0, each built in
+   buffer 0x53f678 (label + value concatenated):
+
+| y | text | source |
+|---|---|---|
+| 80 | T172 "Operating System : " + OS | sysinfo+8; NULL → T71 "Not available." |
+| 100 | "%s%s (%s)" (0x4e9324): T49 "Processor : ", CPU name, speed | CPU name NULL → "%s%s" (0x4dbb28) T49 + T71; speed NULL → "%s%s" T49 + CPU name |
+| 120 | T50 "MMX(R) Technology : " + value | 0x4dbcf0 (MMX present) ? (0x4dbcf4 (MMX used) ? T51 "Detected and Enabled." : T52 "Detected but User Disabled.") : T53 "Not detected." |
+| 140 | T171 "Physical Memory : " + memory | sysinfo+0xc; NULL → T71 |
+| 200 | T89 "Direct Draw driver : " + T73 "Available." | constant |
+| 220 | T92 "Direct 3D driver : " + driver | 0x53be30 == −1 → T71; else the name at 0x53c600 + 0x53be30*0x194, plus " (PowerVr mode)" (0x4e9314) if 0x4dc1cc. The capture shows an empty name [px] |
+| 240 | T86 "%sMB video board" with the memory text below | see below |
+| 280 or 290 | sound block | see below |
+| 400 | 0x51bcd0 ? T58 "Joystick port detected." : T57 "No joystick port detected." | after **0x4189c0(&0x51ae88)** — the joystick is re-detected every frame |
+| 420 | 0x51bcd4 ? T60 "Joystick or Joypad connected." : T59 "No Joystick or Joypad connected." | same |
+
+   Video memory text (DirectDraw caps, Windows only): if 0x4ee99c: m = 0x4ee998 (+ 0x5d93c4 ×
+   0x5d93b0 × 2, the screen surface, when 0x4ee950 == 1); m a whole number of MB → "%d"
+   (m >> 20), else "%5.2f" (m × 2^−20, float 0x4d0b70). Else: m = 0x4ee990 (+ the same
+   surface), t = 0x4ee98c; both whole MB → "%d(Tex)+%d" (t >> 20, m >> 20), else
+   "%5.2f(Tex)+%5.2f" [asm 0x445e3f..0x445f77]. Capture: "257.50MB video board".
+   Sound block: if the DirectSound buffer exists (0x516aa0 → +0x1038): y0 = **290**, or
+   **280** if hardware mixing (+0x10); "T68 'Sound board : '" + (+0xc ? T45 "16 bits" : T46
+   "8 bits") + (+0x14 ? T61 " stereo" : T62 " mono") at (128, y0); y += 20; if hardware
+   mixing: T66 " (With hardware mixing)" at (**128 + w**, y) where w = the measured width
+   (0x492b10) of "Sound board : " alone, y += 20; T67 "Direct Sound Driver : " + (+0x18 ?
+   T69 "Installed" : T70 "Not installed") at (128, y), y += 20. Without the buffer: 0x4dc1a8
+   ? T64 "Sound disabled" : T63 "Sound resource is not available" at (128, 300), y = 320.
+   Then "Volume control : %s" (T74) with mixer object present (0x5d2958 != 0) ? T73
+   "Available." : T71, at (128, y).
+5. 0x40c1f0, 0x40c500, 0x49ad90, pointer, 0x49b0e0, 0x49ad70 (no text list).
+6. If p = 0x40c1b0 == 0: 0x40c1e0, glass 0x40c4a0, **ChangePage(11)**.
+
+##### 4.14.3.3 0x440540, the system information (Windows; port substitutes) [decomp]
+- CPU: CPUID vendor "AuthenticAMD" → "AMD", "GenuineIntel" → "Intel", "CyrixInstead" →
+  "Cyrix", else "Unknow"; family 3 / 4 / 5 / 6 → "%s 386", "%s 486", "%s Pentium(R)",
+  "%s Pentium(R) Pro" / "Pentium(R) II", Cyrix MediaGX names...; any other family →
+  "%s CPU Family:$%x" (0x4e8d40) — the capture's "AMD CPU Family:$f". Speed: a timing loop
+  0x4404b0 → "%d Mhz" (0x4e8e04), NULL if 0.
+- OS: GetVersion() < 0x80000000 → "Windows(R) NT"; else major > 3 → "Windows(R) 95", else
+  "Win32s".
+- Memory: GlobalMemoryStatus dwTotalPhys, MB rounded up ((n + 0xfffff) >> 20), "%d Mb."
+  (T188).
+**Port**: fill these with its own facts (e.g. "Linux", the CPU vendor/MHz or "Not
+available.", RAM from sysconf), "Direct Draw driver : Available." as is, "Direct 3D driver
+: " + empty or "Not available.", the video line from a fixed or SDL value, the sound block
+from the SDL audio format (16 bits stereo, no hardware mixing → y0 290), and the joystick
+lines from SDL_NumJoysticks.
+
+---------------------------------------------------------------------------------------------
+
+#### 4.14.4 Page 23 DATA DISK / plug-in track lists (row 0x4dbca8: start 0x451d10, frame 0x4514e0,
+end 0x451fc0)
+
+Reached from page 11's Data disk button (glass; only shown when there are ≥ 2 List*.bpt).
+Exits (**no glass on either**: no 0x40c4a0 in the page [asm]): Accept (Return) → 11 with the
+list now shown; Cancel (Escape) → the old list reloaded → 11.
+
+##### 4.14.4.1 Globals
+- **0x4dc048** = the list number in use (0 → `Data\list.spt`, n → `Data\list%02d.spt`,
+  0x4e9614 / 0x4e8a80; opened as .BPT). Initial 0 (data), **not saved in the config**, so the
+  game always starts with LIST.BPT. Readers: start-up 0x472c40 / main menu 0x4422c0
+  (championship file `Data\champ%c%02d.spt`), page 20 0x450800, race set-up 0x455280, the
+  exit save 0x4329a5 [asm refs].
+- **0x540180** (short) = 0x4dc048 saved at page start (for Cancel).
+- **0x542380** = "the list is loaded and its pictures are wanted" (shared with other pages as
+  a page-state word). **0x540994** = "pictures are sliding out, a new list is due".
+  **0x53f554** = "no picture loaded this frame" (also the main menu's voice-once flag).
+- **0x4e90ec** = array of picture objects (0x74 bytes each, ctor 0x43e7e0, dtor 0x43e170),
+  one per track of the list (count 0x51d298), created with `new` (count stored before it).
+  The end routine 0x451fc0 deletes it and sets 0x4e90ec = 0.
+- Track records 0x4dc088 + i×0x130 (NOTES §4.12.8): **+0 is used here as "picture to
+  load"** (1 = load), +0x24 the folder (`data\ile05\`).
+- After a list change the track table 0x4dc088/0x51d298, ListName 0x504eb8 and the
+  championship tables are those of the new list (0x428d60 and 0x429a00 reload them).
+
+##### 4.14.4.2 Start 0x451d10 [asm]
+1. 0x540180 = (short) 0x4dc048.
+2. Place: DATTITLE.lez (**0xb8** L, 640x81, the "DATA DISK" bar under a black pill) at
+   (0,0); accept.lez (0x46 L) at **(442, 425)**; cancel.lez (**0x47** L, 120x40) at **(85,
+   425)**; left.lez (**0x1a**, 63x114) at (−100, 181); right.lez (**0x1c**, 59x112) at
+   (740, 181).
+3. Slides, 0.7 s (0x3f333333), kind 1, align 0: left → **(7, 181)**, right → **(581, 181)**.
+4. 0x40bd40; buttons (all hl 0, group −1, value 0, var 0, blink 0, x,y −1, flags 0):
+   **0** accept, nb −1, hotkey **Return 0x0d**; **1** left, nb **0xff02ffff** (Down 2),
+   hotkey **Left 0x25**; **2** right, nb **0xff01ffff** (Down 1), hotkey **Right 0x27**;
+   **3** cancel, nb −1, hotkey **Escape 0x1b**. (Built once, not every frame.)
+5. 0x4e90ec = new picture array of 0x51d298 objects (fatal "Not Enough Memory"
+   (pageMainMenu.cpp line 0x1dcd) if it fails); every track's +0 = 1.
+6. **0x542380 = 1, 0x540994 = 0**.
+
+##### 4.14.4.3 Frame 0x4514e0 [asm]
+1. Two script objects on the stack (0x428c70 list reader, 0x429910 championship reader).
+2. 0x49b1c0, 0x49a160(0,0).
+3. Tile paralax2.lez (id 0x01): step (**+1, +1**), draw mode 5. DATTITLE step + draw.
+4. SetColors(font 31, yellow, NULL (back unchanged)); DrawString(font 31, **ListName
+   0x504eb8**, **(350, 27)**, flags 0) — "PLUGIN" for LIST.BPT [px], "TWO_NEW_ISLANDS" for
+   LIST01.BPT (font 31 has no '_' (95 > 90): such characters are skipped [guess from the
+   font range]).
+5. **List change**: if pictures[0].+0x10 (its slide running) == 0 and 0x542380 == 0:
+   0x540994 = 0. Then if 0x540994 == 0 and 0x542380 == 0: open the list file for 0x4dc048
+   and read it (0x428d60); on failure close it and **return at once** (rest of the frame
+   skipped, including the unlock). Open `Data\champ%c.spt` (0x4e927c) or
+   `Data\champ%c%02d.spt` (0x4e9264) with %c = 'A' + difficulty 0x4dc060 (and the list
+   number) and read it (0x429a00); failure → the same early return. Then 0x542380 = 1,
+   delete and re-create the picture array for the new count, every track's +0 = 1.
+6. **Pictures**: 0x53f554 = 1; for i = 0 .. min(0x51d298, 8) − 1:
+   - if track[i].+0 == 1 and 0x540994 == 0: load `"%ssmalphot.lez"` (0x4e9604) with the
+     track folder into picture i (Bitmap_Load 0x43e7f0, mode 1; it always returns 1, so
+     +0 becomes 0); place it at (x, y0) and slide it (0.7 s, kind 1) to (x, y1) with
+     **x = 85 + 126 × (i mod 4)**, row r = i / 4, **y0 = 840 r − 200** (−200 above the screen
+     for the top row, 640 below for the bottom row), **y1 = 95 + 166 r**; 0x53f554 = 0;
+     **stop the loop** (one picture loaded per frame; the later pictures are not drawn this
+     frame).
+   - else (if the array exists): step picture i (0x43fab0) and draw it mode 5.
+   (So the eight pictures arrive one per frame, row 0 falling from above, row 1 rising from
+   below.) smalphot.lez is in each track's bank; the track name is part of the picture [px].
+7. 0x40c1f0 (accept/cancel/arrows without highlight → dimmed unless selected).
+8. p = 0x40c1b0:
+   - **0** (Accept / Return): 0x40c1e0, **ChangePage(11)**.
+   - **1 / 2** (arrows, Left / Right keys): 0x40c1e0; only if 0x542380 == 1, 0x540994 == 0
+     and 0x53f554 == 1 (every picture loaded, nothing loaded this frame): 0x542380 = 0,
+     0x540994 = 1; every shown picture i slides (0.4 s, 0x3ecccccd, kind 1) to
+     **x = −100 if ((i/2) & 1) == 0 else 640**, same y (columns 0-1 leave to the left,
+     2-3 to the right); then **1**: 0x4dc048 = (0x4dc048 ≤ 0 ? 0x4dc04c : 0x4dc048) − 1;
+     **2**: 0x4dc048 = (0x4dc048 < 0x4dc04c − 1 ? +1 : 0). Presses while not ready are
+     swallowed. The new list is loaded by step 5 once picture 0's slide has ended.
+   - **3** (Cancel / Escape): 0x40c1e0; 0x4dc048 = 0x540180; reload the list and the
+     championship as in step 5 (failure → early return, page stays); **ChangePage(11)**.
+9. Text list 0x53b8e8, 0x40c500, 0x49ad90, pointer, 0x49b0e0, 0x49ad70.
+Quirk: Accept pressed while the pictures slide out (list number already changed, new list
+not yet read) leaves with the old track table under the new number [asm-derived].
+
+##### 4.14.4.4 End 0x451fc0 [asm]
+Deletes the picture array (vector destructor, then operator delete), 0x4e90ec = 0.
+
+---------------------------------------------------------------------------------------------
+
+#### 4.14.5 The config file: when and how it is written
+
+**Not on any Options page.** Accept on page 11 only stores the controller (0x4311c0); the
+settings live in globals until the program exits.
+
+##### 4.14.5.1 When [asm 0x433000..0x4330d5, decomp of 0x4329a5]
+In the window procedure on **WM_DESTROY (2)**, if the config was read successfully at start
+(0x4e716c, set at the end of the reader 0x42ae30):
+1. If the menu is active: 0x4dc0c8 = 0x504bc4, 0x4dc0d4 = 0x504e80, 0x4dc028 = 0x50487c (the
+   menu copies of screen mode, 16/9, 0x4dc028) — the old values kept and restored after.
+2. FullScreen 0x4dbff0 = 0/1 if the command line forced it (0x4e8954 0/1; initial −1).
+3. If not aborting (0x4ea818 == 0) and 0x4e8590 == 0 (set when 0x45a520 on the data path
+   fails — a read-only folder [guess]): open `Data\Config.Spt` for writing (Script_Open mode
+   2 → fopen "wrt", text, the .Spt name itself) and **0x42c4c0** writes it ("Cannot save
+   config file." on failure).
+4. If 0x4e714c (initial 1: "scripts are binary"): 0x4e714c = 0, 0x4e7148 = 1, reopen
+   `Data\Config.Spt` for reading — in this mode Script_Open reads the text and also creates
+   `Data\CONFIG.BPT` ("wb", cipher seeded 0x1a2b3c4d) into which the token reader writes
+   every value it reads — and run the reader 0x42ae30 over it; then 0x4e714c = 1,
+   0x4e7148 = 0, and **0x42ee70 deletes the .Spt** (opens it "rb"; if it exists, close and
+   remove 0x4b5190) [decomp for 0x42ee70].
+5. Then (separately) if the track list has tracks: the current list is written back
+   (`Data\list.spt` / `list%02d.spt` by 0x4dc048, writer 0x4291f0) — the track unlock states.
+So the lasting file is CONFIG.BPT (NOTES §3.4 format: values only, strings as u32 length +
+enciphered characters, numbers as 4 enciphered bytes).
+
+##### 4.14.5.2 The text written by 0x42c4c0 [asm]
+One line per field: the key (written "%s"), the value "%32d" (right-aligned in 32
+characters) — the name "%8s" — then "\n". Keys and sources, in order (= the CONFIG.BPT
+token order = the reader 0x42ae30's order):
+
+| key (exact) | source | GOG value |
+|---|---|---|
+| `DefName:\t\t\t\t` | player name 0x5161b0 (%8s) | 'DSI' |
+| `DrawLand:` | 0x4e9904 | 1 |
+| `ScreenMode:` | 0x4dc0c8 | 2 |
+| `FullScreen:` | 0x4dbff0 | 1 |
+| `Mode_169:` | 0x4dc0d4 | 0 |
+| `MapMode:` | 0x4dbdac | 4 |
+| `DisplaySignal:` | 0x4f0e14 | 1 |
+| `CurrentDetail:` | 0x4dc098 | 4 |
+| `CurrentDifficulty` (no colon: the reader's string) | 0x4dc060 | 1 |
+| `NbComputerCut` (no colon) | 0x4dbfdc | 0 |
+| `AmbiantState:` | 0x50354c, or the live 0x4db65c when the sound server runs | 0 |
+| `MotoState:` | 0x5028a0, or live 0x4db660 | 0 |
+| `SoundState:` | 0x504208, or live **0x4db664** | 1 |
+| `VoicesState:` | 0x50355c, or live **0x4db668** | 1 |
+| `AudioState:` | 0x504870, or live **0x4db66c** when the CD is open | 1 |
+| `Wave16Bits:` | 0x4db670 | 1 |
+| `Stereo:` | 0x503530, or live 0x4db674 | 1 |
+| `ReplayRate:` | 0x504568 (= the server's rate when it runs) | 22050 |
+| `MasterVolume:` | mixer 0x470c70(0) | 0 |
+| `CDVolume:` | mixer line 1 | 32 |
+| `WaveVolume:` | mixer line 2 | 32 |
+| `InputDevice:` | 0x4dc11c | 1 |
+| `JoyType:` | 0x4dc120 | 2 |
+| `CounterType:` | 0x4f0dcc | 1 |
+| `ShowCounter:` | 0x4f0dc8 | 1 |
+| `D3DOnlyEmulation:` | 0x4dc070 ? 1 : (0x53be0c ? 2 : 0) | 2 |
+| `DetectD3DCard:` | 0x4dc030 | 1 |
+| `LastLevel:` .. `LastPokt:`, `LastMoto:` | 0x580838, 0x58083c, 0x580840, 0x580844, 0x580848, 0x58084c, 0x580854 (LastLevel, LastMaxTour, LastCurMode, LastNbComp, LastRev, LastPokt, LastMoto) | 0, 4, 1, 23, 0, 0, 0 |
+| `Action%dKey:`, `Action%dBtn:` for d = 0..6 | 0x53eae0 + 8d, +4 | 38/0, 40/1, 37/−2, 39/−3, 65/2, 90/3, 32/−1 |
+| `SmallFonts:` | 0x4f0e08 | 1 |
+| `EnumSession:` | **0x4dc044** (sessions refresh rate) | 10 |
+| `SpeedUnit:` | 0x4f0dd0 | 0 |
+
+The reader 0x42ae30 also derives: 0x4dc0cc from ScreenMode (0x12c00 / 0x30000 / 0x4b000,
+anything else → mode 2), **0x504bc4 = 0x4dc0c8**, **0x504e80 = 0x4dc0d4**, the mixer volumes
+(0x470cf0), D3DOnlyEmulation 2 → 0x53be0c 1, 0x4dc070 0; 0 → both 0; else 0x4dc070 1
+(command-line D3D switches 0x4dc194/198/19c override) [decomp].
+**Port**: save the same fields when the program quits (the port already reads
+Config.Spt/CONFIG.BPT in this order: config.c); where it is saved is Danik's decision
+(saves.c's player folder is the obvious place).
+
+---------------------------------------------------------------------------------------------
+
+#### 4.14.6 The globals: initial values (mr_flat.bin) and readers
+
+Initial values are the image's; CONFIG.BPT overwrites most at start-up (GOG values in 5.2).
+
+| addr | meaning | initial | range | written by | read by (besides these pages) |
+|---|---|---|---|---|---|
+| 0x4dc060 | difficulty | 1 | 0..2 | config 0x42b1c9, p11 | champ file letter (0x4422c0, p23, 0x472c40), race set-up 0x454aa0, 0x455280, 0x47bc60, 0x47dae0; champ saves p20/21; Link p8 |
+| 0x4e90d0 | page-11 controller index | 0 | 0..2 | p11 start / press | only p11, p12 |
+| 0x4dc11c | InputDevice | 1 | 1 kbd, 4 joypad, 2 joystick | config, 0x4311c0, p11 | race input 0x411010, 0x411b30, 0x431250, Game_Frame 0x47d660 |
+| 0x4dc120 | JoyType | 2 | 2 / 4 | config, 0x4311c0 | 0x431250 |
+| 0x4dc098 | detail level | 0 | 0..4 (shown 1..5) | config, p11 | the race renderer (0x405bc0, 0x40ce60, 0x410120, 0x461f70, 0x46e620, 0x47b7a0, 0x49c590, 0x4b0be0, ...); F-key in race 0x431250 |
+| 0x4dbfdc | NbComputerCut | 0 | 0 "24", 1 "12" | config, p11 | race set-up 0x47b420; champ saves 0x450800/0x450f40 |
+| 0x4dc06c | Direct3D present | 0 | 0/1 | 0x41e8f0, 0x41f2b0 | everywhere (render path); **0 in the port** |
+| 0x4dc070 | Direct3D switched off | 0 | 0/1 | config, p11, page changes | everywhere; port: 1 (software) or ignore |
+| 0x53be0c | D3D filtering | 0 | 0/1 | config, p11 | D3D only |
+| 0x4db664 | effects on | 1 | 0/1 | 0x408720, 0x408b30 | sound play 0x4049f0, 0x404b30, race sounds |
+| 0x4db668 | voices on | 1 | 0/1 | 0x408720, 0x408f30, 0x408b30 | 0x4049f0, voice loading |
+| 0x4db66c | CD music on | 1 | 0/1 | 0x408720, 0x409410 | 0x404990 (play track), 0x409670, 0x4096e0 |
+| 0x4db670 | Wave16Bits | 1 | 0/1 | config, 0x409570 | sample loading 0x403c90.. |
+| 0x504bc4 | menu's ScreenMode | 0 (CONFIG: 2) | 0..2 | 0x409f70, config, p11 | Menu_Frame, 0x40ba44 (→ 0x4dc0c8 for the race), exit save |
+| 0x504e80 | menu's Mode_169 | 0 | 0/1 | 0x409f70, config, p11 | 0x40ba3e (→ 0x4dc0d4), exit save |
+| 0x4dc044 | EnumSession (sessions refresh, s) | 10 | 0..30 (0 = manual) | config, p11 | Link session list p7 (0x449100, 0x449680) — network only |
+| 0x4dc04c | number of List*.bpt | 0 | ≥ 0 | p11 start | p11 (Data disk button), p23 |
+| 0x51a420 | list numbers (short[]) | 0 | | p11 start | nobody |
+| 0x4dc048 | list in use | 0 | 0..count−1 | p23 | see 4.1 |
+| 0x53f790 | row being redefined | 0 | 0..6 | p12, p20, p21 | p12 |
+| 0x53eae0 | bindings [7]{key, btn} | 0 | key VK / −1; btn ≥0, −1..−5 | 0x430f20, config, p12 | race input |
+| 0x5409b4 | last joystick reading − 1 | 0 | | p12 | p12 |
+| 0x5d2958.. | mixer (master/CD/wave) | runtime | 0..32 | config, p11, in-race keys 0x409720 | exit save |
+
+---------------------------------------------------------------------------------------------
+
+#### 4.14.7 What the port can drop or must fake (D3D, network, Windows)
+
+- **Direct3D**: the D3D row (always "NOT DETECTED", its button a no-op), the D3D-only detail
+  restriction, the vitre rebuild on case 5, "Direct 3D driver", the video-memory line
+  (fake a value or "Not available."), D3DOnlyEmulation/DetectD3DCard in the config (write
+  them back unchanged).
+- **Network**: SESSIONS REFRESH RATE (0x4dc044, EnumSession) only matters to the Link
+  session list; keep the row, the −/+ and the saved value so the page looks the same.
+- **Windows**: the mixer (volumes become the port's own gains), the display-mode table
+  (window branch), the DirectSound format cycling (WAVE OUTPUT: cycle the text), the system
+  information on page 13, joystick detection (SDL), Alt+Enter. The "CANNOT USE ..." texts
+  only when the port runs without audio.
+- Page 11's empty "" text buttons, the auto-repeat flags and the rebuild-every-frame scheme
+  are part of the keyboard navigation (indices 12..19 depend on them): keep them.
+
+#### 4.14.8 Open points
+- 0x474cf0's wrap-around and what the fullscreen mode table holds [decomp/guess] — the port
+  uses the windowed branch anyway.
+- 0x440540's family names for families 5/6 (Pentium strings) were read in the decomp only.
+- The "" button's hit rectangle (0x492a90 on an empty string) not read.
+- 0x4e8590 (blocks the config save) meaning is a guess.
+- ListName characters outside font 31's range (e.g. '_') assumed skipped.
+
+#### 4.14.9 In the port
+- `page_options.c`: pages 11, 12, 13, 23. Page 13 shows the port's own machine (the
+  processor from /proc/cpuinfo, the memory from sysconf) in place of 0x440540's Windows
+  questions; no joystick is offered yet (`joystick_known` answers no).
+- `config.c`: CONFIG.BPT read in 0x42ae30's order and written again at the end
+  (§4.14.5) to the player's home folder, never the game's; the home copy is read first.
+  The game's master volume (0 in the GOG copy, a Windows mixer line) starts full unless
+  the port saved one. `script.c`'s ScriptOut writes the cipher (lengths plain).
+- `sound.c`: the three switches and the volumes (effects gain = master × wave / 1024,
+  music gain = master × CD / 1024).
+- **Checked** (`tools/shots.sh` options, settings, datadisk) against orig_p11_options,
+  orig_p12_settings_keyboard, orig_p23_datadisk: only the pointer differs, and on page 11
+  the CD volume row (wine's MCI offers no CD volume, so the original says "Not
+  available."). Page 23's list name takes font 31's back colour from the title (page_intro:
+  yellow on black there), so it matches only when the title ran first, as it always does.
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and

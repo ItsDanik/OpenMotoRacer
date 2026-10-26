@@ -71,9 +71,13 @@ static void build_table(Font *f)
 
 void font_set_colors(Font *f, const unsigned char *fore, const unsigned char *back)
 {
-    /* 0x490b00 (CustomColor's does nothing) */
+    /* 0x490b00 (CustomColor's does nothing); a NULL keeps that colour */
     if (f->type == FT_CUSTOM || f->type == FT_CUSTOM_TRAME)
         return;
+    if (!fore)
+        fore = f->fore;
+    if (!back)
+        back = f->back;
     if (memcmp(f->fore, fore, 3) || memcmp(f->back, back, 3)) {
         memcpy(f->fore, fore, 3);
         memcpy(f->back, back, 3);

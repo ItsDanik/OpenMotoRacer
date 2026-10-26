@@ -11,5 +11,7 @@ void saves_init(const char *home);
 const char *saves_home(void);
 /* name as the game has it under Data ("bestscor.dat", "Champ0.sav"); mode "rb" or "wb" */
 FILE *save_open(const char *name, const char *mode);
+/* the player's folder's copy alone (the settings: the port's own once written) */
+FILE *save_open_own(const char *name, const char *mode);
 
 #endif

@@ -17,5 +17,21 @@ int script_int(Script *s);                          /* 0x425080 */
 float script_float(Script *s);                      /* 0x424c00 */
 void script_str(Script *s, char *out, int size);    /* 0x424e60 */
 int script_at_end(const Script *s);
+/* the same over bytes already read (taken over: freed by script_close) */
+void script_open_mem(Script *s, unsigned char *d, long len);
+
+/* a .BPT written as the game's reader writes one (0x42ee70's mode): values enciphered in
+   the order they are put */
+typedef struct {
+    unsigned char *d;
+    long len, cap;
+    unsigned seed;
+    int bad;            /* out of memory */
+} ScriptOut;
+
+void script_out_init(ScriptOut *o);
+void script_out_int(ScriptOut *o, int v);
+void script_out_str(ScriptOut *o, const char *str);
+void script_out_free(ScriptOut *o);
 
 #endif

@@ -48,6 +48,15 @@ static int make_dirs(const char *path)
     return mkdir_one(p) == 0 || errno == EEXIST;
 }
 
+FILE *save_open_own(const char *name, const char *mode)
+{
+    char path[700];
+    if (!g_home[0])
+        saves_init(0);
+    snprintf(path, sizeof path, "%s/%s", g_home, name);
+    return fopen(path, mode);
+}
+
 FILE *save_open(const char *name, const char *mode)
 {
     char path[700], rel[300];

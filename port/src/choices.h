@@ -36,7 +36,8 @@ extern int g_opponents;         /* 0x4dbfdc: 0 = 24 riders, 1 = 12 (Config.Spt) 
 extern int g_champ_race;        /* 0x509ba8: the championship's race being run */
 extern int g_champ_shown;       /* 0x4e90c8: page 9 has shown the standings */
 extern int g_champ_on;          /* 0x4dc07c: the race end's "the championship goes on" */
-extern int g_list_number;
+extern int g_list_number;       /* 0x4dc048: Data\list.spt (0) or list<nn>.spt in use */
+extern char g_list_name[32];    /* 0x504eb8: its ListName ("PLUGIN") */
 extern int g_champ_new;         /* 0x4e90b0: the championship is at its first race */
 extern int g_riders;            /* 0x509bac: riders in the race (the race sets it) */
 #define CHAMP_ROWS 8

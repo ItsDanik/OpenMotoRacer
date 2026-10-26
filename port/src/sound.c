@@ -49,6 +49,7 @@ static int g_menu_loaded;       /* 0x503554 */
 /* the switches (NOTES §4.10.6): effects 0x4db664, voices 0x4db668, CD audio 0x4db66c */
 static int g_effects_on = 1, g_voices_on = 1, g_cd_on = 1;
 static int g_last_voice = -1, g_last_effect = -1;   /* 0x502898, 0x502710 */
+static float g_fx_gain = 1.0f, g_mus_gain = 1.0f;   /* the mixer's lines (config.c) */
 
 /* the music */
 static FILE *g_mus;
@@ -101,9 +102,11 @@ static void mix(int16_t *out, int frames)
             r += a * b->gr;
             b->pos += ((uint64_t)b->freq << 32) / RATE;
         }
+        l *= g_fx_gain;
+        r *= g_fx_gain;
         if (g_ring_r != g_ring_w) {
-            l += g_ring[g_ring_r % MUSIC_RING][0];
-            r += g_ring[g_ring_r % MUSIC_RING][1];
+            l += g_ring[g_ring_r % MUSIC_RING][0] * g_mus_gain;
+            r += g_ring[g_ring_r % MUSIC_RING][1] * g_mus_gain;
             g_ring_r++;
         }
         out[2 * i] = (int16_t)(l > 32767 ? 32767 : l < -32768 ? -32768 : l);
@@ -374,6 +377,62 @@ void sound_menu_load(void)
         load_table(X_SFX_MENU_VOICES, 11, "Voices\\Menu\\");
         g_menu_loaded = 1;
     }
+    unlock();
+}
+
+int sound_running(void)
+{
+    return g_ok;
+}
+
+void sound_set_switches(int effects, int voices, int music)
+{
+    g_effects_on = effects != 0;
+    g_voices_on = voices != 0;
+    g_cd_on = music != 0;
+}
+
+void sound_get_switches(int *effects, int *voices, int *music)
+{
+    *effects = g_effects_on;
+    *voices = g_voices_on;
+    *music = g_cd_on;
+}
+
+/* 0x408b30: off stops every sound */
+void sound_toggle_effects(void)
+{
+    g_effects_on ^= 1;
+    if (!g_effects_on)
+        sound_stop_all();
+}
+
+/* 0x408f30: on loads the menu's voices if they were left out */
+void sound_toggle_voices(void)
+{
+    g_voices_on ^= 1;
+    if (g_voices_on)
+        sound_menu_load();
+}
+
+/* 0x409410: off stops the music, on plays the track again */
+void music_toggle(void)
+{
+    g_cd_on ^= 1;
+    if (!g_cd_on)
+        music_stop();
+    else if (g_mus_track >= 0)
+        music_play(g_mus_track, 2);
+}
+
+/* the mixer's lines as gains: master x wave for the effects, master x CD for the music
+   (the original set Windows' own volumes) */
+void sound_set_volumes(const int v[3])
+{
+    float m = v[0] / 32.0f;
+    lock();
+    g_fx_gain = m * v[2] / 32.0f;
+    g_mus_gain = m * v[1] / 32.0f;
     unlock();
 }
 

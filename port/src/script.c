@@ -32,6 +32,14 @@ int script_open(Script *s, const char *spt)
     return s->d != 0;
 }
 
+void script_open_mem(Script *s, unsigned char *d, long len)
+{
+    memset(s, 0, sizeof *s);
+    s->d = d;
+    s->len = len;
+    s->seed = 0x1a2b3c4d;
+}
+
 void script_close(Script *s)
 {
     free(s->d);
@@ -96,4 +104,62 @@ void script_str(Script *s, char *out, int size)
 int script_at_end(const Script *s)
 {
     return s->p == s->len && !s->bad;
+}
+
+/* ---------------------------------------------------------------- writing */
+
+void script_out_init(ScriptOut *o)
+{
+    memset(o, 0, sizeof *o);
+    o->seed = 0x1a2b3c4d;
+}
+
+static void put(ScriptOut *o, const unsigned char *b, long n, int cipher)
+{
+    long i;
+    if (o->len + n > o->cap) {
+        long cap = o->cap ? o->cap * 2 : 256;
+        unsigned char *d;
+        while (cap < o->len + n)
+            cap *= 2;
+        if (!(d = realloc(o->d, (size_t)cap))) {
+            o->bad = 1;
+            return;
+        }
+        o->d = d;
+        o->cap = cap;
+    }
+    for (i = 0; i < n; i++) {
+        uint32_t x = o->seed;
+        unsigned k = 0;
+        if (cipher) {
+            k = (unsigned)rand_step(&x) & 0xff;
+            o->seed = x;
+        }
+        o->d[o->len++] = (unsigned char)(b[i] ^ k);
+    }
+}
+
+void script_out_int(ScriptOut *o, int v)
+{
+    unsigned char b[4];
+    b[0] = (unsigned char)v, b[1] = (unsigned char)(v >> 8);
+    b[2] = (unsigned char)(v >> 16), b[3] = (unsigned char)((unsigned)v >> 24);
+    put(o, b, 4, 1);
+}
+
+void script_out_str(ScriptOut *o, const char *str)
+{
+    unsigned char b[4];
+    long n = (long)strlen(str);
+    b[0] = (unsigned char)n, b[1] = (unsigned char)(n >> 8);
+    b[2] = (unsigned char)(n >> 16), b[3] = (unsigned char)(n >> 24);
+    put(o, b, 4, 0);            /* (lengths plain, as read) */
+    put(o, (const unsigned char *)str, n, 1);
+}
+
+void script_out_free(ScriptOut *o)
+{
+    free(o->d);
+    o->d = 0;
 }

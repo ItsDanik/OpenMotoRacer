@@ -55,3 +55,17 @@ run champ_loaded 5 560 "$IN20 400:move:300,230 410:click 430:move:630,10"
 OMR_RACEVIEW=4,394.0,56277.69140625,12255.3740234375,51147.0625,-0.5763577222824097,0.048714954406023026,0.8157442212104797,0.0,0.9982215762138367,-0.0596122108399868,-0.8171975612640381,-0.034357957541942596,-0.5753327012062073 run race_westway 3 1
 OMR_RACEVIEW=1,394.0,-14334.8232421875,275.4504089355469,-1427.6490478515625,0.9294362664222717,0.055745311081409454,0.3647473454475403,0.0,0.9885218143463135,-0.15107843279838562,-0.36898258328437805,0.14041776955127716,0.918768048286438 run race_snow 3 1
 OMR_RACEVIEW=4,1182.0,-217.19285583496094,509.0,6831.60986328125,-0.9877492189407349,0.0238176379352808,0.15422138571739197,0.0,0.988283634185791,-0.15262851119041443,-0.1560497283935547,-0.15075869858264923,-0.976176381111145 run race_tv 3 1
+# pages 11, 12 and 23 (Options, its keyboard settings, the data disk), sound on (OMR_WAV) as
+# the original had it: orig_p11_options (all but the CD volume, which wine's MCI never
+# offered, and the pointer), orig_p12_settings_keyboard, orig_p23_datadisk (reached through
+# the title, which gives font 31 the colours the list name is drawn with). Then Q bound to
+# Higher Gear, and the next track list. Page 13 shows the machine it runs on: not here.
+# Their own home folder: these runs save changed settings.
+export OMR_HOME=$PWD/build/shots/home_opt
+rm -rf "$OMR_HOME"
+INO="200:move:320,440 210:click 300:move:630,10"
+OMR_WAV=build/shots/o.wav OMR_TILE=59,59 run options 3 400 "$INO"
+OMR_WAV=build/shots/o.wav OMR_TILE=86,62 run settings 3 600 "$INO 400:move:500,132 410:click 500:move:630,10"
+OMR_WAV=build/shots/o.wav run settings_bind 3 600 "$INO 400:move:500,132 410:click 500:move:400,320 520:q"
+OMR_WAV=build/shots/o.wav OMR_TILE=120,120 run datadisk 14 900 "100:return 250:return 500:move:320,440 510:click 600:move:630,10 700:move:330,435 710:click 800:move:630,10"
+OMR_WAV=build/shots/o.wav run datadisk_next 3 800 "$INO 400:move:330,435 410:click 500:move:630,10 600:right"

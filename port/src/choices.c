@@ -26,6 +26,7 @@ int g_champ_on = 1;
 int g_list_number;
 int g_champ_new;
 int g_riders;
+char g_list_name[32];
 unsigned char g_champ_table[CHAMP_ROWS][0xf9];
 
 /* ListName, PocketAvailable, ReverseAvailable, NumberIslande, then IslandeList: name,
@@ -33,7 +34,7 @@ unsigned char g_champ_table[CHAMP_ROWS][0xf9];
 int tracks_load(void)
 {
     Script s;
-    char path[32], on[16], list_name[32];
+    char path[32], on[16];
     int i, n;
     if (g_list_number)
         snprintf(path, sizeof path, "Data\\list%02d.spt", g_list_number);
@@ -41,7 +42,7 @@ int tracks_load(void)
         snprintf(path, sizeof path, "Data\\list.spt");
     if (!script_open(&s, path))
         return 0;
-    script_str(&s, list_name, sizeof list_name);
+    script_str(&s, g_list_name, sizeof g_list_name);
     g_pocket_unlocked = script_int(&s);
     g_reverse_unlocked = script_int(&s);
     n = script_int(&s);

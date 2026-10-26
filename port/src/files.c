@@ -79,6 +79,33 @@ int files_find(const char *rel, char *out, size_t size)
     return 1;
 }
 
+int files_count(const char *dir, const char *prefix, const char *suffix)
+{
+    char path[1100];
+    DIR *d;
+    struct dirent *e;
+    size_t np = strlen(prefix), ns = strlen(suffix);
+    int n = 0;
+    if (!files_find(dir, path, sizeof path) || !(d = opendir(path)))
+        return 0;
+    while ((e = readdir(d))) {
+        size_t l = strlen(e->d_name);
+        char full[1400];
+        DIR *sub;
+        if (l < np + ns || strncasecmp(e->d_name, prefix, np)
+            || strcasecmp(e->d_name + l - ns, suffix))
+            continue;
+        snprintf(full, sizeof full, "%s/%s", path, e->d_name);
+        if ((sub = opendir(full))) {            /* (directories are not counted) */
+            closedir(sub);
+            continue;
+        }
+        n++;
+    }
+    closedir(d);
+    return n;
+}
+
 static unsigned char *read_path(const char *path, long *len)
 {
     FILE *f = fopen(path, "rb");
