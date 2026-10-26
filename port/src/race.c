@@ -332,6 +332,8 @@ void race_frame(void)
     for (i = 1; i < g_riders; i++)
         if (g_mode != 0 || i == g_player)       /* (practice's second record: unseen) */
             bike3d_draw_rider(&g_rider[i], detail_of(&g_rider[i], eye));
+    hud_bike(0, 0, 1);         /* (the physics' speed, revs and gear: to come) */
+    hud_dials_3d();
     r3d_render();
     hud_draw();
     text_update();

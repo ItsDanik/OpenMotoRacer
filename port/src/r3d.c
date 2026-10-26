@@ -452,7 +452,7 @@ static int remap(int kind, float key, int flags)
 }
 
 /* 0x49c590 (skin < 0) and 0x49ca70: into the bucket of its depth, the newest first */
-static void queue(const Face *f, int base, float key, int skin)
+static void queue_kind(const Face *f, int base, float key, int skin, int kind)
 {
     int b = (int)(key * 0.25f);
     if (b < 0 || g_nentry >= ENTRIES)
@@ -461,10 +461,43 @@ static void queue(const Face *f, int base, float key, int skin)
         b = BUCKETS - 1;
     g_entry[g_nentry].f = f;
     g_entry[g_nentry].base = base;
-    g_entry[g_nentry].kind = skin < 0 ? remap(f->kind, key, f->flags) : f->kind;
+    g_entry[g_nentry].kind = kind;
     g_entry[g_nentry].skin = skin;
     g_entry[g_nentry].next = g_head[b];
     g_head[b] = g_nentry++;
+}
+
+static void queue(const Face *f, int base, float key, int skin)
+{
+    queue_kind(f, base, key, skin, skin < 0 ? remap(f->kind, key, f->flags) : f->kind);
+}
+
+/* the dashboard's points (0x486310, 0x484810): already on the screen, at depth z */
+int r3d_screen_points(int n, const int (*xy)[2], float z)
+{
+    int i, base = g_npt;
+    if (g_npt + n > VERTS)
+        return -1;
+    for (i = 0; i < n; i++) {
+        Point *p = &g_pt[g_npt++];
+        p->sx = xy[i][0];
+        p->sy = xy[i][1];
+        p->z = z;
+        p->x = ((float)p->sx - CX) * z;
+        p->y = (CY - (float)p->sy) * z;
+    }
+    return base;
+}
+
+/* 0x49c590 with 0x4f1a18 = 1: every face at one key, its kind as it is, none culled */
+void r3d_screen_faces(int base, int nf, const Face *f, float key)
+{
+    int i;
+    if (base < 0)
+        return;
+    for (i = 0; i < nf; i++)
+        if (f[i].kind != 0xd)
+            queue_kind(&f[i], base, key, -1, f[i].kind);
 }
 
 int r3d_points(int nv, const float (*v)[3], const float n[3][3], const float t[3])

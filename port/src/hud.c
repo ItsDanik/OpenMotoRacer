@@ -1,7 +1,8 @@
 /* The race's dashboard (NOTES §4.20 §3): what 0x4806e0 draws each race picture. The
    panels are drawn straight onto the screen in 640-pixel units (halved with the small
-   fonts, the default); the countdown and the messages are text objects. Not yet: the
-   dials (§3b), the split against the leader (0x412e50), the riders' labels (Link and
+   fonts, the default); the countdown and the messages are text objects; the dials (§3b)
+   are a model of the track's and two needles put into the 3D's depth lists. Not yet: the
+   gear-change hint of the digits-only dashboard, the split against the leader (0x412e50), the riders' labels (Link and
    time attack), the CD data's picture messages (0x4dc180 = 0) and GAME OVER. */
 #include "hud.h"
 #include "choices.h"
@@ -9,11 +10,15 @@
 #include "config.h"
 #include "exe.h"
 #include "font.h"
+#include "land.h"
+#include "r3d.h"
 #include "menu.h"
 #include "race.h"
 #include "rules.h"
 #include "sound.h"
 #include "text.h"
+#include "video.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -409,6 +414,197 @@ static void finish_place(void)
     text_add(&a);
 }
 
+/* ------------------------------------------------------------------ the dials (§3b) */
+
+typedef struct {                /* 0x485be0's: the centre, start angle, radians a unit, radius */
+    int cx, cy;
+    double a1, k, radius;
+} Dial;
+
+static struct {
+    int speed, rev, gear;       /* the shown bike's O+0x118, the rev needle's target, O+0x7c */
+    int rev_shown;              /* 0x4f0e10 */
+    int built, type, small;     /* 0x4f0e34 / 0x4f0e30 / 0x4f0e40: the layout's settings */
+    int bx, by;                 /* 0x5dbc80, 0x5dbc84 */
+    int sx[3], sy[3], rx[3], ry[3], dx, dy, gx, gy;
+    Dial speed_dial, rev_dial;
+    Face needle[3];
+} g_dash;
+
+static double wrap_angle(double a)
+{
+    const double two_pi = 6.283185307179586;            /* 0x4d1a48 */
+    if (a < 0)
+        a += two_pi;
+    if (!(a < two_pi))
+        a -= two_pi;
+    return a;
+}
+
+/* 0x485be0 (dir 0: clockwise from p1 to p2) */
+static void dial(Dial *d, int cx, int cy, int p1x, int p1y, int p2x, int p2y, double vmax)
+{
+    double a1, a2;
+    d->cx = cx;
+    d->cy = cy;
+    d->radius = sqrt((double)(p1x - cx) * (p1x - cx) + (double)(p1y - cy) * (p1y - cy));
+    a1 = wrap_angle(atan2((double)(cy - p1y), (double)(p1x - cx)));
+    a2 = wrap_angle(atan2((double)(cy - p2y), (double)(p2x - cx)));
+    if (a2 > a1)
+        a2 -= 6.283185307179586;
+    d->a1 = a1;
+    d->k = (a2 - a1) / vmax;
+}
+
+/* 0x484810's layout: the low-res one with the small fonts or below 640x480 */
+static void dash_layout(void)
+{
+    static const int lo[] = { 0xe3, 0x44, 0xdb, 0x63, 0xf9, 0x2a,  0xb7, 0x4f, 0xb1, 0x63,
+                              0xb7, 0x39,  0x9a, 0x1e,  0xe2, 0x4f,  0x1f, 0x33,  0x66, 0x4a };
+    static const int hi[] = { 0xcd, 0xbf, 0xbb, 0xfa, 0xf2, 0x8e,  0x77, 0xd3, 0x6c, 0xf7,
+                              0x77, 0xaa,  0x3d, 0x74,  0xcf, 0xd2,  0x43, 0x6a,  0xc3, 0x8c };
+    const int *t = halving() ? lo : hi;
+    int i, ox = 0, oy = 0;
+    if (g_counter_type == 1)
+        ox = t[12], oy = t[13];         /* the needles' points from the origin */
+    for (i = 0; i < 3; i++) {
+        g_dash.sx[i] = t[2 * i] - ox, g_dash.sy[i] = t[2 * i + 1] - oy;
+        g_dash.rx[i] = t[6 + 2 * i] - ox, g_dash.ry[i] = t[7 + 2 * i] - oy;
+    }
+    g_dash.dx = t[14] - ox, g_dash.dy = t[15] - oy;
+    g_dash.gx = t[16], g_dash.gy = t[17];
+    g_dash.bx = g_scr_w - t[18];
+    g_dash.by = g_scr_h - t[19];
+    dial(&g_dash.speed_dial, g_dash.sx[0], g_dash.sy[0], g_dash.sx[1], g_dash.sy[1],
+         g_dash.sx[2], g_dash.sy[2], 300);
+    dial(&g_dash.rev_dial, g_dash.rx[0], g_dash.ry[0], g_dash.rx[1], g_dash.ry[1],
+         g_dash.rx[2], g_dash.ry[2], 16000);
+    g_dash.built = 1;
+    g_dash.type = g_counter_type;
+    g_dash.small = halving();
+}
+
+static int ftol(double x)       /* 0x4b3048 */
+{
+    return (int)x;
+}
+
+static uint16_t rgb(int r, int g, int b)        /* 0x45a2e0: green shifted by 6 */
+{
+    return (uint16_t)((r > 31 ? 31 : r) << 11 | (g > 63 ? 63 : g) << 6 | (b > 31 ? 31 : b));
+}
+
+/* a needle's corner: the centre plus (along, across) turned by a, then the base point */
+static void corner(int xy[2], const Dial *d, double a, int along, int across)
+{
+    double co = cos(a), si = sin(a);
+    xy[0] = d->cx + ftol(co * along - si * across) + g_dash.bx;
+    xy[1] = d->cy - ftol(si * along + co * across) + g_dash.by;
+}
+
+static void needle(Face *f, const int (*xy)[2], int colour)
+{
+    memset(f, 0, sizeof *f);
+    f->kind = 0;
+    f->colour = colour;
+    f->n = 3;
+    f->idx[0] = 0, f->idx[1] = 1, f->idx[2] = 2;
+    r3d_screen_faces(r3d_screen_points(3, xy, 2048.0f), 1, f, 4.0f);
+}
+
+void hud_bike(int speed, int rev, int gear)
+{
+    g_dash.speed = speed;
+    g_dash.rev = rev;
+    g_dash.gear = gear;
+}
+
+/* 0x484810 calls (1) and (2), and 0x486310's slot 0: before the 3D is drawn */
+void hud_dials_3d(void)
+{
+    int hi, xy[3][2], v, R, i;
+    double a;
+    const Dial *d;
+    if (!g_show_counter)
+        return;
+    if (!g_dash.built || g_dash.type != g_counter_type || g_dash.small != halving())
+        dash_layout();
+    if (g_counter_type != 1)
+        return;
+    hi = !halving();
+    /* the speed needle (its black shadow, at depth 1.0, is behind the near plane) */
+    d = &g_dash.speed_dial;
+    v = g_dash.speed < 0 ? 0 : g_dash.speed > 300 ? 300 : g_dash.speed;
+    a = v * d->k + d->a1;
+    R = ftol(d->radius);
+    {
+        int tail[2], tip[2], minus[2], plus[2];
+        corner(tail, d, a, 5 * (-1 - hi), 0);
+        corner(tip, d, a, R, 0);
+        corner(minus, d, a, 0, 3 * (-1 - hi));
+        corner(plus, d, a, 0, 3 * hi + 3);
+        memcpy(xy[0], tail, sizeof tail), memcpy(xy[1], tip, sizeof tip);
+        memcpy(xy[2], minus, sizeof minus);
+        needle(&g_dash.needle[0], (const int (*)[2])xy, rgb(0x19, 0x10, 0));
+        memcpy(xy[1], plus, sizeof plus), memcpy(xy[2], tip, sizeof tip);
+        needle(&g_dash.needle[1], (const int (*)[2])xy, rgb(0x1f, 0x10, 0));
+    }
+    /* the rev needle: towards its target by 3000 a picture at most */
+    v = g_dash.rev;
+    if (v > g_dash.rev_shown + 3000)
+        v = g_dash.rev_shown + 3000;
+    if (v < g_dash.rev_shown - 3000)
+        v = g_dash.rev_shown - 3000;
+    if (v < 0)
+        v = 0;
+    g_dash.rev_shown = v;
+    d = &g_dash.rev_dial;
+    a = (v > 16000 ? 16000 : v) * d->k + d->a1;
+    R = ftol(d->radius);
+    corner(xy[0], d, a, 2 * (-1 - hi), 2 * hi + 2);
+    corner(xy[1], d, a, R, 0);
+    corner(xy[2], d, a, 2 * (-1 - hi), 2 * (-1 - hi));
+    needle(&g_dash.needle[2], (const int (*)[2])xy, rgb(0x1f, 0x10, 0));
+    /* the face: the track's model "counter" from the bottom right corner */
+    for (i = 0; i < g_land.nlib; i++)
+        if (strcmp(g_land.lib[i].name, "counter") == 0) {
+            const Model *m = &g_land.lib[i].m[0];
+            static int pts[512][2];
+            double sx = hi ? 1.9 : 1.0, sy = hi ? 2.0 : 1.0;
+            double ox = (g_scr_w - 1) - 0x5d * sx, oy = g_scr_h - 1;
+            int k, n = m->nv < 512 ? m->nv : 512;
+            for (k = 0; k < n; k++) {
+                pts[k][0] = ftol(m->v[k][0] * sx + ox);
+                pts[k][1] = ftol(oy - m->v[k][1] * sy);
+            }
+            r3d_screen_faces(r3d_screen_points(n, (const int (*)[2])pts, 2048.0f), m->nf,
+                             m->f, 15.0f);
+            break;
+        }
+}
+
+/* 0x484810 call (4), after the 3D: the speed and the gear, or the digits alone */
+static void dials_digits(void)
+{
+    int v = g_dash.speed;
+    char s[16];
+    if (!g_show_counter || !g_dash.built)
+        return;
+    if (g_speed_unit == 1)
+        v = (int)(((long long)v * 0x3e800 / 0x649) >> 8);
+    if (g_counter_type == 1) {
+        snprintf(s, sizeof s, "%3d", v);
+        font_draw(font_get(16), s, g_dash.bx + g_dash.dx, g_dash.by + g_dash.dy, 0x21, 0);
+        s[0] = (char)(g_dash.gear + 0x30 + 7);
+        s[1] = 0;
+        font_draw(font_get(23), s, g_dash.bx + g_dash.gx, g_dash.by + g_dash.gy, 0x21, 0);
+    } else if (g_counter_type) {
+        /* (the gear-change hint bar of font 11: not yet) */
+        snprintf(s, sizeof s, "%d\n%c", v, g_speed_unit == 1 ? ';' : ':');
+        font_draw(font_get(28), s, 6, 4, 0x90, 0);
+    }
+}
+
 /* ------------------------------------------------------------------ the frame */
 
 /* 0x413030 */
@@ -471,12 +667,15 @@ void hud_restart(void)
     g_laps_mode = g_last_count = -1;
     g_go = g_last_cp = 0;
     g_frames = g_time_blink = 0;
+    g_dash.rev_shown = 0;
+    g_dash.built = 0;
 }
 
 void hud_draw(void)
 {
     int k;
     g_frames += g_ticks;
+    dials_digits();
     for (g_bikes = 0, k = 1; k < g_riders; k++)        /* 0x4817a0 */
         g_bikes += g_racer[k].loaded;
     if (!g_race_over) {

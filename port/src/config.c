@@ -20,6 +20,7 @@ int g_joy_type = 2;
 int g_wave16 = 1, g_stereo = 1, g_replay_rate = 22050;
 int g_volume[3] = { 32, 32, 32 };
 int g_enum_session = 10;
+int g_show_counter = 1, g_counter_type = 1, g_speed_unit;
 int g_binding[ACTIONS][2];
 
 static int g_cfg[CFG_COUNT];
@@ -96,6 +97,9 @@ void config_load(void)
     }
     g_enum_session = g_cfg[CFG_ENUM_SESSION];
     g_small_fonts = g_cfg[CFG_SMALL_FONTS];
+    g_show_counter = g_cfg[CFG_SHOW_COUNTER];
+    g_counter_type = g_cfg[CFG_COUNTER_TYPE];
+    g_speed_unit = g_cfg[CFG_SPEED_UNIT];
     sound_set_switches(g_cfg[CFG_SOUND], g_cfg[CFG_VOICES], g_cfg[CFG_AUDIO]);
     sound_set_volumes(g_volume);
 }
@@ -129,6 +133,9 @@ void config_save(void)
     }
     g_cfg[CFG_ENUM_SESSION] = g_enum_session;
     g_cfg[CFG_SMALL_FONTS] = g_small_fonts;
+    g_cfg[CFG_SHOW_COUNTER] = g_show_counter;
+    g_cfg[CFG_COUNTER_TYPE] = g_counter_type;
+    g_cfg[CFG_SPEED_UNIT] = g_speed_unit;
     script_out_init(&o);
     script_out_str(&o, g_player_name);
     for (i = 0; i < CFG_COUNT; i++)

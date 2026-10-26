@@ -29,6 +29,8 @@ extern int g_input_device;      /* 0x4dc11c: 1 keyboard, 4 joypad, 2 joystick */
 extern int g_joy_type;          /* 0x4dc120 */
 extern int g_wave16, g_stereo, g_replay_rate;   /* 0x4db670, 0x4db674, 0x504568 */
 extern int g_volume[3];         /* the mixer's lines 0 master, 1 CD, 2 wave: 0..32 */
+extern int g_show_counter, g_counter_type;   /* 0x4f0dc8, 0x4f0dcc: the dials (1 dials, 2 digits) */
+extern int g_speed_unit;        /* 0x4f0dd0: 1 mph */
 extern int g_enum_session;      /* 0x4dc044: the Link sessions' refresh, s (0 manual) */
 extern int g_binding[ACTIONS][2];   /* 0x53eae0: key (Windows code, -1 none), button
                                        (n, -1 none, -2..-5 left, right, up, down) */
