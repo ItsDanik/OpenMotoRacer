@@ -9,14 +9,18 @@
 
 #define BASE 0x400000u
 
-/* FNV-1a of the whole file, for the builds known (NOTES §1) */
+/* FNV-1a of the whole file, for the builds known (NOTES §1), and where each keeps the
+   tables the port reads. (The 1997 CD's MOTO.EXE, sum 0x52c7ba57, has them at 0x4d9840
+   and 0x4da8a8; it is inside the CD's installer archive, not read yet.) */
 static const struct {
     unsigned sum;
     unsigned len;
     const char *what;
+    unsigned addr[X_COUNT];
 } builds[] = {
-    { 0xd2534e97u, 1133056, "GOG game.EXE, 3.22, 1998-07-09" },
+    { 0xd2534e97u, 1133056, "GOG game.EXE, 3.22, 1998-07-09", { 0x4e3e20, 0x4e8b60 } },
 };
+static int g_build = -1;
 
 static unsigned char *g_image;
 static unsigned g_size;
@@ -87,6 +91,7 @@ int exe_load(char *err, int errsize)
         free(d);
         return 0;
     }
+    g_build = (int)i;
     if (!place(d, (unsigned long)len)) {
         snprintf(err, errsize, "game.EXE could not be read.");
         free(d);
@@ -94,6 +99,11 @@ int exe_load(char *err, int errsize)
     }
     free(d);
     return 1;
+}
+
+unsigned exe_addr(int what)
+{
+    return g_build >= 0 && what >= 0 && what < X_COUNT ? builds[g_build].addr[what] : 0;
 }
 
 const unsigned char *exe_at(unsigned va, unsigned len)

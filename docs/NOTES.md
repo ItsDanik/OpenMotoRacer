@@ -38,6 +38,16 @@ Every claim carries its address and its proof. Dead ends are written down too.
   (2128 bytes: a ripping offset). `tools/cdbin.py` cuts the CD image into `build/cd/NN.wav`
   and `data.iso`.
 
+- **The 1997 CD's `DATA/` against GOG's** (2026-10-26, file by file inside the banks): the
+  same files apart from: `FONTES` (22 of the CD's 34 fonts differ, GOG has 2 more),
+  `DESIGN` (`TEXTS\LOWRES/HIRES/GAMEOVER.RAW` differ, GOG has one more), `KTMCROSS`
+  (`CARAC2/4.BPT` differ, GOG 2 more), `ILE09` (`BNK00_02.RAW`, `BNKD3D02.RAW` differ; the
+  CD has 3 more), `DEMO` (the CD has 2 more), `MENU` (`BITMAP\EALOGO.LEZ`), `CONFIG.BPT`,
+  `FONTS.BPT`. GOG alone has `ILE10`, `ILE11` (the patch's two tracks?) and the `*01.BPT`
+  lists. Banks of equal size still differ as files: the junk after each name's zero
+  differs. So the CD's program reads data the GOG program also reads, nearly all of it
+  the same; its own tables (MOTO.EXE, 1997-07-21) are at other addresses (to line up).
+
 ## 3. Formats
 
 ### 3.1 BKF banks

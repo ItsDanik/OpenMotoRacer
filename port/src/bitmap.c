@@ -9,9 +9,9 @@
 #include <string.h>
 #include <strings.h>
 
-#define BITMAP_TABLE 0x4e3e20u   /* records of 20 bytes: u32 ?, language folder, id, name, mode;
-                                    ended by id -1; copied out by id at 0x415ad2 */
-#define LANG_FOLDERS 0x4e8b60u   /* "data\MenuUs\", "data\MenuFr\", ... */
+/* X_BITMAP_TABLE (GOG 0x4e3e20): records of 20 bytes, u32 ?, language folder, id, name,
+   mode; ended by id -1; copied out by id at 0x415ad2. X_LANG_FOLDERS (GOG 0x4e8b60):
+   "data\MenuUs\", "data\MenuFr\", ... */
 
 int g_lang;
 
@@ -144,7 +144,7 @@ int bitmap_load_lez(Bitmap *b, const char *path, int mode)
 int bitmap_load_id(Bitmap *b, int id)
 {
     unsigned a;
-    for (a = BITMAP_TABLE; exe_at(a, 20) && exe_u32(a + 8) != 0xffffffffu; a += 20) {
+    for (a = exe_addr(X_BITMAP_TABLE); exe_at(a, 20) && exe_u32(a + 8) != 0xffffffffu; a += 20) {
         const char *name = exe_str(exe_u32(a + 12)), *dot = strrchr(name, '.');
         unsigned lang = exe_u32(a + 4), mode = exe_u32(a + 16);
         char path[256];
@@ -156,10 +156,10 @@ int bitmap_load_id(Bitmap *b, int id)
         }
         if (lang) {
             /* the language's folder, else the US one */
-            snprintf(path, sizeof path, "%s%s", exe_str(exe_u32(LANG_FOLDERS + 4 * g_lang)), name);
+            snprintf(path, sizeof path, "%s%s", exe_str(exe_u32(exe_addr(X_LANG_FOLDERS) + 4 * g_lang)), name);
             if (bitmap_load_lez(b, path, (int)mode))
                 return 1;
-            snprintf(path, sizeof path, "%s%s", exe_str(exe_u32(LANG_FOLDERS)), name);
+            snprintf(path, sizeof path, "%s%s", exe_str(exe_u32(exe_addr(X_LANG_FOLDERS))), name);
         } else
             snprintf(path, sizeof path, "data\\menu\\bitmap\\%s", name);
         if (bitmap_load_lez(b, path, (int)mode))
