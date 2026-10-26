@@ -10,7 +10,9 @@ void camera_reset(const BikePhys *b);           /* the race's start (0x46da40) *
    has finished (the orbit to the front) */
 void camera_step(const BikePhys *b, float dt, int countdown, int finished);
 void camera_key(int vk, int down);              /* Tab, F5 (0x431250, 0x432700) */
-void camera_apply(void);                        /* the block's C and position to r3d */
+/* the block's C and position to r3d, a of the way from the step before (1: as it is) */
+void camera_apply(float a);
+void camera_keep(void);                         /* before a step: the state to blend from */
 const float *camera_eye(void);                  /* +0x98 */
 
 #endif

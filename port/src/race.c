@@ -55,6 +55,11 @@ void race_key(int vk, int down)
         camera_key(vk, down);
         return;
     }
+    if (vk == 0x79) {                           /* F10 (the port's): smooth pictures */
+        if (down)
+            g_smooth = !g_smooth;
+        return;
+    }
     if (vk == 0x76) {                           /* F7: the dials */
         if (down)
             hud_key(vk);
@@ -67,6 +72,11 @@ void race_key(int vk, int down)
 
 #define STEP_MS 16
 static unsigned g_step_at;      /* the clock's time the steps have reached */
+static unsigned g_last_now;     /* the clock at the last picture */
+/* smooth pictures (the port's, g_smooth): the riders as the step before the last left
+   them, and what is drawn, set between the two by the time since; the game's state is
+   never touched by it */
+static Rider g_before[RIDERS], g_shown[RIDERS];
 
 static void race_end(int ms);
 
@@ -247,7 +257,8 @@ static void start(void)
     rules_restart();
     hud_restart();
     g_finish_timer = g_timeover_timer = -1;
-    g_step_at = g_now;
+    g_step_at = g_last_now = g_now;
+    memcpy(g_before, g_rider, sizeof g_before);
 }
 
 int race_player(void)
@@ -426,6 +437,55 @@ void race_unload(void)
     g_racing = 0;
 }
 
+static float mix(float a, float b, float t)
+{
+    return a + (b - a) * t;
+}
+
+static void mixv(float *o, const float *a, const float *b, int n, float t)
+{
+    int i;
+    for (i = 0; i < n; i++)
+        o[i] = mix(a[i], b[i], t);
+}
+
+static float mix_angle(float a, float b, float t)       /* the short way round */
+{
+    double d = fmod((double)b - a, 6.283185307179586);
+    if (d > 3.141592653589793)
+        d -= 6.283185307179586;
+    else if (d < -3.141592653589793)
+        d += 6.283185307179586;
+    return (float)(a + d * t);
+}
+
+/* a rider t of the way from a (the step before) to b (the last step); a crash starting
+   or ending, or a bike put back, is drawn as the step left it */
+static void blend(Rider *o, const Rider *a, const Rider *b, float t)
+{
+    double dx = b->pos[0] - a->pos[0], dy = b->pos[1] - a->pos[1], dz = b->pos[2] - a->pos[2];
+    *o = *b;
+    if (t >= 1.0f || a->crashed != b->crashed || a->bike != b->bike
+        || dx * dx + dy * dy + dz * dz > 1000.0 * 1000.0)
+        return;
+    mixv(&o->m[0][0], &a->m[0][0], &b->m[0][0], 9, t);
+    mixv(o->t, a->t, b->t, 3, t);
+    mixv(o->pos, a->pos, b->pos, 3, t);
+    mixv(o->rear, a->rear, b->rear, 3, t);
+    mixv(o->front, a->front, b->front, 3, t);
+    o->lean = mix(a->lean, b->lean, t);
+    o->pitch = mix(a->pitch, b->pitch, t);
+    o->steer = mix(a->steer, b->steer, t);
+    o->speed = mix(a->speed, b->speed, t);
+    o->dive = mix(a->dive, b->dive, t);
+    o->susp = mix(a->susp, b->susp, t);
+    o->roll_side = mix(a->roll_side, b->roll_side, t);
+    o->spin_rear = mix_angle(a->spin_rear, b->spin_rear, t);
+    o->spin_front = mix_angle(a->spin_front, b->spin_front, t);
+    mixv(&o->body[0][0], &a->body[0][0], &b->body[0][0], 9, t);
+    mixv(o->body_pt, a->body_pt, b->body_pt, 3, t);
+}
+
 /* 0x45f160: the detail by the distance (the zoom 0x6d1f74 at 1) */
 static int detail_of(const Rider *r, const float cam[3])
 {
@@ -436,25 +496,37 @@ static int detail_of(const Rider *r, const float cam[3])
 
 void race_frame(void)
 {
-    const Rider *me = &g_rider[g_player];
+    const Rider *me = &g_shown[g_player];
     const BikePhys *b = &g_phys[g_player];
-    float eye[3], c[3][3];
+    float eye[3], c[3][3], a;
     static const float zero[3];
-    int i, y, sec;
+    int i, k, y, sec;
     if (g_events && !events())
         return;
     text_clock(g_now);
     dialog_frame();
-    if (dialog_holds())
-        g_step_at = g_now;
+    if (dialog_holds())         /* (the time since the last step kept) */
+        g_step_at += g_now - g_last_now;
+    g_last_now = g_now;
     /* the original steps once a picture by the time it took, and GOG's -FrameRateMax60
        makes every picture 16 ms (1000 / 60 in integers): 62.5 steps a second of dt 1.6.
        The port runs one such step for every 16 ms of the clock. */
     while (g_now - g_step_at >= STEP_MS) {
         g_step_at += STEP_MS;
+        memcpy(g_before, g_rider, sizeof g_before);
+        camera_keep();
         step(STEP_MS);
+        /* what the drawer leaves for a crash (+0x3085, +0x30b5), from the step's state,
+           so the pictures in between never reach the game */
+        for (k = 1; k < g_riders; k++) {
+            bike3d_body(&g_rider[k]);
+            from_rider(&g_phys[k], &g_rider[k]);
+        }
     }
-    camera_apply();
+    a = g_smooth ? (float)(g_now - g_step_at) / STEP_MS : 1.0f;
+    for (k = 1; k < g_riders; k++)
+        blend(&g_shown[k], &g_before[k], &g_rider[k], a);
+    camera_apply(a);
     r3d_get_camera(c, eye);
     sec = land_section(eye, me->sec);
     for (y = 0; y < g_scr_h; y++)
@@ -466,12 +538,7 @@ void race_frame(void)
     land_draw(sec, (const float (*)[3])c, eye);
     for (i = 1; i < g_riders; i++)
         if (g_mode != 0 || i == g_player)       /* (practice's second record: unseen) */
-        {
-            int lod = detail_of(&g_rider[i], eye);
-            bike3d_draw_rider(&g_rider[i], lod);
-            if (lod < 2)
-                from_rider(&g_phys[i], &g_rider[i]);
-        }
+            bike3d_draw_rider(&g_shown[i], detail_of(&g_shown[i], eye));
     hud_bike(b);
     hud_dials_3d();
     r3d_render();

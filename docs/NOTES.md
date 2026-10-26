@@ -5254,8 +5254,15 @@ The race object 0x52c478 (vtable 0x4d04c8): +0 0x47bf30 defaults, +4 **0x47b420 
   look back and the finish orbit; it starts at rest [guess: the original's +0xc8 is left
   from 0x46d760]. The dials take O+0x118, O+0x11c / bike+0x70 x 16000 and the gear. The
   computer riders are bikephys records with driven = 0: they stand on the grid until
-  0x46bf80 is written. Not yet: F6 on-board, the TV director, the lean/pitch/steering of
-  the drawing (§4.15.4), engine sounds, joysticks.
+  0x46bf80 is written. Not yet: F6 on-board (the cockpit 0x462110), the TV director,
+  joysticks. The drawing has the lean, pitch, steering, suspension, spins (§4.15.4).
+- Smooth pictures (the port's, `g_smooth`, F10, `openmotoracer.ini` in the home folder):
+  the riders and the camera of the last two steps are kept and each picture is drawn
+  between them by the time since the last step (so 16 ms behind); a crash starting or
+  ending, a bike moved > 1000, a camera cut (Tab, the start) are drawn as the step left
+  them. What the drawer gives back to the game (+0x3085, +0x30b5) is computed from the
+  step's own state (bike3d_body) after each step, never from a picture: the same ride
+  with it on and off leaves the player's bike identical to the bit at every frame.
 - `input.c`: the keys held, for the race; OMR_INPUT gains `hold:KEY` and `release:KEY`.
 - `rules.c` (§4.17): the countdown and time limit 0x47dae0, laps/checkpoints/wrong way/
   finish 0x47e3d0, places 0x47e1e0 with the C library's quicksort as the game has it

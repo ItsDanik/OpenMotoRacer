@@ -32,5 +32,7 @@ void bike3d_place(Rider *r, const float p[3]);  /* 0x45c7c0 */
 /* 0x45f290 for a rider at a detail: 0 the skeleton, 2..4 the far models; writes body and
    body_pt back while not crashed */
 void bike3d_draw_rider(Rider *r, int lod);
+/* the drawer's steps 2-6 alone: body and body_pt as a picture would leave them */
+void bike3d_body(Rider *r);
 
 #endif

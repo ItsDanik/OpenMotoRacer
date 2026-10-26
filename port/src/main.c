@@ -188,7 +188,7 @@ static void scripted_input(const char *script, int frame)
         { "tab", VK_TAB }, { "backspace", VK_BACK }, { "left", VK_LEFT },
         { "right", VK_RIGHT }, { "up", VK_UP }, { "down", VK_DOWN }, { "shift", VK_SHIFT },
         { "minus", VK_SUBTRACT }, { "plus", VK_ADD }, { "f5", 0x74 }, { "f6", 0x75 },
-        { "f7", 0x76 },
+        { "f7", 0x76 }, { "f10", 0x79 },
     };
     const char *s = script;
     while (s && *s) {

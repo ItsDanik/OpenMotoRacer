@@ -557,7 +557,20 @@ void bike3d_draw(int bike, int skin)
     bike3d_draw_rider(&r, 0);
 }
 
+static void rider(Rider *rd, int lod, int draw);
+
 void bike3d_draw_rider(Rider *rd, int lod)
+{
+    rider(rd, lod, 1);
+}
+
+void bike3d_body(Rider *rd)
+{
+    if (!rd->crashed)
+        rider(rd, 0, 0);
+}
+
+static void rider(Rider *rd, int lod, int draw)
 {
     static const V zero;
     M B, L298, Mframe, Mfront, Mrear, Msteer, Rphi, swing, Pinv, r;
@@ -569,7 +582,7 @@ void bike3d_draw_rider(Rider *rd, int lod)
     int i, base = -2, bike = rd->bike, skin = rd->skin;
     if (!g_loaded || bike < 0 || bike >= BIKES)
         return;
-    if (lod >= 2 && lod <= 4) {
+    if (draw && lod >= 2 && lod <= 4) {
         draw_far(rd, lod);
         return;
     }
@@ -624,6 +637,11 @@ void bike3d_draw_rider(Rider *rd, int lod)
         v[1] = h;
         vm(w, v, (const float (*)[3])L298, 0);
         add(Pbody, Pbody, w);
+        if (!draw) {
+            memcpy(rd->body, Mframe, sizeof rd->body);
+            memcpy(rd->body_pt, Pbody, sizeof rd->body_pt);
+            return;
+        }
         rmat_of(Mrear, (const float (*)[3])L298);
 
         /* 8: the fork, stretched to the front axle */

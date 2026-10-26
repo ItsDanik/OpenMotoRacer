@@ -21,6 +21,31 @@ int g_wave16 = 1, g_stereo = 1, g_replay_rate = 22050;
 int g_volume[3] = { 32, 32, 32 };
 int g_enum_session = 10;
 int g_show_counter = 1, g_counter_type = 1, g_speed_unit;
+int g_smooth = 1;
+
+static void port_load(void)
+{
+    FILE *f = save_open_own("openmotoracer.ini", "r");
+    char line[128];
+    int v;
+    if (!f)
+        return;
+    while (fgets(line, sizeof line, f))
+        if (sscanf(line, "smooth=%d", &v) == 1)
+            g_smooth = v != 0;
+    fclose(f);
+}
+
+static void port_save(void)
+{
+    FILE *f = save_open("openmotoracer.ini", "w");
+    if (!f)
+        return;
+    fprintf(f, "# OpenMotoRacer's own settings (the game's are in CONFIG.BPT)\n"
+            "# smooth: 1 draws pictures between the race's 62.5 steps a second (F10)\n"
+            "smooth=%d\n", g_smooth);
+    fclose(f);
+}
 int g_binding[ACTIONS][2];
 
 static int g_cfg[CFG_COUNT];
@@ -42,6 +67,7 @@ void config_load(void)
     FILE *f;
     int i, own = 0;
     default_bindings();
+    port_load();
     /* the player's own copy first (written by the port), else the game's */
     if ((f = save_open_own("CONFIG.BPT", "rb"))) {
         long len;
@@ -109,6 +135,7 @@ void config_save(void)
     ScriptOut o;
     FILE *f;
     int i, on[3];
+    port_save();
     if (!g_cfg_read)
         return;
     g_cfg[CFG_SCREEN_MODE] = g_race_screen;

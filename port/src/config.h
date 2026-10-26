@@ -37,5 +37,7 @@ extern int g_binding[ACTIONS][2];   /* 0x53eae0: key (Windows code, -1 none), bu
 
 void config_load(void);
 void config_save(void);         /* when the program ends */
+/* the port's own settings (openmotoracer.ini in the home folder, never the game's) */
+extern int g_smooth;            /* pictures between the race's steps (F10) */
 
 #endif

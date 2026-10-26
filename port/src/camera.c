@@ -19,6 +19,8 @@ static struct {
     float c[3][3];              /* +0x68 */
     int preset;                 /* +0x21c: 1 looks back (Tab) */
     int dist;                   /* +0x220: the chase distance, 0..3 (F5) */
+    float c0[3][3], pos0[3];    /* (the port's: before the last step, for smooth pictures) */
+    int jumped;                 /* (a cut since: no blending) */
 } g_cam;
 
 static const float g_extra[4] = { 0.0f, 128.0f, 256.0f, 512.0f };       /* +0x224 */
@@ -82,6 +84,7 @@ void camera_reset(const BikePhys *b)
     place(g_cam.target, g_preset_off[0], (const float (*)[3])w, b->pos);
     memcpy(g_cam.pos, g_cam.lerp, sizeof g_cam.pos);
     camera_step(b, 1.6f, 1, 0);
+    g_cam.jumped = 1;
 }
 
 /* 0x46f840 */
@@ -168,15 +171,35 @@ void camera_step(const BikePhys *b, float dt, int countdown, int finished)
 void camera_key(int vk, int down)
 {
     if (vk == VK_TAB) {         /* 0x431250 / 0x4328c7 */
+        if (g_cam.preset != (down ? 1 : 0))
+            g_cam.jumped = 1;
         g_cam.ang[1] = down ? (float)PI : 0.0f;
         g_cam.preset = down ? 1 : 0;
     } else if (vk == 0x74 && down)              /* F5 */
         g_cam.dist = (g_cam.dist + 1) & 3;
 }
 
-void camera_apply(void)
+void camera_keep(void)
 {
-    r3d_set_camera((const float (*)[3])g_cam.c, g_cam.pos);
+    memcpy(g_cam.c0, g_cam.c, sizeof g_cam.c0);
+    memcpy(g_cam.pos0, g_cam.pos, sizeof g_cam.pos0);
+    g_cam.jumped = 0;
+}
+
+void camera_apply(float a)
+{
+    float c[3][3], p[3];
+    int i, j;
+    if (a >= 1.0f || g_cam.jumped) {
+        r3d_set_camera((const float (*)[3])g_cam.c, g_cam.pos);
+        return;
+    }
+    for (i = 0; i < 3; i++) {
+        p[i] = g_cam.pos0[i] + (g_cam.pos[i] - g_cam.pos0[i]) * a;
+        for (j = 0; j < 3; j++)
+            c[i][j] = g_cam.c0[i][j] + (g_cam.c[i][j] - g_cam.c0[i][j]) * a;
+    }
+    r3d_set_camera((const float (*)[3])c, p);
 }
 
 const float *camera_eye(void)
