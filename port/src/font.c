@@ -15,7 +15,7 @@
 
 static Font *g_fonts[MAX_FONTS];    /* *0x4f1810 */
 static int g_nfonts;                /* 0x4f180c */
-int g_small_fonts;                  /* 0x4f0e08, from the settings */
+int g_small_fonts = 1;              /* 0x4f0e08, from the settings (1 by default) */
 int g_screen_mode = 2;              /* 0x4dc0c8: 0 320x240, 1 512x384, 2 640x480 */
 
 static const unsigned char black[3];
@@ -248,11 +248,22 @@ bad:
     return 0;
 }
 
+static const int pairs[][2] = { { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 }, { 10, 11 },
+    { 13, 14 }, { 16, 15 }, { 19, 20 }, { 23, 22 }, { 26, 25 }, { 29, 28 }, { 33, 32 } };
+
+/* 0x4903d0's second answer: a font with a low / high resolution partner */
+int font_partnered(int n)
+{
+    int i;
+    for (i = 0; i < (int)(sizeof pairs / sizeof pairs[0]); i++)
+        if (n == pairs[i][0] || n == pairs[i][1])
+            return 1;
+    return 0;
+}
+
 /* 0x4903d0: at 640x480 (and big fonts) a low-resolution font gives its partner */
 Font *font_get(int n)
 {
-    static const int pairs[][2] = { { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 }, { 10, 11 },
-        { 13, 14 }, { 16, 15 }, { 19, 20 }, { 23, 22 }, { 26, 25 }, { 29, 28 }, { 33, 32 } };
     int m = n, i, hires = !g_small_fonts && g_screen_mode == 2;
     if (n < 0 || n >= g_nfonts)
         n = m = 0;

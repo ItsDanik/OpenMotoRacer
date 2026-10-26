@@ -37,6 +37,8 @@ const unsigned char *named_colour(int c);
 
 int font_init(char *err, int errsize);          /* FONTS.BPT and every font's files */
 Font *font_get(int n);                          /* 0x4903d0 */
+int font_partnered(int n);
+extern int g_small_fonts, g_screen_mode;        /* 0x4f0e08, 0x4dc0c8 */
 void font_set_colors(Font *f, const unsigned char *fore, const unsigned char *back);
 void font_store_rgb(Font *f, const unsigned char *fore, const unsigned char *back);
 void font_set_rgb(Font *f, const unsigned char *fore, const unsigned char *back);

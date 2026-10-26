@@ -1,6 +1,6 @@
 /* The race (NOTES §4.16): its load (0x47b420), the riders on the starting grid (0x410a50,
    0x47bf70), and its frame (Game_Frame 0x47d660). Written so far: the track, its sky, the
-   riders standing on the grid, Escape back to the menu. The physics, the chase camera,
+   riders standing on the grid, the pause menu (Escape). The physics, the chase camera,
    the dashboard and the race's rules are being mapped; until then the camera is a
    stand-in that looks over the player's shoulder. */
 #include "race.h"
@@ -8,6 +8,7 @@
 #include "choices.h"
 #include "clock.h"
 #include "config.h"
+#include "dialog.h"
 #include "horizon.h"
 #include "input.h"
 #include "land.h"
@@ -15,6 +16,7 @@
 #include "r3d.h"
 #include "rules.h"
 #include "sound.h"
+#include "text.h"
 #include "video.h"
 #include <math.h>
 #include <stdio.h>
@@ -28,6 +30,8 @@ static int g_player = 1;        /* 0x4ea4c0: the local player's record */
 unsigned g_keys[RIDERS];        /* +0x31e9: the control bits (RK_*) */
 int g_turbo[RIDERS], g_turbo_hit[RIDERS];       /* +0x31f9, +0x3201 */
 static int g_accel_held;        /* 0x4e8964 */
+static int g_events;            /* 0x4dc0c4's restart and quit, done at the next frame */
+enum { EV_RESTART = 2, EV_QUIT = 4 };
 
 /* 0x431250 (WM_KEYDOWN, the repeats of a held key too) and 0x432700 (WM_KEYUP): the keys
    bound to the seven actions (0x53eae0) set and clear the player's bits; pressing one
@@ -38,6 +42,12 @@ void race_key(int vk, int down)
     int a;
     if (!g_racing)
         return;
+    if (dialog_key(vk, down))
+        return;
+    if (vk == VK_ESCAPE && down) {
+        dialog_pause(1);
+        return;
+    }
     for (a = 0; a < ACTIONS; a++) {
         if (g_binding[a][0] != vk)
             continue;
@@ -178,6 +188,22 @@ static void grid(void)
     }
 }
 
+/* 0x411010 and the start 0x47bf70: the riders back on the grid, every sound stopped, the
+   race's sound init 0x4084e0, the track's music */
+static void start(void)
+{
+    grid();
+    sound_stop_all();
+    sound_race_load(g_bikes[g_rider[1].bike].perso != 0);
+    music_play(g_land.audio_track, 0);
+    memset(g_keys, 0, sizeof g_keys);
+    memset(g_turbo, 0, sizeof g_turbo);
+    memset(g_turbo_hit, 0, sizeof g_turbo_hit);
+    g_accel_held = 0;
+    rules_restart();
+    g_step_at = g_now;
+}
+
 int race_load(char *err, int errsize)
 {
     int k, opponents;
@@ -208,24 +234,34 @@ int race_load(char *err, int errsize)
     if (g_mode == MODE_PRACTICE)
         g_racer[2].loaded = 0;  /* the second record: the time attack's ghost [guess] */
     g_racer[g_player].human = 1;
-    grid();
-    /* 0x410d70 (the race's sounds), then at the start 0x47bf70: every sound stopped, the
-       race's sound init 0x4084e0, the track's music */
-    sound_stop_all();
-    sound_race_load(g_bikes[g_rider[1].bike].perso != 0);
-    music_play(g_land.audio_track, 0);
-    memset(g_keys, 0, sizeof g_keys);
-    memset(g_turbo, 0, sizeof g_turbo);
-    memset(g_turbo_hit, 0, sizeof g_turbo_hit);
-    g_accel_held = 0;
-    rules_restart();
-    g_step_at = g_now;
+    text_clear();
+    g_events = 0;
+    start();
     g_racing = 1;
     return 1;
 }
 
+void race_release_keys(void)
+{
+    g_keys[g_player] = 0;
+    g_turbo[g_player] = 0;
+    g_accel_held = 0;
+}
+
+void race_restart(void)
+{
+    g_events |= EV_RESTART;
+}
+
+void race_quit(void)
+{
+    g_events |= EV_QUIT;
+}
+
 void race_unload(void)
 {
+    dialog_free();
+    text_clear();
     sound_race_free();
     music_stop();
     bike3d_free();
@@ -249,11 +285,21 @@ void race_frame(void)
     float eye[3], at[3], c[3][3], pos[3];
     static const float zero[3];
     int i, y, sec;
-    if (input_pressed(VK_ESCAPE)) {
+    if (g_events & EV_QUIT) {
+        /* (a championship: the player out, state 3, then 0x4580f0: not yet) */
+        if (g_mode == MODE_CHAMPIONSHIP)
+            g_racer[g_player].state = RS_OUT;
         race_unload();
-        menu_change_page(3);
+        menu_change_page(9);
         return;
     }
+    if (g_events & EV_RESTART)
+        start();
+    g_events = 0;
+    text_clock(g_now);
+    dialog_frame();
+    if (dialog_holds())
+        g_step_at = g_now;
     /* the original steps once a picture by the time it took, and GOG's -FrameRateMax60
        makes every picture 16 ms (1000 / 60 in integers): 62.5 steps a second of dt 1.6.
        The port runs one such step for every 16 ms of the clock. */
@@ -280,6 +326,9 @@ void race_frame(void)
         if (g_mode != 0 || i == g_player)       /* (practice's second record: unseen) */
             bike3d_draw_rider(&g_rider[i], detail_of(&g_rider[i], eye));
     r3d_render();
+    text_update();
+    text_draw();                /* the race's messages */
+    dialog_draw();
     rules_countdown_sound();    /* (the dashboard's, once a picture) */
     sound_update();             /* 0x405f30: the voice queue */
 }

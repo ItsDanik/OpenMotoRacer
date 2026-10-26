@@ -82,3 +82,5 @@ run race_grid 5 440 "80:move:320,250 90:click 200:move:630,10 210:right 260:retu
 # Snow Ride reversed
 OMR_CHOICES="1,0,3,0,0" run race_speedbay 1 260
 OMR_CHOICES="1,1,3,1,0" run race_reverse 1 260
+OMR_CHOICES="1,0,3,0,0" run race_pause 1 260 "200:escape"
+OMR_CHOICES="1,0,3,0,0" run race_pause_quit 1 300 "200:escape 240:q"

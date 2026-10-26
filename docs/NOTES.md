@@ -8486,6 +8486,13 @@ recordings in build/phys/ can check each piece step for step.
 
 ### 4.19 The in-race dialogs (pause, results, continue, F1, F11/F12; mapped 2026-10-26)
 
+**Port** (`dialog.c`, 2026-10-26): the dialog object, hotkeys, arrows, Return, the growing
+shaded box and the closing slide; the pause menu (arg 1) with RESTART, QUIT RACE, CONTINUE.
+Its picture after Escape matches build/ref/orig_race_escmenu.png on every button pixel
+(SmallFonts 1: font 33, halved places). The race's restart and quit go through events done
+at the next frame, as 0x4dc0c4's. Not yet: the results and continue dialogs, the mouse, F1 /
+F11 / F12, the sound pause 0x424090, the championship's 0x4580f0 after QUIT RACE.
+
 Scratch notes for NOTES §4.17 part B §3–§4 (helper, 2026-10-26). Read in build/mr.asm unless
 marked. Tags: [asm] read in the machine code, [decomp] Ghidra's text only, [guess],
 [cap] checked against a capture of the original (build/ref/orig_race_escmenu.png).

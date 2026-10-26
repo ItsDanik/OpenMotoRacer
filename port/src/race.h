@@ -18,5 +18,8 @@ void race_key(int vk, int down);        /* 0x431250 / 0x432700 */
 int race_load(char *err, int errsize);  /* 0x47b420 and the start 0x47bf70 */
 void race_frame(void);
 void race_unload(void);                 /* 0x47d620 */
+void race_restart(void);                /* events 8 | 1 | 2: the same race from the grid */
+void race_quit(void);                   /* events 8 | 4 | 0x200: unloaded, page 9 */
+void race_release_keys(void);           /* 0x470fc0 on the player, 0x4e8964 = 0 */
 
 #endif

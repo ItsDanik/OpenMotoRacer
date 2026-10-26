@@ -3,6 +3,7 @@
    rewrite after it do. */
 #include "config.h"
 #include "choices.h"
+#include "font.h"
 #include "saves.h"
 #include "script.h"
 #include "sound.h"
@@ -94,6 +95,7 @@ void config_load(void)
         g_binding[i][1] = g_cfg[CFG_ACTION0_BTN + 2 * i];
     }
     g_enum_session = g_cfg[CFG_ENUM_SESSION];
+    g_small_fonts = g_cfg[CFG_SMALL_FONTS];
     sound_set_switches(g_cfg[CFG_SOUND], g_cfg[CFG_VOICES], g_cfg[CFG_AUDIO]);
     sound_set_volumes(g_volume);
 }
@@ -126,6 +128,7 @@ void config_save(void)
         g_cfg[CFG_ACTION0_BTN + 2 * i] = g_binding[i][1];
     }
     g_cfg[CFG_ENUM_SESSION] = g_enum_session;
+    g_cfg[CFG_SMALL_FONTS] = g_small_fonts;
     script_out_init(&o);
     script_out_str(&o, g_player_name);
     for (i = 0; i < CFG_COUNT; i++)

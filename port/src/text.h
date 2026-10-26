@@ -27,6 +27,19 @@ typedef struct {                /* 0x417d20's arguments */
     const unsigned char *fore, *back;   /* 25, 26: R,G,B */
 } TextArgs;
 
+typedef struct Text Text;      /* a text object (0xc2 bytes) */
+
+/* one of one's own, outside the list (the race's dialogs) */
+Text *text_new(const TextArgs *a);
+void text_free(Text *t);
+void text_draw_one(Text *t);            /* 0x416da0: a step of its motion, then drawn */
+void text_snap(Text *t);                /* 0x416b00 */
+void text_rect(const Text *t, int r[4]);        /* 0x4172d0 */
+void text_now(const Text *t, int r[4]);         /* 0x417210 */
+int text_alive(const Text *t);
+char *text_string(Text *t);
+void text_args_of(const Text *t, TextArgs *a);
+
 void text_clock(unsigned ms);           /* 0x4178c0 */
 int text_add(const TextArgs *a);        /* 0x417d20: 1 if added */
 void text_update(void);                 /* 0x418790 */
