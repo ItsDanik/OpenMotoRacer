@@ -25,6 +25,64 @@
 Rider g_rider[RIDERS];
 int g_racing;
 static int g_player = 1;        /* 0x4ea4c0: the local player's record */
+unsigned g_keys[RIDERS];        /* +0x31e9: the control bits (RK_*) */
+int g_turbo[RIDERS], g_turbo_hit[RIDERS];       /* +0x31f9, +0x3201 */
+static int g_accel_held;        /* 0x4e8964 */
+
+/* 0x431250 (WM_KEYDOWN, the repeats of a held key too) and 0x432700 (WM_KEYUP): the keys
+   bound to the seven actions (0x53eae0) set and clear the player's bits; pressing one
+   way clears the other, as the original's handlers do */
+void race_key(int vk, int down)
+{
+    unsigned *b = &g_keys[g_player];
+    int a;
+    if (!g_racing)
+        return;
+    for (a = 0; a < ACTIONS; a++) {
+        if (g_binding[a][0] != vk)
+            continue;
+        switch (a) {
+        case 0:                                 /* accelerate */
+            g_accel_held = down;
+            if (down)
+                *b = (*b & ~RK_BRAKE) | RK_ACCEL;
+            else
+                *b &= ~RK_ACCEL;
+            break;
+        case 1:                                 /* brake */
+            if (down) {
+                if (g_control)
+                    *b = (*b & ~RK_ACCEL) | RK_BRAKE;
+            } else {
+                *b &= ~RK_BRAKE;
+                if (g_accel_held)
+                    *b |= RK_ACCEL;
+            }
+            break;
+        case 2:                                 /* left */
+        case 3:                                 /* right */
+            if (!down)
+                *b &= a == 2 ? ~RK_LEFT : ~RK_RIGHT;
+            else if (g_control)
+                *b = (*b & (a == 2 ? ~RK_RIGHT : ~RK_LEFT)) | (a == 2 ? RK_LEFT : RK_RIGHT);
+            break;
+        case 4:                                 /* gear up (0x4dc110 = 1) */
+        case 5:                                 /* gear down */
+            if (!down)
+                *b &= a == 4 ? ~RK_GEARUP : ~RK_GEARDOWN;
+            else if (!g_counting && g_control)
+                *b |= a == 4 ? RK_GEARUP : RK_GEARDOWN;
+            break;
+        case 6:                                 /* turbo */
+            if (!down)
+                g_turbo[g_player] = 0;
+            else if (g_control)
+                g_turbo[g_player] = g_turbo_hit[g_player] = 1;
+            break;
+        }
+    }
+}
+
 #define STEP_MS 16
 static unsigned g_step_at;      /* the clock's time the steps have reached */
 
@@ -32,6 +90,7 @@ static unsigned g_step_at;      /* the clock's time the steps have reached */
    the time limit, (the riders' steps and the physics: not yet), the race's rules */
 static void step(int ms)
 {
+    g_control = 1;              /* Game_Frame: the player's keys are read */
     if (g_extended > 0)
         g_extended -= ms;
     rules_time(ms);
@@ -155,6 +214,10 @@ int race_load(char *err, int errsize)
     sound_stop_all();
     sound_race_load(g_bikes[g_rider[1].bike].perso != 0);
     music_play(g_land.audio_track, 0);
+    memset(g_keys, 0, sizeof g_keys);
+    memset(g_turbo, 0, sizeof g_turbo);
+    memset(g_turbo_hit, 0, sizeof g_turbo_hit);
+    g_accel_held = 0;
     rules_restart();
     g_step_at = g_now;
     g_racing = 1;

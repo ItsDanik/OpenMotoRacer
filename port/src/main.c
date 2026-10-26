@@ -219,10 +219,12 @@ static void scripted_input(const char *script, int frame)
                 continue;
             if (!release) {
                 input_key(vk, 1);
+                race_key(vk, 1);
                 menu_key(vk);
             }
             if (!hold) {
                 input_key(vk, 0);
+                race_key(vk, 0);
                 menu_key_up(vk);
             }
         }
@@ -318,12 +320,14 @@ int main(int argc, char **argv)
             case SDL_KEYDOWN:
                 if (vk_of(e.key.keysym.sym)) {
                     input_key(vk_of(e.key.keysym.sym), 1);
+                    race_key(vk_of(e.key.keysym.sym), 1);
                     menu_key(vk_of(e.key.keysym.sym));
                 }
                 break;
             case SDL_KEYUP:
                 if (vk_of(e.key.keysym.sym)) {
                     input_key(vk_of(e.key.keysym.sym), 0);
+                    race_key(vk_of(e.key.keysym.sym), 0);
                     menu_key_up(vk_of(e.key.keysym.sym));
                 }
                 break;
