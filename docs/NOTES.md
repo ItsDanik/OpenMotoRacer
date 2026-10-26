@@ -8484,6 +8484,513 @@ with double registers and float stores:
 and the carac rows come from the player's game.EXE / the BPT files; tools/bikephys.py and the
 recordings in build/phys/ can check each piece step for step.
 
+### 4.19 The in-race dialogs (pause, results, continue, F1, F11/F12; mapped 2026-10-26)
+
+Scratch notes for NOTES §4.17 part B §3–§4 (helper, 2026-10-26). Read in build/mr.asm unless
+marked. Tags: [asm] read in the machine code, [decomp] Ghidra's text only, [guess],
+[cap] checked against a capture of the original (build/ref/orig_race_escmenu.png).
+Names as in NOTES §4.4 (menu) and §4.8 (fonts, text objects). "Item" = a text object of
+the class of §4.8.3.6 (0xc2 bytes, vtable 0x4d0560): the dialogs are built from the very
+same objects as the text list, so `text.c` is most of the drawing.
+
+#### Summary
+
+- **Four slots**, each a 0x78-byte dialog object or 0: **0x4e8908** F11 sound / F12 display
+  menus, **0x4e8904** pause / results / continue, **0x4e890c** F1 help, **0x4e8910** message
+  boxes. Frame order (0x4126a0): 0x4e8910, 0x4e890c, 0x4e8904, 0x4e8908. Key/mouse order
+  (0x4329a5): 0x4e8908, 0x4e8910, 0x4e890c, 0x4e8904, then the race keys 0x431250. Draw
+  order (0x47ff90 step 19, after the HUD and the debug lines, before present): 0x4e8908,
+  0x4e8904, 0x4e890c, 0x4e8910 [asm].
+- A dialog = **rows** (0x6c bytes) pointing at **items** (text objects). Row 0 is the title
+  (not selectable); rows 1.. are buttons. Each button row has two items: *normal* (flies
+  in, then still) and *highlighted* (still, blinking 2 frames on / 2 off). The row shows
+  one of them (row+0) [asm/decomp].
+- **Opening**: sound, the race held (+0x10), the HUD's message list cleared, the first
+  button selected (select sound 0x29); title and buttons **fly in** (text motion mode 1,
+  §2.4), the **see-through box grows** from its centre over 15 drawn frames (§3.2).
+- **Box**: the items' final bounding box + 5 px; inside it the picture is darkened to 50 %,
+  with a 5-px soft bevel (230/256 → 128/256) [asm][cap: exact 213,201–426,275].
+- **Keys**: a letter **hotkey** per row (first letter of its text not used by the control
+  keys), shown as the GameMenu font's lowercase (highlighted) glyph; arrows move to the
+  nearest row in that direction (no wrap); Return presses the selected row; Escape is an
+  extra hotkey of CONTINUE (pause) / NO (results). Every other key-down is swallowed while
+  the dialog is up (+0xc), except F2–F4, numpad * and /, Shift/Ctrl combinations [asm].
+- **Mouse**: hovering selects (and leaving all rows deselects); press = left button up on
+  the row selected at button down. Pointer = the Windows cursors from game.EXE (§2.6).
+- **Closing**: a chosen row sets +0x20; the dialog is freed at once (in the message
+  handler, or in 0x4126a0); sound 0x28; every row's shown text is copied into the message
+  list 0x53b8e8 and **slides off to the left, accelerating** (mode 2), fading (§2.5).
+- The **Pause key** (0x4dc038) is not a dialog: the race frame is simply not called, the
+  picture freezes, CD and looping sounds pause; no text, no PAUSE.WAV (0x2e is only played
+  by the dead replay-caption code 0x4121e0) [asm].
+
+#### 1. The objects
+
+##### 1.1 The dialog (0x78 bytes, ctor 0x4338b0) [decomp, fields checked against the users in asm]
+
+| off | ctor | what |
+|-----|------|------|
+| +0x00 | 0 | kind: 4 results, 5 continue, 6 pause (others: forks' sections, §5); 9 = "joystick does not drive it" (Game_Frame step 5) |
+| +0x04 | 0 | unused here |
+| +0x08 | 1 | draw the box (0x434ae0) |
+| +0x0c | 0 | **takes the keyboard**: arrows/Return work, every key-down is swallowed, pointer = "no" sign when not over a row. 1 in all three race dialogs |
+| +0x10 | 0 | **holds the race** (0x4126a0 returns 0: no steps, the race is drawn with flags +0x18) |
+| +0x14 | 0 | HUD variant: 1 → 0x4804d0 instead of 0x4806e0 (race_view.md §3.1) |
+| +0x18 | −1 | the race's drawing flags while held; the race dialogs set **−10** (0xfffffff6): bit 3 off = no dials (0x484810 parts, 0x40f2d0, 0x486310, 0x47b7a0) |
+| +0x1c | 1 | reserve the box in the race message list 0x53ba68 (§3.1) |
+| +0x20 | 0 | **done**: set by an action; the dialog is then closed and freed |
+| +0x24 | 0 | rows allocated (0x433990 sets 1); 0 → closed at once |
+| +0x28 | 1 | active: 0x434960 runs each frame |
+| +0x2c | 0 | id of the box-reservation object in 0x53ba68 |
+| +0x30 | 0 | optional close test (fn → non-zero = close; e.g. 0x47dab0) |
+| +0x34 | 0 | optional callback called at the start of every draw |
+| +0x38 | 0 | optional close callback (called by 0x4126a0 instead of setting +0x20) |
+| +0x3c | 0 | hotkey letter case: 1 = text upper case, hotkey letter lower case (all race dialogs); 2 = the reverse |
+| +0x40/+0x44 | −1 / 0 | vx, vy of the closing slide (0/0 = no slide) |
+| +0x48 | 0 | item* array, +0x4c int array (receives each item's id), +0x50 item count |
+| +0x54 | 0 | **selected row** (row*, 0 = none) |
+| +0x58/+0x5c | 0 | row array (0x433990(n): n × 0x6c), row count |
+| +0x60 | 0 | drawn-frame counter (box growth) |
+| +0x64 | now 0x50bbc8 | creation time (ms; the message-box timeout 0x47dab0 reads it) |
+| +0x68..+0x74 | 0 | box x0, y0, x1, y1 (recomputed by 0x434860 every frame) |
+
+Building a dialog (the same in every constructor) [asm]: free the slot's old dialog
+(rows, items through their vtable slot 0 (1), arrays) — **no close effects**; new dialog;
+set the fields; make items on the stack (0x415dd0 + 0x416170 motion + 0x416300 text/font +
+0x4163e0 colours); 0x433990(rows); item arrays (n ≤ 0x7f); 0x433a30(i, &item) copies each
+(type +0xc: 0 base 0xac bytes, 1 text 0xc2, 2 0x178 bytes 0x415e80 — help) and calls its
+slot 6 **Relayout** (§2.3); 0x433c90 per row; row callbacks; select row 1 and call its
+enter callback (§2.2); optional row cursors 0x433c20(row, 0xe4).
+
+##### 1.2 The row (0x6c bytes; 0x433990 init, 0x433c90/0x433dd0 fill) [decomp+asm]
+
+| off | init | what |
+|-----|------|------|
+| +0x00 | 0 | **shown item** (= +4 normal, or +0xc when selected) |
+| +0x04, +0x08, +0x0c, +0x10 | 0 | items 1–4. 0x433c90(dlg, row, i1, i2, i3, i4, n, c1..cn): +4 = item[i1] … (0 → i1), +0 = +4; the race dialogs pass (n, h, h, n): +8/+0x10 are never shown [decomp: no reader found] |
+| +0x14 | 0 | leave (fn(row)): 0x4361c0 = row+0 = +4; ends a number edit (+0x54 2 → 1, clamp +0x3c to [+0x48, +0x44], write *+0x4c) |
+| +0x18 | 0 | enter: **0x436150** = snap all 4 items to their targets (0x416b00), row+0 = +0xc, +0x54 1 → 2 (+0x50 = 0), **sound 0x29 select** |
+| +0x1c | 0 | left button down: 0x436140 = return 1 |
+| +0x20 | 0 | left button up: **the action** |
+| +0x24 | 0 | arg (unused here) |
+| +0x28 | 0 | right button up (0 here) |
+| +0x2c | 0 | Return / hotkey down: **the action** |
+| +0x30 | 0 | hotkey up (0 here) |
+| +0x34/+0x38 | 0 | Windows cursor handle / resource id over this row (0xe4) |
+| +0x3c..+0x54 | | number field: +0x3c value, +0x40/+0x44 = −1/... (+0x44 max), +0x48 min, +0x4c int* target, +0x50 caret, +0x54 0 none / 1 shown / 2 editing (F11/F12 only, §5) |
+| +0x58 | **1** | static (title, labels): not selectable, no hotkey, no lowercase. Buttons set 0 |
+| +0x5c | 1 | visible (drawn, selectable) |
+| +0x60/+0x64 | 0 | check box: flag, int*; the first char of the text becomes ' ' or '^' (fonts 2, 6, 32, 33) (§5) |
+| +0x68 | 0 | 4 hotkey chars. 0x433c90's n (clamped 0..4) chars; with +0x3c == 1 'A'–'Z' are made lower case there; [0] is overwritten each frame by the automatic letter (§2.1) |
+
+##### 1.3 Items: 0x416170 arguments (this order; NOTES §4.8.3.6 fields)
+
+`0x416170(x, y, lifetime, align, effect, mode, blink, int *id, vx, vy, tx, ty, s.lo, s.hi,
+k.lo, k.hi)` → +0x70/+0x78 = x, +0x74/+0x7c = y, +0x8c lifetime, +8 align, +0x10 effect,
++0x14 mode, +0x58/+0x5c vx/vy, +0x60/+0x64 (and authored +0x68/+0x6c) target, +0x40 double
+s, +0x38 double k; +0x48 = +0x50 = 1.0; start time = the text clock 0x4e4ed0 (0x4e9814 in
+replay playback); blink < 0 → period −blink ms, > 0 → frame mask, 0 with effect 3/4 → 2.
+For mode 1/3: +0x28 = (double)x, +0x30 = (double)(H − y), +0x18/+0x20 = vx, vy [decomp, asm
+of the motion confirms the fields].
+
+#### 2. The engine
+
+##### 2.1 Per frame: 0x434960 (from 0x4126a0, when +0x28) [asm+decomp]
+
+0x4126a0 first calls **0x43e0f0**: the 64-byte "used letters" table 0x53eb20 = toupper of
+the 7 control keys (Action0..6Key, 0x53eae0 + 8i: defaults Up, Down, Left, Right, 'A',
+'Z', Space → '&', '(', '%', ''', 'A', 'Z', ' '), then 0x70..0x77 (F1–F8, which are 'p'..'w'
+as chars) and 9 (Tab). Then per dialog (order 0x4e8910, 0x4e890c, 0x4e8904, 0x4e8908):
+- for each row with +0x58 == 0, +0x5c != 0, row+0 != 0, item(+4)+0xc == 1 and a text: walk
+  the **normal item's** text; the first alphabetic char whose upper case is not in the
+  table becomes **hotkey[0]** (upper case); none → hotkey[0] = 0. A non-zero letter is
+  appended to the table (≤ 64). So "[RESTART]" → R, "[QUIT RACE]" → Q, "[CONTINUE RACE]" →
+  C, "[YES]" → Y, "[NO]" → N, "[SAVE]" → S; with the default keys A and Z are never
+  hotkeys.
+- 0x434860: the box = min/max over the rows' **shown** items of 0x4172d0(item): mode 1 →
+  the *target* rectangle (tx, ty, tx+w−1, ty+h−1), else the current one (slot 7 0x417210:
+  x, y, x+w−1, y+h−1); items that are not alive are skipped (start 0xffff,0xffff,0,0).
+
+##### 2.2 Keys and mouse: 0x433ec0(hwnd, msg, wparam, lparam) → 1 = consumed [asm+decomp]
+
+Called by the race window procedure 0x4329a5 for each existing dialog in slot order
+0x4e8908, 0x4e8910, 0x4e890c, 0x4e8904 until one returns non-zero; then that dialog is
+closed and freed if +0x20 != 0 or +0x24 == 0 (0x4354e0 + free; slot 0x4e890c also logs),
+the cursor is set (below), DefWindowProc, return. If none consumed: the race's own
+handling (WM_KEYDOWN → 0x431250). Let `cur` = +0x54 at entry.
+
+**WM_KEYDOWN (0x100)**, key = vk:
+1. Ctrl (0x11): 0x4dc108 = 1, consumed. Shift (0x10): 0x4dc10c = 1, consumed.
+2. Ctrl held: consumed only for 'F' (0x46) — so Ctrl+P (pause) still reaches the race.
+   Shift held: not consumed.
+3. F2, F3, F4 (0x71–0x73), numpad * (0x6a), numpad / (0x6f): not consumed (screen size /
+   modes, the race handles them).
+4. `cur` editing a number (+0x54 == 2): digits (and numpad 0–9 = vk 0x60–0x69), Backspace,
+   Delete, Left/Right move the caret, Return stores if min ≤ value ≤ max else Beep (F11/F12).
+5. Else: a row whose 4 hotkeys contain (char)vk → **sel = that row, call its +0x2c**
+   (the action); no enter callback, no select sound. Else if +0xc: arrows → 0x435090 (2.3);
+   a row found → sel = row, call its +0x18 (enter: highlight + sound 0x29); Return → call
+   `cur`+0x2c if any. Then consumed iff +0xc (or a hotkey action returned non-zero).
+Key repeat = Windows' own auto-repeat of WM_KEYDOWN (no timing in the game) [asm: none].
+
+**WM_KEYUP (0x101)**: Ctrl/Shift up clear 0x4dc108/0x4dc10c (consumed). Arrows: consumed if
++0xc. Else a hotkey row: its +0x30 (0 in the race dialogs) and sel = row; consumed iff +0xc.
+
+**Mouse** (lparam x,y; all set the pointer timer 0x4dbfb4 = 3000 ms):
+- position → 0x53eb60 (x, y shorts); windowed (0x4dbff0): ClientToScreen (sic); y −=
+  (0x624b18 − 0x68b008)/2 when non-zero [guess: the letterbox band].
+- 0x200 move: (0x4dbfb0 = 0.) If no button held (0x4e897c, 0x4e8980): row = hit test
+  0x435430 (first selectable row whose shown item's *current* box contains the point).
+  No row → sel = 0 (**deselects**). A selectable row other than `cur` with an enter
+  callback → sel = row, enter (highlight + 0x29). Consumed if the row is `cur`.
+- 0x201 left down: SetCapture, 0x4e897c = 1; hit row (selectable) → sel = row, +0x1c (1);
+  else sel = 0.
+- 0x202 left up: ReleaseCapture (unless the right button is held), 0x4e897c = 0; **sel's
+  +0x20 = the action**, wherever the pointer is now (selection does not follow the pointer
+  while a button is held).
+- 0x204/0x205 right down/up: capture flags 0x4e8988/0x4e8980; up → sel's +0x28 (none here).
+At the end (all messages): if sel changed and the old row has +0x14 → leave (old shows
+its normal item). Pointer: 0x4e8960 = sel's cursor (+0x34), or if no sel and +0xc the
+"no" cursor 0x4dbf90; 0x4329a5 then SetCursor through 0x45a190 when it changed.
+
+##### 2.3 Arrow navigation 0x435090(dlg, vk) [asm for the comparators, decomp for the rest]
+
+From = sel's shown item's current box (x0,y0,x1,y1); no sel (or not alive) → (W−1, H−1, 0, 0)
+so that every row qualifies. Candidates: rows with +0x58 == 0, +0x5c != 0, an alive shown
+item; with box (a0,b0,a1,b1):
+- Left: a1 < x0, key = a1<<16 | |(y0+y1)/2 − (b0+b1)/2|<<8 | index, sorted **descending**
+  (0x4353d0) → nearest on the left first.
+- Right: a0 > x1, key = a0<<16 | |dy|<<8 | index, **ascending** (0x435400).
+- Up: b1 < y0, key = b1<<16 | |(x0+x1)/2 − (a0+a1)/2|<<8 | index, descending.
+- Down: b0 > y1, key = b0<<16 | |dx|<<8 | index, ascending.
+(The fields overlap when the offset ≥ 256; C division truncates.) First of the sorted list
+(index = key & 0xff) → new sel; none → nothing (no wrap-around).
+
+##### 2.4 Items in motion (text class 0x416b40, mode 1 "fly to target"; one step per Draw) [asm]
+
+If (x, y) == (tx, ty) nothing. Else with doubles px = +0x28, py = +0x30 (y up), vx = +0x18,
+vy = +0x20, H = 0x5d8948:
+```
+dX = tx - px;  dY = (H - ty) - py;  dist = sqrt(dX*dX + dY*dY)
+if dist <= 1.5: x = tx; y = ty; px = tx; py = H - ty; done
+aim = atan2(dY, dX); head = atan2(vy, vx); speed = sqrt(vx*vx + vy*vy)
+if aim > pi/2 && aim - pi > head:        head += 2pi; diff = aim - head
+else if aim <= -pi/2 && aim + pi < head: diff = (aim + 2pi) - head
+else:                                     diff = aim - head
+head += k*diff*0.05;  speed = (dist - speed)*k*0.05     (k = +0x38)
+vx = cos(head)*speed; vy = sin(head)*speed; px += vx; py += vy
+x = trunc(px); y = trunc(H - py)                         (_ftol = toward zero)
+```
+Mode 2 (closing slide): s += k (+0x40 += +0x38); x += trunc(vx*s); y += trunc(vy*s) (ints).
+0x416b00 (enter callback): mode 1/3 → x, y = target, px = x, py = H − y.
+One step per drawn frame (frame-rate dependent: 30 or 60 a second in the original).
+
+##### 2.5 Closing 0x4354e0 (dialog) [asm+decomp]
+
+Only if +0x24 and in-game (menu+0 == 0): cursor back (0x45a190(0)); remove the box object
+from 0x53ba68 (0x4177e0 by id +0x2c); **sound 0x28 deplett**; if +0x40 or +0x44 is non-zero
+(the ctor's −1/0: always here): for every row whose shown item is a text item, a new text
+in the message list **0x53b8e8**: `0x417d20(text, lifetime 10000, font +0xb4, x = item+0x70,
+y = +0x74, align 0x21 (none), effect 2 FadeOut, mode 2, blink 0, no id, steps 0, vx = −1,
+vy = 0, target 0, s = 1.0, k = 2.0, own colours 0)`, then 0x4163e0(own colours +0xb8, fore
++0xbc, back +0xbf) copied from the item. So each line moves −3, −5, −7 … px a frame (n²+2n
+after n frames) and is deleted when off screen; only font 9 (AntiAlias8Transp) shows the
+fade. The HUD draws 0x53b8e8 (0x4806e0/0x4804d0) [asm]. Then the slot routine frees it
+(0x435620/0x4356d0/0x435770/0x435810) and sets the cursor variable 0x4dbfac = arrow.
+[guess] whether 0x417d20's overlap test can refuse a line (steps 0) was not read.
+
+##### 2.6 The pointer in the race [asm]
+
+Windows cursors (SetCursor; resources in game.EXE, 32×32 1-bit; loaded at 0x45a0a0):
+0x4dbf84 = 116 arrow, **0x4dbf8c / rows' 0xe4 (228) = checkered arrow**, 0x4dbf88 = 229
+arrow + hourglass, **0x4dbf90 = 251 "no" circle** (dialog up, not over a row), 0x4dbf94/98/9c
+= 248/249/250 the arrow dissolving, 0x4dbfa0/a4/a8 = 253/254/255 the circle dissolving.
+Hot spots: 116/229/234 (0,0), arrows 228/245–250 (2,4), circles 251–255 (11,11).
+0x45a190(c) (in-game, 0x4dbfb0 == 0): timer t = 0x4dbfb4 (3000 at every mouse message,
+minus the frame's ms in 0x4120e0 each race frame, even when held). t ≥ 0: c. t < 0: the
+dissolve set of the current shape (circle set if the current is 0x4dbf90): t ≥ −90 A,
+−180 B, −270 C, −360 B, −450 A, −540 B, −630 C, below −630 **hidden**. So the pointer
+vanishes 3.63 s after the mouse stops. (The menu's own drawn pointer, NOTES §4.4.6.7, is
+not used in the race.) Port: draw these cursor bitmaps at the mouse position.
+
+##### 2.7 Joystick
+
+0x411a10 (NOTES part C §6): while a dialog holds the race and the control type is a
+joystick (0x4dc11c 2 or 4), unless 0x4e8904's kind is 9: direction changes → WM_KEYDOWN/UP
+of the arrows, button 0 → Return, posted to the window — so it goes through 2.2.
+
+#### 3. Drawing: 0x434ae0(dialog), from 0x47ff90 [asm]
+
+Only if +0x24. Per call:
+1. +0x60 += 1; call +0x34 if set.
+2. +0x1c: if the reservation object (id +0x2c) is not alive in 0x53ba68 (first call):
+   0x434860, **TextList_Clear(0x53ba68)** (the race's own messages vanish), 0x417b90(box,
+   0, &+0x2c): a base text object (no text, never drawn) of the box (unpadded, lifetime 0)
+   so new race messages dodge it.
+3. +0x8 (box): 0x434860; **if +0x60 < 15**: f = +0x60 × (1/15) (double 0x4d0750);
+   hw = (x1−x0)/2, hh = (y1−y0)/2, cx = (x0+x1)/2, cy = (y0+y1)/2 (C division);
+   x0 = trunc(cx − hw·f), x1 = trunc(cx + hw·f), y0 = trunc(cy − hh·f), y1 = trunc(cy + hh·f)
+   (x87, f in extended precision). Then x0 −= 5, y0 −= 5, x1 += 5, y1 += 5; software:
+   **0x49a5a0(box)** now (Direct3D 0x4dc06c && !0x4dc070 [guess D3D]: after the rows).
+4. For each row with a shown item:
+   - if a text item, +0x58 == 0, +0x5c and a non-empty text: with +0x3c == 1 the text (in
+     place) gets every 'a'–'z' made upper case and the **first** 'A'–'Z' equal to one of
+     the row's hotkeys made lower case (+0x3c == 2: the opposite);
+   - check box / number fields (§5);
+   - if +0x5c: item slot 2 **Draw** (0x416da0: motion step, effect, colours, DrawString at
+     (+0x70, +0x74) flags 0x21), slot 4 (debug frame, only with 0x4e4ec8).
+   - number edit caret: string 0x4e8adc ("\x82\x83") in font 32 at the caret.
+5. Coordinates: the item positions are screen pixels (Draw doubles and DrawString halves
+   under the same condition, in-game and (SmallFonts or ScreenMode != 2)).
+
+##### 3.1 The box shading 0x49a5a0(rect) (software) [asm]
+
+Clip rect to the view (left 0x5d9a78, top 0x5d893c, width 0x5d93c8, height 0x5d8948;
+inclusive x1, y1). Empty (x1 ≤ x0 or y1 ≤ y0) → nothing. E = 0x4ee9ac = **5** (the red bit
+count, used as the bevel width). For each row y0..y1 (pixels of the locked back surface):
+scale `s(t) = (t*256/E + 256) >> 1` for t = 4..0 gives **230, 204, 179, 153, 128**.
+- Top rows y < y0 + E − 1 (y0..y0+3): t = y0 − y − 1 + E (4..1): left part x0 … x0+E−t−1
+  with the left-edge scale, middle x … x1 − E + t with s(t), right part with the right-edge
+  scale → a mitred bevel. Bottom rows y > y1 − E + 1: t = y − y1 − 1 + E, the same.
+- Other rows: x0..x0+4 left-edge scale `s = ((x0 − x + E − 1)*256/E + 256) >> 1`
+  (x0: 230 … x0+4: 128), interior x0+5..x1−5: **p = (p >> 1) & ~0x0410** (50 %, the bits
+  shifted across channels removed: 1 << (11−1) | 1 << (5−1)), right x1−4..x1: `s = ((x −
+  x1 + E − 1)*256/E + 256) >> 1` (x1: 230).
+- A scaled pixel: per channel m in (0xf800, 0x07e0, 0x001f): `((p & m) * s >> 8) & m`.
+Checked on the capture: box 213,201–426,275, ring values match 230…128 of the background.
+
+##### 3.2 Where things land at 640×480 (SmallFonts 1, the default) [asm][cap]
+
+Font_Get's second result is 1 for fonts without a low/high partner (font 9) and 0 for
+32/33: Relayout halves the authored x, y and target **only for partnered fonts** when
+SmallFonts or ScreenMode != 2 (at ScreenMode 1 with an unpartnered font: x·512/640,
+y·384/480 by ((x<<8)/640<<9)>>8 and ((y<<8)/480·3<<7)>>8), then Align (0x417900) with the
+item's flags on W × H. In the race with SmallFonts = 1 the buttons use **font 33
+GameMenuLowRes (h 9)**, the title font 9 MenuLink (h 29). Pause menu: title target y =
+240 − 5 − 29 = 206, centred (w 204 → x 218); rows y = 240, 251, 262; box 213,201–426,275 =
+the capture. With SmallFonts 0 at 640×480: font 32 (h 18), rows 240/262/284, offsets ×2.
+At 320×240 everything halves except font 9 (still 29 px high). [cap only for the default]
+
+#### 4. The three race dialogs (slot 0x4e8904; events 0x4e8918)
+
+Common: +0xc = 1, +0x10 = 1, +0x18 = −10, +0x3c = 1, +0x40/+0x44 = −1/0 (ctor), +0x8 = 1,
++0x1c = 1. Fonts: title **9** (MenuLink, AntiAlias8Transp, effect 7 = 25 % see-through)
+fore **green (19,188,5)** back yellow (255,255,0); buttons font **32** (→ 33), Pal: the
+colours given (normal yellow/yellow, highlighted red/red) do nothing in software — the
+highlighted item differs only by blinking (effect 3, frame mask 2) and the hotkey glyph.
+Every button row: leave 0x4361c0, enter 0x436150, down 0x436140, up = Return = the
+action, cursor 0xe4. Row 1 is selected at the end (enter → its items snap, sound 0x29).
+Actions: NOTES §4.17 part B §4.1–4.3 (each sets +0x20 first).
+
+##### 4.1 Pause menu 0x436420(arg) (kind 6; Escape in Solo: arg 1; after a single race's results: arg 0) [asm+decomp]
+Opening: 0x424090(1) pause the looping sounds, sound **0x03 continue**. +0x14 = (arg != 1).
+| row | text (id) | item normal: x, y → target; align; effect; mode; blink; vx,vy; s, k | highlighted | hotkeys |
+|---|---|---|---|---|
+| 0 title | "MOTO RACER" (0x4e8aec, font 9) | (0, 200) → (0, 5); 0xc2; 7; 1; 0; 0,−1; 4.0, 5.0 | — | — |
+| 1 | [RESTART] 104 / playback [NEXT DEMO] 107 | (300, 0) → (0, 0); 0x62; 0; 1; −400; −1,0; 4.0, 6.0 | (0,0) 0x62, effect 3, mode 0, blink 2 | R (auto) |
+| 2 | [QUIT RACE] 105 / [QUIT DEMO] 106 | (−300, 22) → (0, 22); 0x62; 0; 1; −500; 1,0; 4.0, 6.0 | (0,22) | Q |
+| 3 (arg 1) | [CONTINUE RACE] 110 / [CONTINUE DEMO] 108 / [CONTINUE REPLAY] 109 | (0, 200) → (0, 44); 0x62; 0; 1; −600; 0,1; 4.0, 6.0 | (0,44) | C + **Escape** |
+| 4 (arg 1, champ. replay or Link host) | [QUIT REPLAY] 111 / [ABANDON] 113 | (0, −200) → (0, 66); 0x62; 0; 1; −700; 0,1; 4.0, 6.0 | (0,66) | auto |
+Align 0xc2 = centred, y = H/2 − y − h (above the centre); 0x62 = centred, y += H/2.
+(All x, y of font-32 items are halved first in the default setting: 300 → 150, 22 → 11.)
+Solo race: RESTART, QUIT RACE, CONTINUE RACE. After a single race (arg 0): RESTART, QUIT
+RACE only — Escape then does nothing (swallowed).
+
+##### 4.2 Results 0x437b70 (kind 4; Solo single race / championship) [asm+decomp]
+Opening: 0x424020 stop all sounds, sound 0x03; 0x463c30 (kind != 1); +0x14 = 1 (HUD variant).
+| row | text | normal item | highlighted | hotkeys |
+|---|---|---|---|---|
+| 0 | [REPLAY] 100, font 9, green/yellow | (−300, 5) → (0, 5); 0xc2; 7; mode 1; vx 1, vy 0; s 4.0, k **2.0** | — | — |
+| 1 | [YES] 101 | (10, 0) static; **0x6a** (right edge at W/2 − 10, y += H/2); effect 0; blink −500 | same place, effect 3, blink 2 | Y |
+| 2 | [NO] 102 | (10, 0) static; **0x63** (left edge at W/2 + 10) | same | N + **Escape** |
+| 3 (0x4e8924) | [SAVE] 114 | (0, 22) static; 0x62 | same | S |
+Only the title moves (from the left). YES/NO side by side (Left/Right), SAVE below.
+
+##### 4.3 Continue 0x4358b0 (kind 5) [asm+decomp]
+Opening: 0x424020 stop all sounds, **voice 0x44 tryagain**; +0x14 = 1.
+Title [CONTINUE] 99 (font 9, green/yellow, from (−300,5) to (0,5), k 4.0); [YES] / [NO] as in
+4.2 (rows 1, 2; hotkeys Y, N; **no Escape hotkey**: Escape is swallowed).
+
+#### 5. F11 / F12 menus, F1 help, message boxes
+
+In §5a (F1 help, message boxes incl. the Shift+F12 mode list, Link-only boxes) and §5b
+(F11 sound / F12 display menus) at the end of this file, from two helper reads. In short:
+F1 help is modal (race held, no HUD, CD/sounds paused) and pages Help.gen; F11/F12 are
+non-modal left-edge columns (no box, race keeps running, hotkeys and mouse only); message
+boxes are D3D warnings (never in software) and the Shift+F12 mode list.
+
+#### 6. Open points
+
+- Effect 3 blinking and the fly-in are per drawn frame: 30 frames a second (CD, wine
+  capture) or 60 (GOG -FrameRateMax60). The port's 60ths are the GOG speed.
+- 0x417d20's handling of an overlapping closing line with steps 0 (could it refuse?).
+- 0x4dc06c/0x4dc070 named D3D by context only (software path taken in the port).
+- 0x624b18 − 0x68b008 mouse y offset: assumed the letterbox band.
+- Row items +8/+0x10: no reader seen in the engine (all dialogs here pass n,h,h,n).
+- Capture of the results/continue dialogs not available; positions from the code.
+
+#### 7. Size of a C port (rough)
+
+Dialog object, rows, per-frame hotkeys, layout box: ~150 lines. Keys/mouse/arrow
+navigation: ~200. Drawing + box shading: ~120. Text-object mode 1/2 motion and the closing
+slide (in text.c): ~80. Pointer (cursor bitmaps from game.EXE, dissolve): ~80. The three
+race dialogs (contents, actions already counted in part B): ~150. F11/F12 menus ~80, the
+mode list ~40, message box generic ~60, F1 help ~80 plus the Help.gen page engine (the .GEN
+engine, not mapped here; shared with the victory sequence). Total **~1000 lines** without
+the .GEN engine.
+
+---------------------------------------------------------------------------------------------
+#### 5a. F1 help, message boxes, Link-only dialogs (helper read; tags as given)
+
+Only F1 help, the F12 mode list and the two D3D warnings reach a Solo player; a software
+port needs F1 and (maybe) the F12 list. 0x438780 and 0x43b700 are Link only. No in-race
+dialog uses item type 2 (0x415e80, a sprite object of 0x418160).
+
+##### F1 help 0x43cf90 (slot 0x4e890c)
+**Opens** [asm 0x431cf2..0x431e0b]: F1 (vk 0x70), not with Ctrl (other handling) nor
+Shift (0x484380 debug), only Solo (0x4dbffc) and not replay playback (0x4e9830 == 0).
+On success 0x4096e0(1) pauses the CD and 0x409700(1) pauses the sounds (as the Pause key).
+F1 is a hotkey of its close row, so a second F1 closes it (0x431250 never sees it).
+**Built** [decomp]: help object 0x4f15f8 = 0x48b120 (0x24 bytes, +0x1c = 1, +0x20 page 0),
+file 0x415a10 (language folder `data\MenuXX\`) + "Help.gen" (0x4e8b40) through 0x48b180 →
+0x48a4a0 (the .GEN parser, NOTES §4.8.4.3). Load failure → returns 0, nothing paused.
+Fields: +0 = 7, +0x10 = 1, +0x14 = 1, +0xc = 1, **+0x18 = −0x4a** (bits 0x01, 0x08, 0x40
+clear: no dials, **no HUD**), +0x34 = 0x43deb0 (draw callback: 0x48a150(1) for every help
+element (+0x10 array, +0x18 count): darkened box 0x49a5a0 around an element with +0x49,
+its texts via 0x489de0), +0x28 = 0 (no auto hotkeys/layout), +8 = 0 (no engine box),
++0x40/+0x44 = 0 (no slide-out), +0x3c = 0, no close test. 11 items, 7 rows.
+Items: one-char strings in font 30 KeyboardHelp (Pal, never halved), lifetime 0, mode 0,
+normal effect 0 blink −500, highlighted effect 3 blink 2:
+| items | char | x, y | align | lands |
+|---|---|---|---|---|
+| 0, 1 | ';' | 5, 2 | 0x68 | x = W−5−w, y = H/2+2 |
+| 2, 3 | '9' | 5, 2 | 0xc8 | x = W−5−w, y = H/2−2−h |
+| 7, 8 | '5' | 5, 28 | 0x68 | y = H/2+28 |
+| 9, 10 | '4' | 5, 28 | 0xc8 | y = H/2−28−h |
+| 4, 5 | 0x83 (F1 key cap) | 5, 5 | 0x88 | bottom right, y = H−5−h |
+| 6 | — | — | — | bare base object (never drawn), hotkey holder |
+(';' '9' '5' '4' = key caps Down, Up, PgDn, PgUp [guess from the actions].)
+Rows (0x433c90; hotkeys are VK codes; rows 0–2, 5, 6 selectable with the shared callbacks
+and cursor 0xe4; rows 3, 4 static, hotkey only):
+| row | items | hotkeys | action |
+|---|---|---|---|
+| 0 | 0, 1 | Down, Right | 0x43df70 next page (if page < count−1: 0x48b190(page+1)) |
+| 1 | 2, 3 | Up, Left | 0x43df40 previous page |
+| 2 | 4, 5 | F1, Escape, Return | 0x43e040 close |
+| 3 | 6 | Home | 0x43def0 first page |
+| 4 | 6 | End | 0x43df10 last page |
+| 5 | 7, 8 | PgDn | 0x43dff0 page += 5 (≤ count−1) |
+| 6 | 9, 10 | PgUp | 0x43dfa0 page −= 5 (≥ 0) |
+No own sounds (0x29 from the enter callback only). **Close 0x43e040** [asm]: +0x20 = 1,
+delete 0x4f15f8 (0x48a440 + free, = 0), 0x4096e0(0) + 0x409700(0) resume CD and sounds,
+0x470fc0 releases the player's inputs; then 0x435620: 0x4354e0 (sound 0x28, no slide),
+free, cursor arrow. **Not mapped**: the Help.gen page layout and the elements' slide
+(0x48b190 / 0x48a000 / 0x48a150 / 0x489de0) — the .GEN engine.
+
+##### Message box 0x43c570 (slot 0x4e8910)
+`0x43c570(title, header, horiz, modal, box, kind, deflt, count, btn[])`, btn = 9-byte
+records (char *text, u8 char, i32 value); 0x43c4e0 = the same with the buttons on the
+stack. Fields: +0x10 = +0x14 = +0xc = modal, +8 = modal | box, +0 = kind, +0x3c = 1,
++0x1c = 1, slide −1/0, +0x28 = 1. Rows count+2, items 2·count+2. **No initial selection**
+(Return does nothing until an arrow or the mouse picks a row) [decomp].
+- Row 1 header: font 32 (→ 33), (0, 0), align 0xc2 (bottom edge at H/2), effect 0, mode 0.
+- Row 0 title: font 12 Messages (AntiAlias8Transp, never halved, its own colours
+  255,127,10 / 200,100,0) at (0, h_hdr + 5) align 0xc2, **effect 3 blinking 333 ms**.
+- Button i (row 2+i, items 2+2i / 3+2i): font 32, align 0x62, effect 0 both (normal fore
+  green 0x4f0df4 back yellow, highlight fore red back yellow: Pal font → **the selected
+  button looks like the others**). First at (0, 0); then y += h + 10 (horiz 0) or x += w +
+  10, measured with font 32 and doubled under SmallFonts (so 640×480 default: step h+5).
+- Hotkeys: default row (i == deflt) n = 3 {0, Escape, char}, others n = 1 {char}; the
+  supplied letters are lower-cased by 0x433dd0 so never match: in practice the auto letter
+  (+ Escape on the default row). Callbacks shared, row +0x3c = value, cursor 0xe4.
+- Action **0x43cf60**: +0x20 = 1, **0x4e891c = value**; next frame race vtable +0x1c
+  0x47ec50 (display mode change). Close 0x435810 → 0x4354e0 (0x28, slide), arrow cursor.
+Callers: **0x43c4e0 from Game_Frame**, D3D only ("[WARNING]", the two video-memory texts,
+not modal, close test 0x47dab0, button "[OK]") — never in a software port.
+**0x43c2b0 = the F12 display-mode list**: title text 43 "SCREEN MODE : ", header
+"[ ]******[   X    Y  ]" (0x4e8b10), horiz 0, modal = Solo, box 1, kind 0xd; one button per
+16-bit DirectDraw mode (records 0x24 bytes at 0x5d8960, count 0x4ee984): "[%c]******[%4d X
+%-4d]" (0x4e8b28), letter from 'A' up skipping used letters, stopping before 'X' (past 'Z'
+→ ' '); value = index | 0xffff0000; last "[CANCEL]" (103), value −1, the default (Escape).
+With default keys 'A' is taken, so the first mode is [B] [decomp; not run].
+
+##### Link only
+- **0x438780** (from 0x410ee0 at race start, skipped in Solo): "WAITING FOR\n
+  SYNCHRONIZATION..." (130, font 9, (4,4) align 0x81, effect 4) + [CANCEL] (bottom right),
+  slot 0x4e8904 **kind 9** (the joystick exception), +8 = 0, own draw 0x438e20.
+- **0x43b700** Link Escape menu (texts 165–170): only when not Solo. Not mapped.
+
+---------------------------------------------------------------------------------------------
+#### 5b. F11 sound / F12 display menus (slot 0x4e8908) (helper read; tags as given)
+
+##### Keys (0x431250, asm 0x432200..0x4325a3)
+- **F11** (not with Ctrl or Shift): no 0x4e8908 → **0x43a400(0)**; 0x4e8908 of kind 3 (the
+  sound menu) → close it (0x4354e0, free, arrow cursor): a toggle; another kind → close,
+  then 0x43a400(0).
+- **F12**: Ctrl → nothing. **Shift+F12** (unless 0x4dc1cc): 0x4e8910 of kind 0xd → close,
+  else **0x43c2b0** (the mode list, §5a). **F12 alone**: 0x4e8908 of kind 1 → close; other
+  kind → close and 0x438f70(0); none → 0x438f70(0).
+- 0x4587e0: bit 0x200000 → 0x438f70(0), else 0x400000 → 0x43a400(0) (the menus' own
+  SND/DISP rows). Argument always 0 → no close test.
+
+##### Common [decomp, field writes checked]
+- **Not modal**: +0x10 = 0, +0x14 = 0, **+0xc = 0** (arrows/Return not handled; keys that
+  are not a row hotkey go to the race), **+8 = 0 no box**, +0x1c = 0, +0x3c = 1, +0x38 =
+  0x43a290 (sets +0x20), slide −1/0 on close (sound 0x28). No opening sound, **no first
+  selection** (no 0x29).
+- Font 32 (→ 33 h 9), Pal. Two items a row: **short tag** (row+4): 0x416170(x −60, y Y, 0,
+  align **0x40**, effect 0, **mode 1**, blink 0, vx 1, vy 0, target (0, Y), s 4.0, **k 7.0**),
+  flying in from the left to the left screen edge; **long text** (row+8 = +0xc, shown while
+  hovered): (0, Y, 0, 0x40, effect 0, mode 0, blink −500), no blinking.
+- Rows 0x433c90(row, short, long, long, short, n = 0): hotkey = first free letter of the
+  short tag. Callbacks: leave 0x4361c0, enter 0x436150 (snap, long item, 0x29), **+0x1c =
+  the action (runs on button down)**, +0x20 = 0, +0x2c = the action (hotkey / Return — but
+  Return needs +0xc, so hotkeys and the mouse only). F12 rows also +0x24 = 0x43a350
+  (toggle SmallFonts: 0x4866d0) — never called by 0x433ec0 [guess: dead]. Cursor 0xe4.
+- Align 0x40 = vertically centred, x as is: with SmallFonts at 640×480 y = 235 + Y/2,
+  tags fly from x = −30 to 0. (SmallFonts 0: 231 + Y, from −60.) [calc]
+- Check boxes (+0x60 = 1, +0x64 = int*): the first char of the drawn text becomes ' ' (0)
+  or '^' (set) — for "[  MOTO]"/"[  AMB]" it replaces the '[' [decomp].
+
+##### F12 display menu 0x438f70 (kind 1; row 5 empty)
+| row | Y | short (id) | long (id) | hotkey* | action | check |
+|---|---|---|---|---|---|---|
+| 0 | −20 | "  L]" 138 | "  LOW RESOLUTION 320X240]" 141 | L | 0x43a2d0: 0x4dc0c8 = 0, 0x4dc0cc = 0x12c00, 0x4e9ce4 = 1 | – |
+| 1 | −40 | "  M]" 137 | "  MEDIUM RESOLUTION 512X384]" 140 | M | 0x43a300: mode 1, 0x30000, re-init | – |
+| 2 | −60 | "  H]" 136 | "  HIGH RESOLUTION 640X480]" 139 | H | 0x43a320: mode 2, 0x4b000, re-init | – |
+| 3 | 10 | "  B]" 142 | "  LETTER BOXED FORMAT]" 143 | B | 0x43a370: re-init, 0x4dc0d4 ^= 1 | 0x4dc0d4 |
+| 4 | 50 | "  FS]" 147 | "  FULL SCREEN]" 148 | F | 0x43a3a0: re-init, 0x4dbff0 ^= 1 | 0x4dbff0 |
+| 6 | 80 | "  SND]" 149 | "  SOUND MENU]" 150 | S | 0x43a3d0: done, 0x4e8918 = 0x400000 | – |
+| 7 | 100 | "  HIDE]" 151 | "  HIDE MENU]" 152 | I (H taken) | 0x43a2b0: done | – |
+Long items red/yellow, short none (Pal: invisible anyway). Texts 144–146 (D3D) loaded but
+unused. Screen y (SmallFonts, 640×480): H 205, M 215, L 225, B 240, FS 260, SND 275,
+HIDE 285 [calc]. *Hotkeys with the default control keys.
+
+##### F11 sound menu 0x43a400 (kind 3; no colour calls)
+| row | Y | short (id) | long (id) | hotkey* | action | check |
+|---|---|---|---|---|---|---|
+| 0 | −50 | "  CD]" 153 | "  CD AUDIO TRACKS]" 154 | C | 0x43b680 → 0x409410 CD music on/off | 0x4db66c |
+| 1 | 0 | "[  MOTO]" 157 | "[  MOTO SFX]" 158 | M | 0x43b690 → 0x408900 toggles 0x4db65c (message text 134, 2 s) | 0x4db65c |
+| 2 | −20 | "  SND]" 155 | "  SOUNDS]" 156 | S | 0x43b6a0 → 0x408b30 sound server on/off | 0x4db664 |
+| 3 | 50 | "  VOICE]" 161 | "  SAMPLEDS VOICES]" 162 | V | 0x43b6b0 → 0x408f30 (voices [guess]) | 0x4db668 |
+| 4 | 80 | "  DISP]" 163 | "  DISPLAY MENU]" 164 | D | 0x43b6d0: done, 0x4e8918 = 0x200000 | – |
+| 5 | 100 | "  HIDE]" 151 | "  HIDE MENU]" 152 | H | 0x43a2b0: done | – |
+| 6 | 20 | "[  AMB]" 159 | "[  AMBIENT SOUNDS]" 160 | B | 0x43b6c0 → 0x408800 toggles 0x4db660, stops the ambience | 0x4db660 |
+Screen y (SmallFonts, 640×480): CD 210, SND 225, MOTO 235, AMB 245, VOICE 260, DISP 275,
+HIDE 285 [calc]. Note: the menu ties MOTO to 0x4db65c and AMB to 0x4db660; NOTES §4.14.5's
+config table has them the other way round — Game_Frame runs the engine sounds only when
+0x4db65c is set, so **the config table's labels look swapped** [guess, to check].
+
+##### Shift+F12 mode list → 0x4e891c → 0x47ec50
+Value with high word set, index < count, 16 bpp and **both** w ≠ W **and** h ≠ H →
+0x4dc0cc = pixel count, 0x4dc0c8 = mode, 0x4dc0d0 = index, 0x4e9ce4 = 1 (quirk: a mode
+sharing the width or the height with the current one is refused).
+
+##### Port
+Resolution rows and the mode list: no-ops or window scale (Danik's call); sound rows →
+the port's sound flags. Unresolved: row+0x24's purpose, 0x4dbff0's meaning (full screen
+or windowed: the FS tick looks inverted if it means windowed), 0x408f30, the '^' glyph.
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and
