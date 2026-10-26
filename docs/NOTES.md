@@ -9387,6 +9387,13 @@ replay camera.
 
 Marks: [asm] read in build/mr.asm, [decomp] Ghidra text only, [px] confirmed on a capture with tools/hud_text.py, [guess].
 
+**Port** (`hud.c`, 2026-10-26): 3.1–3.5 for Solo with the GOG data: the countdown (laps,
+number, GET READY, GO and their voices), the lap, best-lap, TIME / POS and practice panels,
+the finishing place, TIME OUT / FINAL LAP / WRONG WAY / CHECK POINT. Its pictures pass
+tools/hud_text.py as the captures do (q17's 12 texts exact, q14's countdown the same).
+Not yet: the split line (0x412e50), labels (3.7), the CD data's sprite messages, GAME OVER,
+the dials (3b). The port's single race has 24 bikes where q14/q17 show "/23": being measured.
+
 ##### 3.0 Fonts, coordinates, frame counters
 - The HUD fonts are fetched every frame by 0x4816c0 through Font_Get 0x4903d0 [asm]:
 

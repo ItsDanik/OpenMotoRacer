@@ -10,6 +10,7 @@
 #include "config.h"
 #include "dialog.h"
 #include "horizon.h"
+#include "hud.h"
 #include "input.h"
 #include "land.h"
 #include "menu.h"
@@ -192,6 +193,7 @@ static void grid(void)
    race's sound init 0x4084e0, the track's music */
 static void start(void)
 {
+    text_clear();
     grid();
     sound_stop_all();
     sound_race_load(g_bikes[g_rider[1].bike].perso != 0);
@@ -201,7 +203,13 @@ static void start(void)
     memset(g_turbo_hit, 0, sizeof g_turbo_hit);
     g_accel_held = 0;
     rules_restart();
+    hud_restart();
     g_step_at = g_now;
+}
+
+int race_player(void)
+{
+    return g_player;
 }
 
 int race_load(char *err, int errsize)
@@ -234,7 +242,6 @@ int race_load(char *err, int errsize)
     if (g_mode == MODE_PRACTICE)
         g_racer[2].loaded = 0;  /* the second record: the time attack's ghost [guess] */
     g_racer[g_player].human = 1;
-    text_clear();
     g_events = 0;
     start();
     g_racing = 1;
@@ -326,9 +333,9 @@ void race_frame(void)
         if (g_mode != 0 || i == g_player)       /* (practice's second record: unseen) */
             bike3d_draw_rider(&g_rider[i], detail_of(&g_rider[i], eye));
     r3d_render();
+    hud_draw();
     text_update();
     text_draw();                /* the race's messages */
     dialog_draw();
-    rules_countdown_sound();    /* (the dashboard's, once a picture) */
     sound_update();             /* 0x405f30: the voice queue */
 }

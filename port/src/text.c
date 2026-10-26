@@ -166,6 +166,25 @@ int text_add(const TextArgs *a)
     return 1;
 }
 
+/* 0x4179f0: an object with this id is in the list and alive */
+int text_find(int id)
+{
+    int i;
+    for (i = 0; i < TEXTS; i++)
+        if (id && g_texts[i] && g_texts[i]->id == id && alive(g_texts[i], 0))
+            return 1;
+    return 0;
+}
+
+/* 0x4177e0: the object with this id taken out */
+void text_remove(int id)
+{
+    int i;
+    for (i = 0; i < TEXTS; i++)
+        if (id && g_texts[i] && g_texts[i]->id == id)
+            delete_text(i);
+}
+
 void text_update(void)
 {
     int i;

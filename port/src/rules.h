@@ -43,7 +43,7 @@ void rules_restart(void);       /* 0x411010's part */
 void rules_time(int ms);        /* 0x47dae0 */
 void rules_laps(void);          /* 0x47e3d0 */
 void rules_places(void);        /* 0x47e1e0 */
-void rules_countdown_sound(void);       /* 0x413030 / 0x413180's sounds, once a picture */
 int rules_place_of(int k);      /* 0x459f50 */
+const unsigned char *rules_record(void);        /* 0x581118: the track's best lap record */
 
 #endif

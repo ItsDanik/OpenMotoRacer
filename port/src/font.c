@@ -261,6 +261,12 @@ int font_partnered(int n)
     return 0;
 }
 
+/* a font by its own number, no partner (*0x4f1810 + 4n), or 0 */
+Font *font_raw(int n)
+{
+    return n >= 0 && n < MAX_FONTS && g_fonts[n] && g_fonts[n]->loaded ? g_fonts[n] : 0;
+}
+
 /* 0x4903d0: at 640x480 (and big fonts) a low-resolution font gives its partner */
 Font *font_get(int n)
 {

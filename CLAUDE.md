@@ -112,7 +112,8 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   spans). `OMR_RACEVIEW=TRACK,FOCAL,X,Y,Z,C00..C22` draws a track from a still camera.
 - The race (NOTES §4.16): `race.c` (load, grid, frame: track, sky, riders), page 1 hands
   over; `rules.c` (§4.17: countdown, time limit, laps, places with the game's qsort); the
-  race's sounds and music; `dialog.c` (§4.19) the in-race dialogs, so far the pause menu
+  race's sounds and music; `hud.c` (§4.20 §3) the dashboard's texts, countdown and
+  messages (equal to the captures to the pixel; the dials not yet); `dialog.c` (§4.19) the in-race dialogs, so far the pause menu
   (Escape: RESTART / QUIT RACE / CONTINUE RACE, matches the capture). So far a stand-in
   camera and no physics. SmallFonts (CONFIG, default 1) picks the race's small menu font.
 - Test switches: `OMR_PAGE`, `OMR_CHOICES="MODE,TRACK,LAPS[,REV,POC]"`, `OMR_TILE=SX,SY` (the chequered tile's scroll, to match a capture;

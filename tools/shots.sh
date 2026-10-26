@@ -84,3 +84,5 @@ OMR_CHOICES="1,0,3,0,0" run race_speedbay 1 260
 OMR_CHOICES="1,1,3,1,0" run race_reverse 1 260
 OMR_CHOICES="1,0,3,0,0" run race_pause 1 260 "200:escape"
 OMR_CHOICES="1,0,3,0,0" run race_pause_quit 1 300 "200:escape 240:q"
+OMR_CHOICES="1,0,3,0,0" run race_countdown 1 20
+OMR_CHOICES="1,0,3,0,0" run race_hud 1 700

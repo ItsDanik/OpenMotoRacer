@@ -20,6 +20,7 @@ void race_frame(void);
 void race_unload(void);                 /* 0x47d620 */
 void race_restart(void);                /* events 8 | 1 | 2: the same race from the grid */
 void race_quit(void);                   /* events 8 | 4 | 0x200: unloaded, page 9 */
+int race_player(void);                  /* 0x508834: the rider the screen shows */
 void race_release_keys(void);           /* 0x470fc0 on the player, 0x4e8964 = 0 */
 
 #endif

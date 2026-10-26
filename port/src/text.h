@@ -42,6 +42,8 @@ void text_args_of(const Text *t, TextArgs *a);
 
 void text_clock(unsigned ms);           /* 0x4178c0 */
 int text_add(const TextArgs *a);        /* 0x417d20: 1 if added */
+int text_find(int id);                  /* 0x4179f0: alive in the list */
+void text_remove(int id);               /* 0x4177e0 */
 void text_update(void);                 /* 0x418790 */
 int text_empty(void);                   /* 0x417840 */
 void text_draw(void);                   /* 0x418860 */

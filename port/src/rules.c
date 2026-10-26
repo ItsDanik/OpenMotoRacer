@@ -1,10 +1,10 @@
 /* The race's rules (NOTES §4.17): the countdown and the time limit (0x47dae0), laps,
    checkpoints, the wrong way and the finish (0x47e3d0), the places (0x47e1e0), the
-   fastest lap (0x481800) and the lap record (0x458310). The dashboard's texts these
-   routines put up (time over, extended time, final lap, wrong way, the record) are the
-   dashboard's, not written yet; their voices are. */
+   fastest lap (0x481800) and the lap record (0x458310). The dashboard's messages
+   these routines put up are hud.c's. */
 #include "rules.h"
 #include "choices.h"
+#include "hud.h"
 #include "land.h"
 #include "menu.h"
 #include "race.h"
@@ -23,8 +23,6 @@ static unsigned g_clock;        /* 0x50bbc8 for the rules: the race's own ms */
 static unsigned g_hurry_at;     /* 0x4f0c54: the last TIMEOUT voice */
 static int g_hurry_said;
 static Score g_record;          /* 0x581118: the track's records (bestscor.dat) */
-static int g_last_count = -1;   /* 0x542854: the countdown number shown */
-static int g_go_pending;        /* 0x4dbe44: GO still to show */
 
 static int shown(void)          /* 0x4119a0: the player's record (1 in Solo) */
 {
@@ -179,8 +177,6 @@ void rules_restart(void)
     g_wrong_said = 0;
     g_clock = 0;
     g_hurry_said = 0;
-    g_last_count = -1;
-    g_go_pending = 0;
     g_fastest = 0;
     /* 0x4656c0: this track's records, none when the file has no block for it */
     if (!best_lap_load(&g_record))
@@ -238,39 +234,16 @@ void rules_time(int ms)
         sound_queue_voice(0x39, 500);           /* GAMEOVER */
         g_racer[me].state = RS_OUT;
     } else if (!g_hurry_said || g_hurry_at + 2000 < g_clock) {
-        /* (0x481af0: the warning text) */
+        hud_message(HUD_TIME_OUT);              /* 0x481af0 */
         g_hurry_at = g_clock;
         g_hurry_said = 1;
         sound_queue_voice(0x42, 500);           /* TIMEOUT */
     }
 }
 
-/* 0x413030 / 0x413180, the sounds of the countdown: a beep and "3", "2", "1" as the
-   number changes, then a beep and "GO" (0x4082f0). They follow the pictures. */
-static void countdown_sound(int c)
+const unsigned char *rules_record(void)
 {
-    static const int bip[4] = { 2, 1, 1, 1 }, voice[4] = { 0x33, 0x32, 0x31, 0x30 };
-    if (c < 0 || c > 3)
-        return;
-    sound_play(bip[c], 0);
-    sound_play(voice[c], 0);
-}
-
-void rules_countdown_sound(void)
-{
-    int s = g_time_left / 1000 % 60;
-    if (g_counting) {
-        int c = s / 2 + 1;
-        g_go_pending = 500;
-        if (c != g_last_count) {
-            g_last_count = c;
-            countdown_sound(c);
-        }
-    } else if (g_go_pending > 0) {
-        if (s / 2 != g_last_count)
-            countdown_sound(0);
-        g_go_pending = 0;
-    }
+    return g_record.b;
 }
 
 /* ------------------------------------------------------------------ laps */
@@ -350,7 +323,10 @@ void rules_laps(void)
             }
             r->progress += d;
             if (d > 0 && k == me)
-                g_wrong_said = 0;               /* (and the wrong-way text removed) */
+            {
+                g_wrong_said = 0;
+                hud_message(HUD_WRONG_WAY_GONE);
+            }
             if (d > 0 && r->progress > r->furthest) {
                 int s = r->prev, i;
                 r->furthest = r->progress;
@@ -376,8 +352,8 @@ void rules_laps(void)
                            + (f * rd->m[2][0] + rd->t[0]) * pl[0]
                            + (f * rd->m[2][1] + rd->t[1]) * pl[1];
                 if (v < 0.0 && !g_wrong_said) {
-                    /* (0x481db0: WRONG WAY for 4 s) */
                     g_wrong_said = 1;
+                    hud_message(HUD_WRONG_WAY);         /* 0x481db0 */
                     sound_queue_voice(0x46, 500);       /* WRONGWAY */
                 }
             }
@@ -395,8 +371,10 @@ void rules_laps(void)
                 r->state = RS_RACING;
             else if (r->state == RS_RACING) {
                 r->laps++;
-                if (k == me && r->laps == g_laps - 1)
-                    sound_queue_voice(0x37, 500);       /* FINLAP (and its text) */
+                if (k == me && r->laps == g_laps - 1) {
+                    hud_message(HUD_FINAL_LAP);         /* 0x481c50 */
+                    sound_queue_voice(0x37, 500);       /* FINLAP */
+                }
             }
         }
         if (r->state != RS_RACING)
