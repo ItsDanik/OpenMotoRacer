@@ -80,7 +80,11 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - The screen is the game's: 640x480 RGB565 (`video.c`), shown 4:3.
 - `--shot FILE N` (`OMR_SHOT`): no window, N frames, the screen as a BMP. `--help` lists
   the test switches (`OMR_*`).
-- `clock.c`: the game's millisecond clock (timeGetTime), 1000/60 a frame.
+- `clock.c`: the game's millisecond clock (timeGetTime): the real time in a window, 1000/60 a
+  picture under `--shot`. What the game counts in pictures (tiles, blinking, drifting texts)
+  counts 60ths of a second (`g_ticks`), so any refresh rate gives the original's speed.
+- `tools/shots.sh`: the test pictures' sums; `tools/shots.sh | diff build/shots.txt -` after
+  every change.
 - `menu.c`: the menu core (NOTES §4.4): pages by the game's numbers, page change, buttons,
   keys (SDL keys turned into Windows key codes) and mouse, the game's own pointer.
 - Pages written: 25 logo and 14 title (`page_intro.c`), 15 name entry (`page_name.c`, its

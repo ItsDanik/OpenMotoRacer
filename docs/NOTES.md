@@ -139,6 +139,18 @@ time**: the port runs a fixed step (1/60 s → 1.667) which is the original at a
 frames a second. `-frameratemax N` (0x4dc200) only waits in 0x459fd0 until 1000/N ms have
 passed; GOG's launcher passes `-FrameRateMax60`.
 
+**The menu's speed** (2026-10-26): the menu times its slides, 3D objects and texts by
+`timeGetTime`, but some things move a fixed amount each picture: the tile scroll
+(0x43f840), the button blink (0x4dbd08), the drifting texts (0x416b40) and frame-counted
+blinks, the title's "FULL D3D VERSION" every 21 pictures. Started without
+`-FrameRateMax60`, under wine on an unsynchronised display, the original ran its main menu
+at ~95 pictures a second (the tile's scroll read from memory, 0x504880 → +0x18). With GOG's
+switch it runs at 60. The port's clock is the real time in a window, and those counts go
+by 60ths of a second (`g_ticks`), so the port has the original's speed at any refresh
+rate (Danik's 180 Hz screen ran the old port 3 times too fast). Measured: 23 pixels of
+scroll in 0.386 s (23.1 expected). Under `--shot` the clock is 1000/60 a picture, one
+tick each, as before.
+
 ### 4.3 The screen
 - **16-bit colour.** The software renderer draws RGB565 (wine's trace: the 640x480 surface,
   pitch 1280, R 0xf800 G 0x07e0 B 0x1f); the game refuses a desktop that is not 16-bit
