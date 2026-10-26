@@ -94,6 +94,8 @@ static int load(Model *m, const char *f3df, const char *fmap, const char *base)
             int j = (int)n - 1 - k;
             f->idx[k] = idx[j];
             if (mkind >= 3) {
+                f->ut[k] = (float)(int)u32(r + 0x22 + 4 * j);  /* 0x422ed0's floats */
+                f->vt[k] = (float)(int)u32(r + 0x32 + 4 * j);
                 f->u[k] = (int)u32(r + 0x22 + 4 * j) * 8192;
                 f->v[k] = (int)u32(r + 0x32 + 4 * j) * 8192;
             }

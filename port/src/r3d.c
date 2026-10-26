@@ -621,8 +621,8 @@ static int ftol(double x)       /* 0x4b3048: truncation; out of range the x87's 
 
 static int see_through(int kind)
 {
-    return kind == 37 || kind == 38 || kind == 39 || kind == 50 || kind == 51 || kind == 53
-           || kind == 54 || kind == 62;
+    return kind == 37 || kind == 38 || kind == 39 || kind == 44 || kind == 50 || kind == 51
+           || kind == 53 || kind == 54 || kind == 62;
 }
 
 static int sub6(int kind)       /* kind table 0x4f1a70: sub 6, the perspective-correct ones */
@@ -669,6 +669,11 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
         }
         if ((kind == 0x26 || kind == 0x27) && c == 0)
             continue;
+        if (kind == 0x2c) {                             /* 0x4a57f0: half and half */
+            if (c)
+                o[x] = (uint16_t)(((o[x] >> 1) & HALF) + ((c >> 1) & HALF));
+            continue;
+        }
         if (kind == 0x15 || kind == 0x27)
             c = (c >> 1) & HALF;
         o[x] = (uint16_t)c;
@@ -1341,7 +1346,7 @@ static void face(const Entry *e)
         if (kind == 5)                                  /* 0x4a4bc0: ret */
             return;
         if (!sub6(kind) && kind != 0x10 && kind != 0x15 && kind != 0x25 && kind != 0x26
-            && kind != 0x27) {
+            && kind != 0x27 && kind != 0x2c) {
             static int told;
             if (!told++)
                 fprintf(stderr, "openmotoracer: 3D face kind %d is not written yet (page %d)\n", kind, f->page);
