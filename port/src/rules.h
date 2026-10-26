@@ -44,6 +44,9 @@ void rules_time(int ms);        /* 0x47dae0 */
 void rules_laps(void);          /* 0x47e3d0 */
 void rules_places(void);        /* 0x47e1e0 */
 int rules_place_of(int k);      /* 0x459f50 */
+/* 0x4b3100, MSVC's qsort (its order of equal keys is the game's): over 32-bit values */
+typedef int (*QsortCmp)(unsigned a, unsigned b);
+void msvc_qsort(unsigned *base, int num, QsortCmp cmp);
 const unsigned char *rules_record(void);        /* 0x581118: the track's best lap record */
 
 #endif

@@ -13,5 +13,7 @@ void dialog_draw(void);         /* 0x434ae0, after the dashboard */
 void dialog_free(void);         /* the slot emptied without the closing effects */
 
 void dialog_pause(int arg);     /* 0x436420: arg 1 from Escape, 0 after a single race */
+void dialog_results(void);      /* 0x437b70: [REPLAY] YES / NO */
+void dialog_continue(void);     /* 0x4358b0: [CONTINUE] YES / NO */
 
 #endif

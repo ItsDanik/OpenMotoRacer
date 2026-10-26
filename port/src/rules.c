@@ -49,7 +49,7 @@ static int wrap(int s)          /* 0x40ec30 */
 
 /* 0x4b3100, the C library's quicksort as the game has it (the order it leaves equal keys
    in decides the places of riders with equal times) */
-typedef int (*Cmp)(unsigned a, unsigned b);
+typedef QsortCmp Cmp;
 
 static void swap(unsigned *a, unsigned *b)
 {
@@ -70,7 +70,7 @@ static void shortsort(unsigned *lo, unsigned *hi, Cmp cmp)     /* 0x4b3270 */
     }
 }
 
-static void msvc_qsort(unsigned *base, int num, Cmp cmp)
+void msvc_qsort(unsigned *base, int num, Cmp cmp)
 {
     unsigned *lostk[30], *histk[30], *lo, *hi;
     int sp = 0;

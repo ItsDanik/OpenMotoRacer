@@ -9,10 +9,14 @@
 #include "font.h"
 #include "menu.h"
 #include "race.h"
+#include "rules.h"
+#include "scores.h"
+#include "choices.h"
 #include "sound.h"
 #include "text.h"
 #include "video.h"
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -139,10 +143,10 @@ static Text *item(const char *s, int font, int x, int y, int tx, int ty, int ali
 
 static const unsigned char GREEN[3] = { 19, 188, 5 }, YELLOW[3] = { 255, 255, 0 };
 
-static void title(int text, int x, int y, int tx, int ty, int vx, int vy, double k)
+static void title(const char *text, int x, int y, int tx, int ty, int vx, int vy, double k)
 {
     Row *r = &g_dlg->row[g_dlg->nrows++];
-    r->normal = r->shown = item(exe_text(text), 9, x, y, tx, ty, 0xc2, FX_TRANSP25, 1, 0,
+    r->normal = r->shown = item(text, 9, x, y, tx, ty, 0xc2, FX_TRANSP25, 1, 0,
                                 vx, vy, 4.0, k, GREEN, YELLOW);
     r->is_static = 1;
 }
@@ -180,18 +184,37 @@ static void select_row(int i)   /* the old one shows its normal item again (0x43
     g_dlg->sel = i;
 }
 
+/* a button standing at its place (the results' and the continue's) */
+static void still(int text, int x, int y, int align, int escape, void (*action)(void))
+{
+    Row *r = &g_dlg->row[g_dlg->nrows++];
+    const char *s = exe_text(text);
+    r->normal = r->shown = item(s, 32, x, y, x, y, align, FX_NONE, 0, -500, 0, 0, 0, 0, 0, 0);
+    r->high = item(s, 32, x, y, x, y, align, FX_BLINK, 0, 2, 0, 0, 0, 0, 0, 0);
+    if (escape)
+        r->hot[1] = VK_ESCAPE;
+    r->action = action;
+}
+
 /* ------------------------------------------------------------------ the pause menu */
 
 static void act_restart(void)   /* 0x437610 */
 {
     g_dlg->done = 1;
-    race_restart();
+    sound_stop_all();
+    if (g_solo)
+        scores_write_race();
+    race_event(EV_RESTART);
 }
 
 static void act_quit(void)      /* 0x437890 */
 {
     g_dlg->done = 1;
-    race_quit();
+    if (g_solo)
+        scores_write_race();
+    if (g_mode == MODE_CHAMPIONSHIP)
+        g_racer[race_player()].state = RS_OUT;
+    race_event(EV_UNLOAD | EV_TOP5);
 }
 
 static void act_continue(void)  /* 0x437ae0: the keys let go */
@@ -207,15 +230,77 @@ void dialog_pause(int arg)
         return;
     sound_play(3, 0);           /* (0x424090(1): the looping sounds paused) */
     g_dlg->hud = arg != 1;
-    title(0, 0, 200, 0, 5, 0, -1, 5.0);
-    text_free(g_dlg->row[0].normal);    /* "MOTO RACER" (0x4e8aec), not a word number */
-    g_dlg->row[0].normal = g_dlg->row[0].shown =
-        item("MOTO RACER", 9, 0, 200, 0, 5, 0xc2, FX_TRANSP25, 1, 0, 0, -1, 4.0, 5.0,
-             GREEN, YELLOW);
+    title("MOTO RACER", 0, 200, 0, 5, 0, -1, 5.0);      /* (0x4e8aec, not a word number) */
     button(104, 300, 0, 0, 0, 0x62, 1, -400, -1, 0, 0, act_restart);
     button(105, -300, 22, 0, 22, 0x62, 1, -500, 1, 0, 0, act_quit);
     if (arg == 1)
         button(110, 0, 200, 0, 44, 0x62, 1, -600, 0, 1, 1, act_continue);
+    g_dlg->sel = 1;
+    enter(1);
+}
+
+/* ------------------------------------------------------------------ the race's end */
+
+/* 0x438690: no replay; the table written; a championship's top three go on, the others
+   may try again; after a single race the pause menu without CONTINUE */
+static void act_results_no(void)
+{
+    int me = race_player(), place;
+    g_dlg->done = 1;
+    if (g_solo)
+        scores_write_race();
+    if (g_mode == MODE_CHAMPIONSHIP) {
+        place = g_racer[me].state == RS_FINISHED ? g_racer[me].place : rules_place_of(me);
+        race_event(place > 2 ? EV_CONTINUE : EV_UNLOAD | EV_TOP5);
+    } else
+        race_event(EV_PAUSE_AFTER);
+}
+
+static void act_results_yes(void)       /* 0x438650: the replay watched */
+{
+    fprintf(stderr, "openmotoracer: watching the race's replay is not written yet\n");
+    act_results_no();
+}
+
+/* 0x437b70 */
+void dialog_results(void)
+{
+    if (!new_dialog(4))
+        return;
+    sound_stop_all();
+    sound_play(3, 0);
+    g_dlg->hud = 1;
+    title(exe_text(100), -300, 5, 0, 5, 1, 0, 2.0);    /* [REPLAY] */
+    still(101, 10, 0, 0x6a, 0, act_results_yes);
+    still(102, 10, 0, 0x63, 1, act_results_no);
+    /* ([SAVE] 114, only when a replay can be saved: with the replays) */
+    g_dlg->sel = 1;
+    enter(1);
+}
+
+static void act_again(void)     /* 0x436210: the same race again */
+{
+    g_dlg->done = 1;
+    race_event(EV_RESTART);
+}
+
+static void act_give_up(void)   /* 0x436250 */
+{
+    g_dlg->done = 1;
+    race_event(EV_UNLOAD | (g_mode == MODE_SINGLE ? EV_PAGE6 : EV_TOP5));
+}
+
+/* 0x4358b0: practice's end, the time over, a championship race not won */
+void dialog_continue(void)
+{
+    if (!new_dialog(5))
+        return;
+    sound_stop_all();
+    sound_play(0x44, 0);        /* TRYAGAIN */
+    g_dlg->hud = 1;
+    title(exe_text(99), -300, 5, 0, 5, 1, 0, 4.0);     /* [CONTINUE] */
+    still(101, 10, 0, 0x6a, 0, act_again);
+    still(102, 10, 0, 0x63, 0, act_give_up);
     g_dlg->sel = 1;
     enter(1);
 }

@@ -6030,6 +6030,13 @@ The running order: 0x459f50(i) [asm] = the index of rider i in the order array 0
 (0x4dc154 entries), i.e. the current place 0-based, or −1. (Who fills the array: 0x47e3d0 /
 0x47e1e0, the rules part A.)
 
+**Port** (2026-10-26): race.c `race_end` (0x412a50 without the winner's lap), `events`
+(0x4587e0's race bits), `champ_advance` (0x4580f0; pages 16/17/18/24 fall back to 9 with a
+message until written); dialog.c `dialog_results` / `dialog_continue` and the pause menu's
+arg 0; scores.c `scores_write_race` (0x464680), `scores_write_rows` (0x464b70),
+`best_lap_write` (0x4658b0), written whole into the player's folder. Not yet: the
+replay (YES acts as NO), the winner's lap, the podium data, the ghost, page 9's names.
+
 ##### 1. Game_Frame's tail (0x47d905..0x47da5d) [asm]
 
 After the drawing-independent rules, in this order:

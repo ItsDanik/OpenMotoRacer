@@ -16,6 +16,7 @@
 #include "menu.h"
 #include "r3d.h"
 #include "rules.h"
+#include "scores.h"
 #include "sound.h"
 #include "text.h"
 #include "video.h"
@@ -31,8 +32,8 @@ static int g_player = 1;        /* 0x4ea4c0: the local player's record */
 unsigned g_keys[RIDERS];        /* +0x31e9: the control bits (RK_*) */
 int g_turbo[RIDERS], g_turbo_hit[RIDERS];       /* +0x31f9, +0x3201 */
 static int g_accel_held;        /* 0x4e8964 */
-static int g_events;            /* 0x4dc0c4's restart and quit, done at the next frame */
-enum { EV_RESTART = 2, EV_QUIT = 4 };
+static unsigned g_events;       /* 0x4e8918 */
+static int g_finish_timer, g_timeover_timer;    /* 0x4e9824, 0x4e9828 */
 
 /* 0x431250 (WM_KEYDOWN, the repeats of a held key too) and 0x432700 (WM_KEYUP): the keys
    bound to the seven actions (0x53eae0) set and clear the player's bits; pressing one
@@ -97,6 +98,8 @@ void race_key(int vk, int down)
 #define STEP_MS 16
 static unsigned g_step_at;      /* the clock's time the steps have reached */
 
+static void race_end(int ms);
+
 /* one step of Game_Frame (0x47d660) of ms milliseconds: the timers, the countdown and
    the time limit, (the riders' steps and the physics: not yet), the race's rules */
 static void step(int ms)
@@ -108,6 +111,7 @@ static void step(int ms)
     /* 0x47df40: dt = ms x 0.1, each rider's step (0x45d540); 0x47ecd0 */
     rules_laps();
     rules_places();
+    race_end(ms);
 }
 
 /* 0x40ec30: a section number brought into 0 .. count - 1 */
@@ -204,6 +208,7 @@ static void start(void)
     g_accel_held = 0;
     rules_restart();
     hud_restart();
+    g_finish_timer = g_timeover_timer = -1;
     g_step_at = g_now;
 }
 
@@ -255,14 +260,119 @@ void race_release_keys(void)
     g_accel_held = 0;
 }
 
-void race_restart(void)
+void race_event(unsigned bits)
 {
-    g_events |= EV_RESTART;
+    g_events |= bits;
 }
 
-void race_quit(void)
+/* 0x4580f0, a championship's advance (no points in Solo): the top three go to the next
+   race, unlocking what it unlocks; the page after it (page 9 or the podium, 24; 16 and 17
+   for the unlocks, 18 at the end); 0 when the championship is over */
+static int champ_advance(int *page)
 {
-    g_events |= EV_QUIT;
+    const Racer *r = &g_racer[g_player];
+    *page = r->state != RS_FINISHED ? 9 : 24;
+    if (r->place <= 2 && g_champ_race < g_nchamp) {
+        const ChampRace *c = &g_champ[g_champ_race];
+        int i;
+        if (c->unlock_pocket) {
+            g_pocket_unlocked = c->unlock_pocket;
+            *page = 17;
+        }
+        if (c->unlock_reverse) {
+            g_reverse_unlocked = c->unlock_reverse;
+            *page = 16;
+        }
+        for (i = 0; i < g_ntracks; i++)
+            if (strcmp(g_tracks[i].name, c->unlock) == 0)
+                g_tracks[i].available = 1;
+        g_champ_race++;
+    }
+    if (g_champ_race >= g_nchamp) {
+        *page = 18;
+        return 0;
+    }
+    return 1;
+}
+
+/* 0x4587e0's part for the race's events */
+static int events(void)
+{
+    unsigned e = g_events;
+    int page = -1;
+    g_events = 0;
+    if (e & EV_RESTART)
+        start();
+    if (e & EV_UNLOAD)
+        race_unload();
+    if (e & EV_CONTINUE)
+        dialog_continue();
+    else if (e & EV_PAUSE_AFTER)
+        dialog_pause(0);
+    if (e & EV_TOP5) {
+        if (g_mode == MODE_CHAMPIONSHIP)
+            g_champ_on = champ_advance(&page);
+        else
+            page = 9;
+    }
+    if (e & EV_PAGE6)
+        page = 6;
+    if (page == 16 || page == 17 || page == 18 || page == 24) {
+        fprintf(stderr, "openmotoracer: page %d (the championship's unlocks, end and podium) "
+                "is not written yet: TOP 5 instead\n", page);
+        page = 9;
+    }
+    if (page >= 0)
+        menu_change_page(page);
+    return !(e & EV_UNLOAD);
+}
+
+/* 0x412a50, the end of the race once a step: 7 s after the player's finish the results
+   (practice: the table and the continue dialog) and a new best lap kept; 3 s after the
+   time ran out the continue dialog. (The winner's lap, 0x412960, with the computer
+   riders.) */
+static void race_end(int ms)
+{
+    if (g_race_over) {
+        if (g_finish_timer == -1) {
+            g_finish_timer = 7000;
+            sound_queue_voice(0x3e, 500);       /* RACECMPL */
+        } else if (g_finish_timer > 1) {
+            if ((g_finish_timer -= ms) < 0)
+                g_finish_timer = 1;
+        } else if (g_finish_timer == 1)
+            g_finish_timer = 0;
+        else {
+            /* (0x452090, the podium's data: with page 24) */
+            if (g_mode != MODE_PRACTICE)
+                dialog_results();
+            else {
+                /* (the time attack's ghost saved when beaten: with the ghost) */
+                scores_write_race();
+                dialog_continue();
+            }
+            if (g_race_best_lap != NO_TIME && g_race_best_lap != 0) {
+                Score s;                        /* 0x5d25b0 */
+                size_t n = strlen(g_player_name);
+                memset(&s, 0x7f, sizeof s);
+                memset(s.b, 0, 9);
+                memcpy(s.b, g_player_name, n < 8 ? n : 8);
+                memcpy(s.b + 9, "TINI", 4);
+                s.b[0xd] = 0;
+                memcpy(s.b + 0xf5, &g_race_best_lap, 4);
+                best_lap_write(&s);
+                g_race_best_lap = NO_TIME;
+            }
+        }
+    } else if (g_time_over) {
+        if (g_timeover_timer == -1)
+            g_timeover_timer = 3000;
+        else if (g_timeover_timer > 0) {
+            if ((g_timeover_timer -= ms) < 0)
+                g_timeover_timer = 0;
+        } else if (g_solo)
+            dialog_continue();
+    }
 }
 
 void race_unload(void)
@@ -292,17 +402,8 @@ void race_frame(void)
     float eye[3], at[3], c[3][3], pos[3];
     static const float zero[3];
     int i, y, sec;
-    if (g_events & EV_QUIT) {
-        /* (a championship: the player out, state 3, then 0x4580f0: not yet) */
-        if (g_mode == MODE_CHAMPIONSHIP)
-            g_racer[g_player].state = RS_OUT;
-        race_unload();
-        menu_change_page(9);
+    if (g_events && !events())
         return;
-    }
-    if (g_events & EV_RESTART)
-        start();
-    g_events = 0;
     text_clock(g_now);
     dialog_frame();
     if (dialog_holds())
