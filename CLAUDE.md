@@ -110,6 +110,8 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - The race's track (NOTES §4.13): `land.c` (Level.Spt, .trk, section walk, what a camera
   sees), `horizon.c`, and `r3d_race()` (near 64, the detail remap, the sub-6 perspective
   spans). `OMR_RACEVIEW=TRACK,FOCAL,X,Y,Z,C00..C22` draws a track from a still camera.
+  `signs.c` (§4.13.5) the turn signs (F8, DisplaySignal) and the place's figure; `land.c` moves
+  the boats and gulls (AnimDecor). The .trk's "billboards" (+0x5c) are dead code in the game.
 - The race (NOTES §4.16): `race.c` (load, grid, frame: track, sky, riders), page 1 hands
   over; `rules.c` (§4.17: countdown, time limit, laps, places with the game's qsort);
   `race_sound.c` (§4.10.6) the engines, skids, crowd and voices, and the music; `hud.c` (§4.20 §3) the dashboard's texts, countdown and

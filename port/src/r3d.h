@@ -80,6 +80,8 @@ void r3d_set_camera(const float c[3][3], const float pos[3]);   /* the block's +
    on them at one sort key, their kinds kept (0x4f1a18 = 1), none culled */
 int r3d_screen_points(int n, const int (*xy)[2], float z);
 void r3d_screen_faces(int base, int nf, const Face *f, float key);
+/* the same with the kinds through a detail row (0x4f1a18 = 0; detail < 0: the race's own) */
+void r3d_key_faces(int base, int nf, const Face *f, float key, int detail);
 void r3d_render(void);                          /* 0x49ad90 */
 /* 0x410e10: the race's near plane (64) and its kinds for a detail row (0..4); -1 the
    menus' (near 256, kinds as they are) */

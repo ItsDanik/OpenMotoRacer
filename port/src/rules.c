@@ -10,6 +10,7 @@
 #include "race.h"
 #include "rand.h"
 #include "scores.h"
+#include "signs.h"
 #include "sound.h"
 #include <string.h>
 
@@ -403,7 +404,8 @@ void rules_laps(void)
                             g_extended = 5000;
                         }
                     }
-                    /* k == 0x508834: 0x486240(the section's event), the turn signs */
+                    if (k == race_player())
+                        signs_event(g_land.sec[s].event, g_reverse);    /* 0x486240 */
                 }
             }
             if (d <= 0 && k == me) {
