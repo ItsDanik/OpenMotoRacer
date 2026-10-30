@@ -38,6 +38,9 @@ extern int g_norder;            /* 0x4dc154 */
 extern int g_fastest;           /* 0x4f0db8: who holds the fastest lap */
 extern int g_race_best_lap;     /* 0x5d26a5 */
 
+extern char g_split[12];        /* 0x5dbc70: the sign, then the difference to the record's */
+void rules_save_results(void);          /* 0x463c30: before a replay is watched */
+void rules_restore_results(void);       /* 0x463ca0 */
 void rules_progress(int k);     /* 0x47cff4: progress from the section, at the grid */
 void rules_restart(void);       /* 0x411010's part */
 void rules_time(int ms);        /* 0x47dae0 */

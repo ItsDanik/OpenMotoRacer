@@ -5801,7 +5801,7 @@ joystick ≈ 120) — about 2,600–3,500 lines in all.
 **Open points** (each part has its own list below): what +0x2f89 holds; whether the player's
 grid slot is behind the line (then the first crossing also adds section 0's time); race
 object +0xc and +0x10 = 1's writer; 0x4ea4c4 (no writer, 1 in the image); the [SAVE] row's
-condition 0x4e8924 and the replay writer 0x4579b0; obj+0x2da0 and the +0x31f9 button
+condition 0x4e8924 (`-saverecord`) and the replay writer 0x4579b0 (not ported); obj+0x2da0 and the +0x31f9 button
 (physics); confirm the finish voices and the time-out by a recorded race of the original.
 
 #### 0. Conventions
@@ -6671,7 +6671,7 @@ rider's results (obj(1..23): +0x2ddd, +0x2de1, +0x2de5, +0x2f79, +0x2f7b, +0x2f8
 bytes each at 0x5d26ca, +0x16 = 1) so that a replay can be watched and the results put back
 (0x463ca0). Kind 4, +0x10 = 1, +0x14 = 1, +0xc = 1, +0x18 = −10, +0x3c = 1.
 Title **[REPLAY]** (100) font 9; rows **[YES]** (101) → 0x438650, **[NO]** (102) →
-0x438690, and **[SAVE]** (114) → 0x438680 only if 0x4e8924 (a replay can be saved [guess]).
+0x438690, and **[SAVE]** (114) → 0x438680 only with the switch `-saverecord` (0x4e8924), through a file dialog (not ported: the game has no way to play the file back).
 - **YES 0x438650**: events = 0x13 (bit 0x10 kind = 1: watch the replay, 1 race reset, 2
   restart) — the race replays from the recorded inputs.
 - **SAVE 0x438680**: 0x4579b0(0) writes the `.Sav` replay (dialog stays).
@@ -6816,11 +6816,9 @@ named at +0x30 (strcmp with each track record's +4, 0x51d298 tracks) gets +0x128
 - The dialog engine (keys/mouse/layout/drawing, 0x433ec0, 0x434860, 0x4354e0, 0x435090...)
   is only outlined; which keys move and press (arrows, Return, the row hotkeys from
   0x434960, mouse 0x200..0x205) needs reading before the port's dialogs.
-- 0x48acd0/0x48ae40 (the victory "generic" sequence: which .GEN, what 0x4f1634 picks).
 - obj+0x2f89 (0xc0 bytes) and record +0xd: lap or checkpoint times (part A).
 - Whether the ghost rider is counted in the order 0x516ab8 (decides when the ghost is saved).
-- 0x4e8924 (the [SAVE] row's condition) and 0x4579b0 (.Sav writer) not read.
-- race+0xc (0 during the winner's sequence; read in 0x47dae0 for the time-out warning) [guess: HUD on].
+- race+0xc: **the dashboard on**: 0x47ff90 draws 0x4806e0 (the HUD and the text lists) only while it is set; 0 during the winner's credits. [asm; px: the original's capture]
 
 ##### Size of a C port (this part)
 End machine 0x412a50 + winner's lap ~150 lines; event handler and page hand-over ~150;
@@ -9872,7 +9870,8 @@ Off if [0x4dc038]. State [0x4ea5a8], timer [0x4dc13c] (−= dt; shots last 250, 
 sections s..s+23 (0x40d4f0), checked by 0x470860 (visibility). Choice by the
 game's random stream (Rand_Next):
 - 0: trackside, mode 3, zoom 1;
-- 4: trackside zoom = (W/2) / ((fx·256)/dist), clamped to [1, 3] (the zoom 3.0 seen in dumps);
+- 4: trackside zoom = (H/2) / ((fx·256)/dist) (0x624b18 is the screen's height), clamped to
+  [1, 3] (the zoom 3.0 seen in dumps);
 - 1: the chase for 600;
 - 2: orbit: angle +0x28 (starts ±π) += dt·(−0.015707963267948967) (−π/200), radius
   +0x58, y ≥ ground (0x40c8b0) + 260;
@@ -10571,6 +10570,81 @@ with the player's bike through bikephys_int.h); the check is tools/cpucheck.sh.
   taken between the step and the drawing), Snow Ride (dirt, 101 airborne states)
   1250 / 1250, West Way from the countdown 1562 / 1562; the rand() seed after every frame
   3743 / 3743. [test]
+
+### 4.21b Replays, demos, the TV director, the winner's lap (written 2026-10-30)
+
+**The recording** (`replay.c`): 0x558aa8, 0x4fb0 = 20400 records of 8 bytes: word 0 = dt << 24 |
+keys, with bit 7 = +0x31f9 (turbo held) and bit 6 = +0x3201 (turbo pressed); word 1 = x << 16 |
+y (the stick). Clear 0x4577c0, rewind 0x4577e0, add 0x4577f0, play 0x4578a0. Everything else is
+played again from the same start: the seed 0x4f0c48 is kept (0x47bf70: kind 1 reuses it, else
+timeGetTime). `tools/replaycheck.sh`: a race and its replay give the same sum of every rider's
+place and speed, step for step, on three tracks. [test]
+
+**The race's kind 0x4e9834**: 0 a race, 1 its replay, 2 a demo by the track's name. 0x4e9830 =
+playback (demos only: YES on the results gives kind 1 with playback 0, *so kind 1 without
+playback is reachable*). 0x4e8944 the hotkeys F5, F6, F7 (off in a demo and the winner's lap);
+F5 with Shift: the local player finished or out → the next loaded rider in 0x508834; F6 not in
+kind 1. A replay running out with no playback: message text 116 (0x53b7b8) for 5 s, kind → 0,
+the race goes on, the player's again. Results saved and put back around a replay
+(0x463c30/0x463ca0: time, best, state, checkpoint, laps, place). Best lap written only in kind
+0; the podium's data not in kind 1.
+
+**The mark** 0x486660 (kind 1 only): "^" (0x4f1220, which font 11 draws as an R) through 0x4188b0
+(id 0x4e9898, life 2000, align 0x81, x 2, y 2, effect 3, blink −500); in playback "DEMO"
+(0x4f1224, align 0x22, y 10, effect 4, font 12).
+
+**The demos** (`Data\Demo\EA.dem`: `NbItems: 2`, `DemoN: TRACK ms picture`): 0x409a30 after 30 s
+on page 14 (menu+0x24). Kind 2: mode 1, 3 laps, no reverse or pocket, automatic, bike 0, 23
+opponents, rider 1 the computer's (+8 = 0), the screen follows rider 2 (0x508834), the riders'
+speeds not shuffled (0x47bd82), detail forced to 4 (0x472d2e). Ends at clock > 90000: events
+0x120000 (the next item and load: the same track restarts in place, else unload and page 1;
+none left → page 14). Pause rows: demo [NEXT DEMO] 107, [QUIT DEMO] 106, [CONTINUE DEMO] 108;
+replay [CONTINUE REPLAY] 109, [QUIT REPLAY] 111 (championship only).
+*The port's deviation*: the player's choices and detail are put back when the demos end (in the
+original they stay as the demo left them).
+
+**The director** 0x46e9f0 (§4.20 §2.7; `camera.c`): state 0x4ea5a8 (image 1), timer 0x4dc13c
+(image 600), snap 0x4ea510, stream Rand_Next(0); timer = trunc(timer − dt). On when playback ||
+0x504ea0 (winner's lap) || kind 1, and cameras 0x51a40c > 0. Then the view's section by the whole
+track (0x40c740), not by the bike's. 0x4e8968 and 0x4dc134 are never set.
+
+**The split** 0x412e50 (`rules.c`): reference 0x581018 from bestscor: the row with the player's
+name (0x465290, stricmp), else the last row (0x4654e0, 0x465070), else 0x7f. Not in playback,
+nothing while 0x504ea0. On the dashboard in Solo with 0x519fec > 0: y = rows · 16 + 0x29, font 4 at
+x 0x3c; colour ' ' orange 0x4f0dfc, '+' red 0x4f0dec, else green 0x4f0df4; "  X]" font 6 at x 0,
+X = '\' for '+'.
+
+**The winner's lap** (§4.17's 0x412960 and 0x412a50; `race.c`, `generic.c`): as written there.
+What the original's capture adds (`build/ref/winner_*_orig.png`; to reach it in the original:
+start a single race, memtool poke 0x4129c2 eb05 (the place test), then 0x509ba0 = 1 before the
+time runs out):
+- For the 14 s the dials are off, the laps and "1ST POSITION" stay; with the credits (race+0xc =
+  0) the whole dashboard and the messages go. The TV's cameras all along.
+- 14000 ms is exactly 875 of the port's even 16 ms steps: 0x4e9824 would land on 0 and skip the
+  credits (`jns`: only below 0 goes to 1). The original's measured frame times almost never do
+  (seen under wine: 11525, then 1). The port goes to 1 on 0 while the lap is on.
+- Not in the port yet: 0x5dabd0 (200 at the start, −dt while 0x504ea0 and state 2), the rider's
+  salute in the pose 0x45d810 (from the pose 0x51d584 to 0x51da48 between 200 and 175, held to 25,
+  back to 0x51d2a8): the race's rider poses are not written (see the handover).
+
+**The sequence** 0x48aca0/0x48acd0/0x48ae40/0x48b070 (`generic.c`): 0x48aca0(rand() > 0xfff, the C
+library's stream): 0x4f1634, index 0x4f1638 = −1, running 0x4f15f4 = 1, CD track 12. Each drawn
+frame (0x47ff90, flags & 0x10, no help open) 0x48acd0: the next script when none is open, up to
+index 10: 0x4f1640[i] (Short1..7, Short8 ×4), or 0x4f16a0[i] when 0 (Start, Dsi1-3, EA1-3, End,
+Short8 ×3); the GP edition's 0x4f1670, 0x4f16d0. A script that fails or is empty (Short7) only
+loses that frame. Short: 36 s in all.
+
+**A script's life** (§4.8.4.3, the format): 0x48a4a0 finds `{...}` blocks; 0x48a7c0 splits a
+block into lines; 0x488a30 reads a line's tags and texts: a text before a tag or at the end
+becomes a text object (0x416170 align 0x21, 0x416300, 0x4163e0 with the tags' colours; *no*
+layout slot 6, so no line gap in its height), +0xa4 = 1 (alive off the screen until first seen).
+A line without a text, or empty, is dropped, tags kept: all the tags carry on to the end of the
+file. The block's fields are the tags' values at its end: L and H/V hold for every line in it
+(0x48a000). 0x489cf0: a line's pieces 10 pixels apart ([W] a piece's own width), centred or
+right by 0x4f1610; 0x48a000 the lines' heights added up, and centred or at the bottom.
+0x48a9e0: a block starts when the one before has nothing alive; 0x48a150 draws it, moved by
+MX·(W·dt/MH), MY·(H·dt/MV), on a darkened box ([D], 0x49a5a0) in the software renderer. The help
+(F1, 0x48b120, 0x48b180) is the same parser with a page's blocks: not ported yet.
 
 ### 4.22 The joysticks (mapped and written 2026-10-26)
 

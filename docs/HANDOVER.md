@@ -105,6 +105,13 @@ Left + Return (Solo), Left Left + Return (Practice), Return (track page), Return
 Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
 `tools/orig.sh stop` and `pactl unload-module module-null-sink`.
 
+## Done (2026-10-30, session 3: replays, the TV, the winner's lap)
+- Replays (`replay.c`, NOTES §4.21b): YES on the results watches the race again under the TV's
+  cameras, to the bit (`tools/replaycheck.sh`). The demos start after 30 s on the title.
+- The TV director (`camera.c`), the record split line on the dashboard (`rules.c`).
+- The winner's lap with the credits (`generic.c`, the .GEN scripts): compared with a capture of
+  the original (`build/ref/winner_*_orig.png`; how to force it in the original: NOTES §4.21b).
+
 ## Waiting for Danik
 - The CD's MOTO.EXE (NOTES §1): its text code differs from GOG's; run GOG's logic on the
   CD's data, or ask for the official 3.22 patch?
@@ -113,13 +120,13 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   the original, or a user folder? (For now a user folder, the game's read as a fallback.)
 
 ## Next, in order
-1. Replays and the TV director (the "watch the replay" choice in the results dialog prints
-   "not written yet"; camera.c's header), the record split line on the dashboard (0x412e50,
-   `rules.c` split()).
-2. The championship's pages 16/17/18 and the podium (page 24, `0x47b600`): race.c sends
-   them to TOP 5 for now.
-3. The CD sprite messages (0x482030), the mouse in the race's dialogs, F1 / F11 / F12,
-   the music's pause.
+1. The championship's pages 16/17/18 and the podium (page 24, `0x47b600`): race.c sends them
+   to TOP 5 for now.
+2. The riders' poses in the race (0x45d810, the pose blend 0x45b4e0, tables 0x51d2a8, 0x51d584,
+   0x51da48, 0x51df0c): `bike3d.c` draws one still pose (.ROT 4). The crouch with speed, the
+   winner's salute (0x5dabd0), looking back.
+3. The CD sprite messages (0x482030), the mouse in the race's dialogs, F1 (the help: the same
+   .GEN parser, `generic.c`) / F11 / F12, the music's pause.
 4. The track's billboards (+0x5c) and AnimDecor (land.c, "not read yet"); the bikes'
    shadows and lighting; the glass capture's page 2 against the level's pages 2..19.
 5. Two players on one PC: the original has no split screen (ask Danik what he expects).

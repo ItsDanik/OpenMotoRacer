@@ -34,6 +34,7 @@ struct Text {
     unsigned char fore[3], back[3]; /* +0xbc, +0xbf */
     double fvx, fvy, px, py;    /* +0x18, +0x20, +0x28, +0x30: mode 1's flight, y up */
     int list;                   /* the port's: 1 = 0x53ba68 */
+    int unseen;                 /* +0xa4 */
     int nspr;                   /* type 2: +0xac the sprites found */
     const Sprite *spr[8];       /* +0xb4 */
     int sdx[8], sdy[8];         /* +0xf4: the step before each */
@@ -79,7 +80,8 @@ static int alive(const Text *t, int force)
         return 0;
     if (!force && t->lifetime && g_clock - t->start > (unsigned)t->lifetime)
         return 0;
-    return t->x < SCREEN_W && t->x + t->w > 0 && t->y < SCREEN_H && t->y + t->h > 0;
+    return t->unseen
+        || (t->x < SCREEN_W && t->x + t->w > 0 && t->y < SCREEN_H && t->y + t->h > 0);
 }
 
 static void delete_text(int i)
@@ -133,7 +135,8 @@ Text *text_new(const TextArgs *a)
         if (!f)
             return 0;
         font_measure(f, a->text, &w, &h, 0);
-        h += f->line;
+        if (!a->bare)
+            h += f->line;
     }
     if (a->motion != 1)
         align(w, h, &x, &y, a->align);
@@ -148,6 +151,7 @@ Text *text_new(const TextArgs *a)
     if (t->text)
         strcpy(t->text, a->text);
     t->list = a->list;
+    t->unseen = a->bare;
     t->align = a->align;
     t->effect = a->effect;
     t->motion = a->motion;
@@ -342,6 +346,35 @@ void text_now(const Text *t, int r[4])
     r[1] = t->y;
     r[2] = t->x + t->w - 1;
     r[3] = t->y + t->h - 1;
+}
+
+void text_box(const Text *t, int *w, int *h)
+{
+    *w = t->w;
+    *h = t->h;
+}
+
+void text_place(Text *t, int x, int y)
+{
+    t->x = x;
+    t->y = y;
+}
+
+void text_life(Text *t, int ms)
+{
+    t->lifetime = ms;
+}
+
+void text_wake(Text *t)
+{
+    if (alive(t, 1))
+        t->start = g_clock;
+}
+
+void text_seen(Text *t)
+{
+    if (t->x < SCREEN_W && t->x + t->w > 0 && t->y < SCREEN_H && t->y + t->h > 0)
+        t->unseen = 0;
 }
 
 int text_alive(const Text *t)

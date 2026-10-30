@@ -475,6 +475,11 @@ static R road_y(int sec, const float p[3])
     return -((((R)pl[2] * p[2] + (R)pl[0] * p[0]) + pl[3]) / pl[1]);
 }
 
+double bikephys_road_y(int sec, const float p[3])
+{
+    return (double)road_y(sec, p);
+}
+
 /* the wall crossing as 0x40ca80 mirrors v on it */
 static void mirror(float v[3], const float n[3])
 {
@@ -2569,6 +2574,53 @@ int bp_perso(const BikePhys *b) { return bk(b)->perso; }
 void bp_start_step(BikePhys *b) { start_step(b); }
 void bp_turbo(BikePhys *b, float dt) { turbo(b, dt); }
 void bp_frame_and_lean(BikePhys *b) { frame_and_lean(b); }
+/* 0x48df90: the engine from the wheel speed, the gear found to suit it */
+static float engine_finding_gear(BikePhys *b, float *wheel, float e)
+{
+    R mvm = carac(b, C_MVM), vmb = carac(b, C_VMB);
+    float nb = carac(b, C_NBSPEED), out;
+    if (b->shift)
+        return e;
+    do {
+        int g = b->gear;
+        out = (float)(mvm / ((R)ratio(b, g) * vmb) * *wheel);
+        if ((R)out < 0.1) {
+            if (g < 2)
+                break;
+            b->gear = g - 1;
+        } else if (mvm < out) {
+            if ((float)g >= nb)
+                break;
+            b->gear = g + 1;
+        }
+    } while (mvm < out);
+    if (NEG(out))
+        return 0.0f;
+    if (mvm < out) {
+        out = (float)mvm;
+        *wheel = (float)((R)ratio(b, b->gear) / mvm * carac(b, C_VMB) * out);
+    }
+    return out;
+}
+
+void bikephys_winner_take(BikePhys *b)
+{
+    b->driven = 0;
+    b->engine = b->cpu_speed = b->speed;
+    b->top = (float)((R)b->top * 0.8);
+    b->keys1 = 0;
+}
+
+void bikephys_winner_give_back(BikePhys *b, float top)
+{
+    b->driven = 1;
+    b->top = top;
+    b->shift = b->pending = 0;
+    b->speed = b->engine;
+    wheel_from_speed(b);
+    b->engine = engine_finding_gear(b, &b->wheel, b->engine);
+}
+
 void bp_wheel_spin(BikePhys *b) { wheel_spin(b, (unsigned)b->keys1); }
 void bp_suspension(BikePhys *b) { suspension(b); }
 void bp_tumble(BikePhys *b, float dt) { tumble(b, dt); }

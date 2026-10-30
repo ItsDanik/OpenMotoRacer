@@ -28,7 +28,7 @@ void loading_progress(void)
         bitmap_draw(&g_pics[P_REVERSE], BM_OWN, 100, 0);
     if (g_pocket)
         bitmap_draw(&g_pics[P_POCKET], BM_OWN, 100, 0);
-    if (g_logo)         /* (not when a replay is loaded) */
+    if (g_logo && !g_playback)
         bitmap_draw(&g_pics[P_LOGO], BM_OWN, 100, 0);
     g_logo ^= 1;
 }
@@ -37,7 +37,10 @@ void page_load_frame(void)
 {
     if (g_step == 0) {
         char path[300];
-        snprintf(path, sizeof path, "%sload.lez", g_tracks[g_track].folder);
+        if (race_demo_picture())        /* 0x542891 */
+            snprintf(path, sizeof path, "%s", race_demo_picture());
+        else
+            snprintf(path, sizeof path, "%sload.lez", g_tracks[g_track].folder);
         bitmap_load_lez(&g_load, path, BM_OPAQUE);
         bitmap_place(&g_pics[P_LOGO], 498, 381, 0);
         bitmap_place(&g_pics[P_LOADING], 0, 408, 0);

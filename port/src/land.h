@@ -29,11 +29,13 @@ typedef struct {                /* a library entry: 0x4dc0d8/dc/e0 */
 typedef struct {                /* a decor object (class 0x4d0110) */
     float pos[3], ang[3];       /* +0x20, +0x14 */
     int lib, anim;
+    int camera;                 /* its name is CAMERA.. or camera.. (0x40d4f0) */
 } Decor;
 
 typedef struct {
     int version;
     int nsec, nblock, nlib, ndecor;
+    int ncam;                   /* 0x51a40c: trackside cameras (0x473240) */
     Section *sec;
     Model *block;
     LandLib *lib;

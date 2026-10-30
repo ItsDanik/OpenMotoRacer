@@ -122,6 +122,12 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   `cpu.c` the computer riders (§4.21, bit-exact on recordings, `tools/cpucheck.sh`).
   Smooth pictures between the 62.5 Hz steps (F10, the port's own settings file).
   SmallFonts (CONFIG, default 1) picks the race's small menu font.
+- Replays, demos, the TV, the winner's lap (NOTES §4.21b): `replay.c` the recording, played back
+  to the bit (`tools/replaycheck.sh`), the demos after 30 s on the title, `camera.c`'s director,
+  the record split line in `rules.c`; `generic.c` the .GEN scripts and the victory credits.
+  `OMR_AUTOPILOT=1` the computer rides the player's bike (`=win`: and the others crawl, no time
+  limit, to reach the winner's lap), `OMR_RACELOG=FILE` a sum a step, `OMR_WATCH_AT=N` replay at
+  step N.
 - Joysticks (NOTES §4.22): `joy.c`, SDL's joysticks as the game's WinMM ones (dead zone, rescale,
   the bindings 0x411b30, the dialogs' arrows, Ctrl+J/K); `-jN` / `OMR_JOYDEAD` the dead
   zone, `OMR_DEVICE` the input device, `OMR_INPUT` `F:joy:X,Y,B` a pretend joystick.

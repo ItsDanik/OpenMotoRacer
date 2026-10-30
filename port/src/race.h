@@ -21,13 +21,30 @@ void race_unload(void);                 /* 0x47d620 */
 enum {
     EV_RESTART = 2,             /* 1 | 2: the riders back on the grid, the race again */
     EV_UNLOAD = 4,
+    EV_NORMAL = 8,              /* the race kind 0 */
+    EV_WATCH = 0x10,            /* the race kind 1: the race's replay */
     EV_CONTINUE = 0x40,         /* the continue dialog */
     EV_PAUSE_AFTER = 0x80,      /* the pause menu without CONTINUE (after a single race) */
     EV_TOP5 = 0x200,            /* a championship's advance (0x4580f0), else page 9 */
-    EV_PAGE6 = 0x400
+    EV_PAGE6 = 0x400,
+    EV_TITLE = 0x2000,          /* page 14 */
+    EV_CLOSE_DEMOS = 0x8000,    /* the demo list closed, the demos over */
+    EV_DEMO_LOAD = 0x20000,     /* the demo list's current entry starts */
+    EV_DEMO_NEXT = 0x100000     /* the demo list moves on */
 };
 void race_event(unsigned bits);
 int race_player(void);                  /* 0x508834: the rider the screen shows */
+int race_local(void);                   /* 0x4ea4c0: the local player's record */
+extern int g_race_kind;                 /* 0x4e9834: 0 a race, 1 its replay, 2 a demo */
+extern int g_playback;                  /* 0x4e9830: the demos run */
+extern int g_winner_lap;                /* 0x504ea0: the computer rides the winner's bike on */
+/* the demo list (Data\Demo\EA.dem, 0x42e370) and the title page's time-out (0x409a30);
+   race_demo_picture: the loading picture of the running demo, or 0 */
+void race_demos_load(void);
+void race_demos_off(void);              /* 0x53e5f2 = 0: never tried again */
+int race_demos_exist(void);             /* 0x53e5f2 */
+int race_demo_start(void);
+const char *race_demo_picture(void);
 void race_release_keys(void);           /* 0x470fc0 on the player, 0x4e8964 = 0 */
 
 #endif

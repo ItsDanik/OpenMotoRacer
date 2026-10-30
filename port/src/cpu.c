@@ -571,7 +571,7 @@ void cpu_step(BikePhys *b, float dt, int countdown)
 
 /* ------------------------------------------------------------------ the start (0x47bc60) */
 
-void cpu_start(BikePhys *rider[], int n, int difficulty, int pocket, unsigned seed)
+void cpu_start(BikePhys *rider[], int n, int difficulty, int pocket, unsigned seed, int shuffle)
 {
     int opp = n - 2, i;                 /* 0x542874 */
     float f = 1.0f;
@@ -590,7 +590,8 @@ void cpu_start(BikePhys *rider[], int n, int difficulty, int pocket, unsigned se
             rider[i + 2]->top = (float)(((R)v * KMH_MS) * f);
     }
     W.crt = seed;                       /* 0x47bf70: srand(timeGetTime()) */
-    for (i = 0; i < opp / 2; i++) {     /* 0x4dbfd4 = 1: shuffled (not in a replay) */
+    /* 0x47bd82: 0x4dbfd4 = 1, shuffled (not in the demos) */
+    for (i = 0; shuffle && i < opp / 2; i++) {
         int a = bikephys_crt_rand() % opp + 2, c = bikephys_crt_rand() % opp + 2;
         if (a != c && rider[a] && rider[c]) {
             float t = rider[a]->top;

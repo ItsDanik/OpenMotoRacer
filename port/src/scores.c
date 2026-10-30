@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #define BLOCK (0x20 + SCORE_SIZE * (1 + SCORE_ROWS))
 
@@ -94,6 +95,33 @@ void scores_load(void)
         memcpy(g_scores, b + 0x20 + SCORE_SIZE, sizeof g_scores);
     else
         memset(g_scores, 0x7f, sizeof g_scores);
+    free(d);
+}
+
+/* the track's table: the row with the player's name; without one the last row filled;
+   0x7f all over when the table has none */
+void scores_split_reference(Score *out)
+{
+    long len = 0;
+    unsigned char *d = read_table(&len);
+    const unsigned char *b = find_block(d, len);
+    int i, last = -1;
+    memset(out, 0x7f, sizeof *out);
+    if (b) {
+        const Score *row = (const Score *)(b + 0x20 + SCORE_SIZE);
+        for (i = 0; i < SCORE_ROWS; i++) {
+            const char *n = (const char *)row[i].b;
+            if (n[0] != 0x7f && n[0] != 0)
+                last = i;
+            if (strncasecmp(n, g_player_name, 9) == 0) {
+                *out = row[i];
+                free(d);
+                return;
+            }
+        }
+        if (last >= 0)
+            *out = row[last];
+    }
     free(d);
 }
 

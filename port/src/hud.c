@@ -89,6 +89,8 @@ static int seconds(void)        /* 0x4f0d8c: the clock's seconds, 0 .. 59 */
     return g_time_left / 1000 % 60;
 }
 
+static int id_replay;           /* 0x4e9898 */
+
 static int me(void)
 {
     return race_player();
@@ -380,7 +382,23 @@ static void lap_panel(void)
             put(F_PLAYER, s, 0, y, 0x21, 0, 0);
         }
     }
-    /* (the split line against the leader, 0x412e50: not yet) */
+    /* the split against the reference (0x412e50) while the checkpoint's message lasts */
+    if (g_solo && g_extended > 0 && g_split[0]) {
+        Font *f = font_get(F_LOW_CHRONO);
+        unsigned char fore[3];
+        const unsigned char *col = named_colour(g_split[0] == ' ' ? COL_ORANGE
+                                                : g_split[0] == '+' ? COL_RED : COL_GREEN);
+        y += 0x10;
+        if (f) {
+            memcpy(fore, f->fore, 3);
+            font_set_colors(f, col, 0);
+        }
+        put(F_LOW_CHRONO, g_split + 1, 0x3c, y, 0x21, 0, 0);
+        if (f)
+            font_set_colors(f, fore, 0);
+        snprintf(s, sizeof s, "  %c]", g_split[0] == '+' ? '\\' : ' ');
+        put(F_PLAYER, s, 0, y, 0x21, 0, 0);
+    }
 }
 
 /* 0x482380: TIME left and the place, right side */
@@ -818,4 +836,7 @@ void hud_draw(void)
         finish_place();     /* (unless the race's end shows its podium: not yet) */
         lap_panel();
     }
+    /* 0x486660: the mark of a replay, top left */
+    if (g_race_kind == 1 && !text_find(id_replay))
+        say(&id_replay, "^", 2000, 0x81, 2, 2, FX_BLINK, F_SPRITES, -500);
 }

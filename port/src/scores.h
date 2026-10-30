@@ -24,6 +24,7 @@ extern Score g_best_lap;            /* 0x540230 */
 void scores_key(char *key, int size);   /* the current choices' key */
 void scores_load(void);                 /* 0x464e80: the races (all 0x7f when none) */
 int best_lap_load(Score *out);          /* 0x4656c0: 1 if the key's block was found */
+void scores_split_reference(Score *out); /* 0x465290, else 0x465070 of the last row */
 void scores_write_race(void);           /* 0x464680: the race's finished humans in */
 void scores_write_rows(void);           /* 0x464b70: g_scores back */
 void best_lap_write(const Score *s);    /* 0x4658b0 */

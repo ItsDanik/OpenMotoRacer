@@ -2,6 +2,7 @@
    its pages, the page change, the buttons and how the keyboard and mouse work them. */
 #include "menu.h"
 #include "font.h"
+#include "race.h"
 #include "sound.h"
 #include "clock.h"
 #include "pages.h"
@@ -308,7 +309,10 @@ void menu_frame(void)
     if (pages[page].frame)
         pages[page].frame();
     sound_update();             /* 0x404eb0 */
-    /* (the title's 30 s demo time-out goes here, with the title page) */
+    /* 0x409a30: nobody has touched anything for 30 s on the title page */
+    if (page == 14 && g_menu.active && race_demos_exist() && g_now - g_menu.last_input > 30000
+        && !race_demo_start())
+        race_demos_off();
     /* a held left button presses a repeating button every frame */
     if ((g_mouse & 2) && (g_menu.prev_mouse & 2)) {
         g_menu.last_input = g_now;

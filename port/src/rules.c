@@ -23,6 +23,8 @@ static unsigned g_clock;        /* 0x50bbc8 for the rules: the race's own ms */
 static unsigned g_hurry_at;     /* 0x4f0c54: the last TIMEOUT voice */
 static int g_hurry_said;
 static Score g_record;          /* 0x581118: the track's records (bestscor.dat) */
+static Score g_reference;       /* 0x581018: the race the splits are measured against */
+char g_split[12];
 
 static int shown(void)          /* 0x4119a0: the player's record (1 in Solo) */
 {
@@ -30,7 +32,7 @@ static int shown(void)          /* 0x4119a0: the player's record (1 in Solo) */
     for (k = 1; k < g_riders; k++)
         if (g_racer[k].loaded && g_racer[k].human)
             return k;
-    return -1;
+    return g_race_kind == 2 ? race_player() : -1;
 }
 
 /* every rider counts in Solo (0x4ea4c4 = 1); Link's remote players would not */
@@ -181,6 +183,9 @@ void rules_restart(void)
     /* 0x4656c0: this track's records, none when the file has no block for it */
     if (!best_lap_load(&g_record))
         memset(&g_record, 0x7f, sizeof g_record);
+    /* 0x411205: the player's own best here, else the table's slowest (the time attack's
+       ghost: with the ghost) */
+    scores_split_reference(&g_reference);
     for (g_ncheck = k = 0; k < g_land.nsec; k++)          /* 0x47b4ff */
         if (g_land.sec[k].checkpoint >= 0)
             g_ncheck++;
@@ -226,7 +231,7 @@ void rules_time(int ms)
         g_control = 1;
         return;
     }
-    if (me < 0 || (g_racer[me].state != RS_GRID && g_racer[me].state != RS_RACING)
+    if (g_playback || me < 0 || (g_racer[me].state != RS_GRID && g_racer[me].state != RS_RACING)
         || (g_mode == MODE_PRACTICE && !g_time_attack))
         return;
     if (g_time_left + 500 < 0) {                /* time over */
@@ -277,14 +282,71 @@ static void fastest_lap(void)
         g_fastest = (int)(key[0] >> 27);
 }
 
-/* 0x412e50 (with 0x46d4b0): the race time at the checkpoint passed. (The difference to
-   the record shown on the dashboard: not yet.) */
-static void split(int k)
+/* 0x412e50 (with 0x46d4b0): the race time at the checkpoint passed, and for the rider
+   shown the difference to the reference's time there, for the dashboard */
+static void split(int k, int is_shown)
 {
     Racer *r = &g_racer[k];
     int i = r->cp == 0 ? (r->laps + 1) * g_ncheck - 1 : r->laps * g_ncheck - 1 + r->cp;
-    if (i >= 0 && i < SPLITS)
+    int d, ref, ms, sign;
+    if (i > 0x30)
+        i = -1;
+    if (i >= 0)
         r->split[i] = r->time;
+    if (!is_shown)
+        return;
+    g_split[0] = 0;
+    if (i < 0 || g_reference.b[0] == 0x7f)
+        return;
+    ref = (int)((unsigned)g_reference.b[0xd + 4 * i] | (unsigned)g_reference.b[0xe + 4 * i] << 8
+                | (unsigned)g_reference.b[0xf + 4 * i] << 16
+                | (unsigned)g_reference.b[0x10 + 4 * i] << 24);
+    if (ref == 0 || ref == NO_TIME)
+        return;
+    d = r->split[i] - ref;
+    sign = d == 0 ? ' ' : d < 0 ? '-' : '+';
+    ms = d < 0 ? -d : d;
+    /* (cut at 10 characters: a difference of an hour does not fit anyway) */
+    g_split[0] = (char)sign;
+    g_split[1] = (char)('0' + ms / 600000 % 6), g_split[2] = (char)('0' + ms / 60000 % 10);
+    g_split[3] = ':';
+    g_split[4] = (char)('0' + ms / 10000 % 6), g_split[5] = (char)('0' + ms / 1000 % 10);
+    g_split[6] = ';';
+    g_split[7] = (char)('0' + ms / 100 % 10), g_split[8] = (char)('0' + ms / 10 % 10);
+    g_split[9] = 0;
+}
+
+/* 0x463c30, 0x463ca0: every rider's result, around watching a replay */
+static struct {
+    int time, best, state, cp, laps, place;
+} g_results[RIDERS];
+
+void rules_save_results(void)
+{
+    int k;
+    for (k = 1; k < RIDERS; k++) {
+        const Racer *r = &g_racer[k];
+        g_results[k].time = r->time;
+        g_results[k].best = r->best;
+        g_results[k].state = r->state;
+        g_results[k].cp = r->cp;
+        g_results[k].laps = r->laps;
+        g_results[k].place = r->place;
+    }
+}
+
+void rules_restore_results(void)
+{
+    int k;
+    for (k = 1; k < RIDERS; k++) {
+        Racer *r = &g_racer[k];
+        r->time = g_results[k].time;
+        r->best = g_results[k].best;
+        r->state = g_results[k].state;
+        r->cp = g_results[k].cp;
+        r->laps = g_results[k].laps;
+        r->place = g_results[k].place;
+    }
 }
 
 /* 0x47e3d0, every frame after the step */
@@ -361,7 +423,8 @@ void rules_laps(void)
             r->prev = cur;
         }
         if (cp && r->state == RS_RACING) {
-            split(k);
+            if (!g_playback && !g_winner_lap)
+                split(k, k == me);
             if (COUNTS(k) && ++r->cp >= g_ncheck)
                 r->cp = 0;
         }

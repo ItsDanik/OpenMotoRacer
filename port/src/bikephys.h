@@ -145,6 +145,7 @@ typedef struct {
 
 extern BikeWorld g_bikeworld;
 
+double bikephys_road_y(int sec, const float p[3]);      /* 0x40c8b0 */
 /* the section planes the physics uses (0x40e5c0) for g_land; again after each land_load */
 int bikephys_track(void);
 void bikephys_track_free(void);
@@ -170,6 +171,11 @@ double bikephys_frame_pitch(const BikePhys *b);
 
 /* the C library's rand() as the game's (msvcrt: x 214013 + 2531011, bits 16..30) */
 int bikephys_crt_rand(void);
+
+/* 0x412960's part of the winner's lap: the computer takes the bike at 80 % of its top speed;
+   and the bike given back (0x412a50, 0x411010), its top speed as it was */
+void bikephys_winner_take(BikePhys *b);
+void bikephys_winner_give_back(BikePhys *b, float top);
 
 /* drawing helpers: the matrix as rows, the lean, the frame's pitch */
 static inline const float *bikephys_row(const BikePhys *b, int r) { return b->m + 3 * r; }

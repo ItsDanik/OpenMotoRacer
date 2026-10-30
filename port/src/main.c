@@ -60,7 +60,11 @@ static void usage(void)
          "                     (with --shot: what the run would have sounded like)\n"
          "  OMR_RACEVIEW=\"TRACK,FOCAL,X,Y,Z,C00,C01,...,C22\"  no menu: the track (its number\n"
          "                     in the list) seen from a camera at X,Y,Z with the matrix C\n"
-         "                     (the camera block's +0x68), FOCAL 394 as the race's");
+         "                     (the camera block's +0x68), FOCAL 394 as the race's\n"
+         "  OMR_AUTOPILOT=1    the computer rides the player's bike; =win: and the others\n"
+         "                     crawl, with no time limit (to reach the winner's lap)\n"
+         "  OMR_RACELOG=FILE   a sum of every rider's place and speed, a line a step\n"
+         "  OMR_WATCH_AT=N     the race's replay is asked for at step N");
 }
 
 static void fail(const char *msg, int headless)
@@ -307,6 +311,7 @@ int main(int argc, char **argv)
         fail(err, shot != 0);
     r3d_init();
     rand_init();
+    race_demos_load();
     if (!video_init(shot != 0, err, sizeof err))
         fail(err, shot != 0);
     SDL_ShowCursor(SDL_DISABLE);        /* the game draws its own pointer */

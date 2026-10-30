@@ -191,6 +191,9 @@ static int read_trk(const unsigned char *d, long len)
             o->anim = v > 4 ? rd_i32(&r) : -1;
             if (o->lib < 0 || o->lib >= l->nlib)
                 o->lib = -1;
+            o->camera = strncmp(name, "CAMERA", 6) == 0 || strncmp(name, "camera", 6) == 0;
+            if (o->lib >= 0 && strncmp(l->lib[o->lib].name, "CAMERA", 6) == 0)
+                l->ncam++;                      /* 0x473240 */
         }
     }
     if (v > 1) {

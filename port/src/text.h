@@ -28,6 +28,9 @@ typedef struct {                /* 0x417d20's arguments */
     const unsigned char *fore, *back;   /* 25, 26: R,G,B */
     /* the port's: which of the race's lists (0 = 0x53b8e8, 1 = 0x53ba68, drawn first) */
     int list;
+    /* 0x416300 without the layout of slot 6 (no line's gap), alive off the screen until
+       first seen there (+0xa4): a .GEN script's piece */
+    int bare;
     /* a sprite object instead of a text (0x418160, item type 2; text and font unused):
        up to 8 parts, each a low-res and a hi-res sprite and a step before it */
     int parts;
@@ -47,6 +50,11 @@ void text_now(const Text *t, int r[4]);         /* 0x417210 */
 int text_alive(const Text *t);
 char *text_string(Text *t);
 void text_args_of(const Text *t, TextArgs *a);
+void text_box(const Text *t, int *w, int *h);   /* +0x80, +0x84 */
+void text_place(Text *t, int x, int y);         /* +0x70, +0x74 */
+void text_life(Text *t, int ms);                /* +0x8c */
+void text_wake(Text *t);                        /* slot 3 (1) true: its time starts now */
+void text_seen(Text *t);                        /* 0x417350: +0xa4 = 0 once on the screen */
 
 void text_clock(unsigned ms);           /* 0x4178c0 */
 int text_add(const TextArgs *a);        /* 0x417d20 (a sprite object: 0x418160): 1 if added */

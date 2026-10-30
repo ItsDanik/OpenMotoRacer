@@ -19,6 +19,6 @@ void cpu_step(BikePhys *b, float dt, int countdown);
    (easy 0.9, medium 1, hard 1.05) x (1 / FactorPocket when Pocket), then the riders' speeds
    swapped at random (opponents / 2 times). rider[2 .. n - 1] are the opponents; seed is
    the C library's srand() of 0x47bf70 (timeGetTime in the game). */
-void cpu_start(BikePhys *rider[], int n, int difficulty, int pocket, unsigned seed);
+void cpu_start(BikePhys *rider[], int n, int difficulty, int pocket, unsigned seed, int shuffle);
 
 #endif

@@ -90,3 +90,9 @@ OMR_CHOICES="1,0,3,0,0" run race_timeover 1 9003
 OMR_CHOICES="0,0,3,0,0" run race_ride 1 800 "100:hold:up 700:hold:left 760:release:left"
 OMR_CHOICES="1,0,3,0,0" run race_gameover 1 2600
 OMR_CHOICES="1,0,3,0,0" run race_onboard 1 700 "100:hold:up 300:f6 600:hold:left 640:release:left"
+# the demo from the title, under the TV's cameras; a race won by the computer: its lap, the
+# credits, the results, the replay
+OMR_TILE=59,59 run demo_tv 14 2600
+OMR_AUTOPILOT=win OMR_CHOICES="1,0,1,0,0" run winner_lap 1 7000
+OMR_AUTOPILOT=win OMR_CHOICES="1,0,1,0,0" run winner_credits 1 8200
+OMR_AUTOPILOT=win OMR_CHOICES="1,0,1,0,0" run winner_replay 1 11600 "10450:return"

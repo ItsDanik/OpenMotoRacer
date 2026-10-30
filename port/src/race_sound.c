@@ -1226,7 +1226,7 @@ void race_sound_step(BikePhys *const *all, int followed, const float cam[3],
                      const float look[3], float dt)
 {
     if (g_engine_on && sound_effects_on())
-        engines(all, followed, cam, look, dt, 0);
+        engines(all, followed, cam, look, dt, g_bikeworld.replay);
     memcpy(g_cam_prev, cam, sizeof g_cam_prev);
     if (sound_effects_on() && g_ambience_on)    /* 0x405f30 (its queues: sound_update) */
         ambience(cam, look);

@@ -1,11 +1,15 @@
 /* The race's camera (NOTES §4.20 §2): the chase 0x46f840 behind the followed bike, its
-   four distances (F5), the look back (Tab: the bike-mounted preset 1) and the orbit to
-   the front once the bike has finished. The on-board camera (F6) and the TV director of
-   the replays are not written yet. */
+   four distances (F5), the look back (Tab: the bike-mounted preset 1), the orbit to the
+   front once the bike has finished, the on-board camera (F6) and the TV director of the
+   replays and demos (0x46e9f0). */
 #include "camera.h"
 #include "bikes.h"
+#include "choices.h"
+#include "land.h"
 #include "menu.h"
 #include "r3d.h"
+#include "rand.h"
+#include "video.h"
 #include <math.h>
 #include <string.h>
 
@@ -23,14 +27,25 @@ static struct {
     float c0[3][3], pos0[3];    /* (the port's: before the last step, for smooth pictures) */
     int jumped;                 /* (a cut since: no blending) */
     int onboard;                /* 0x4dc008: mode 6, the rider's eyes (F6) */
+    int mode;                   /* +8: 7 chase, 6 on-board, 3 looks at a point, 1 placed */
+    float orbit;                /* +0x28: the TV's orbit angle */
+    float zoom;                 /* 0x6d1f74 */
 } g_cam;
 
 static const float g_extra[4] = { 0.0f, 128.0f, 256.0f, 512.0f };       /* +0x224 */
-static const float g_preset_off[2][3] = { { 0, -160, 1680 }, { 0, 160, -20 } };   /* +0x11c */
-static const float g_preset_ang[2][3] = { { 0, 0, 0 }, { 0, 3.14159265f, 0 } };  /* +0x17c */
+static const float g_preset_off[8][3] = {       /* +0x11c */
+    { 0, -160, 1680 }, { 0, 160, -20 }, { -250, 150, 0 }, { 250, 150, 0 },
+    { -70, 120, 200 }, { 70, 120, 200 }, { 0, 400, 400 }, { 0, 500, 500 }
+};
+static const float g_preset_ang[8][3] = {       /* +0x17c */
+    { 0, 0, 0 }, { 0, 3.14159265f, 0 }, { 0, 1.57079633f, 0 }, { 0, -1.57079633f, 0 },
+    { 0, 3.14159265f, 0 }, { 0, 3.14159265f, 0 },
+    { -0.78539816f, 3.14159265f, 0 }, { -0.78539816f, 3.14159265f, 0 }
+};
 #define CHASE_Y 64.0f           /* +0x1dc */
 #define OFF_Y 191.0f            /* +0x54 */
 #define OFF_Z -484.0f           /* +0x58 */
+#define CAMERA_FOCAL 394.0f     /* 0x49a0d0 with the zoom at 1, at 640x480 */
 
 /* 0x490220: the heading of a matrix of rows (its T is 0) */
 static double heading(const float *m)
@@ -85,7 +100,7 @@ void camera_reset(const BikePhys *b)
     place(g_cam.lerp, e, (const float (*)[3])w, b->pos);
     place(g_cam.target, g_preset_off[0], (const float (*)[3])w, b->pos);
     memcpy(g_cam.pos, g_cam.lerp, sizeof g_cam.pos);
-    camera_step(b, 1.6f, 1, 0);
+    camera_step(b, 1.6f, 1, 0, 0);
     g_cam.jumped = 1;
 }
 
@@ -187,9 +202,208 @@ static void onboard(const BikePhys *b)
     mul(g_cam.c, (const float (*)[3])g_cam.c, (const float (*)[3])rr);
 }
 
-void camera_step(const BikePhys *b, float dt, int countdown, int finished)
+/* ------------------------------------------------------------------ the TV director */
+
+/* the shot (0x4ea5a8, kept from race to race, the image's 1) and its time left (0x4dc13c,
+   the image's 600): the units are dt's */
+enum { TV_TRACKSIDE, TV_CHASE, TV_ORBIT, TV_FRONT, TV_ZOOM, TV_ONBIKE };
+static int g_shot = TV_CHASE, g_shot_left = 600;
+
+/* 0x40d4f0: the trackside camera nearest the point by x and z, in the 23 sections ahead
+   of sec (behind when the track runs backwards); 0 when none */
+static int nearest_camera(float o[3], int sec, const float p[3])
+{
+    double best = 1e13;
+    int i, j, found = 0, from = g_reverse ? sec - 23 : sec;
+    for (i = from; i < from + 23; i++) {
+        const Section *s = &g_land.sec[(i + g_land.nsec) % g_land.nsec];
+        for (j = 0; j < s->ndecor; j++) {
+            const Decor *d;
+            double dx, dz, q;
+            if (s->decor[j] >= g_land.ndecor)
+                continue;
+            d = &g_land.decor[s->decor[j]];
+            if (!d->camera)
+                continue;
+            dx = (float)(d->pos[0] - p[0]);
+            dz = (float)(d->pos[2] - p[2]);
+            q = (float)(dz * dz + dx * dx);
+            if (q < best) {
+                best = q;
+                memcpy(o, d->pos, sizeof d->pos);
+                found = 1;
+            }
+        }
+    }
+    return found;
+}
+
+/* a new shot out of nowhere to look from: one in twelve each of the orbit, the front and
+   the bike-mounted ones, otherwise the chase */
+static void random_shot(void)
+{
+    int i = (int)((rand_next(0) & 0xffff) * (double)1.5259021893143654e-05f * 12.0);
+    if (i == 0) {
+        g_shot = TV_ORBIT;
+        g_cam.orbit = rand_next(0) & 1 ? (float)PI : (float)-PI;
+    } else
+        g_shot = i == 1 ? TV_FRONT : i == 2 ? TV_ONBIKE : TV_CHASE;
+}
+
+/* V times the matrix, plus its T, plus the bike's place (the +0x98 block, b->m) */
+static void from_bike(float o[3], const double v[3], const BikePhys *b)
+{
+    int i;
+    for (i = 0; i < 3; i++)
+        o[i] = (float)(v[0] * b->m[i] + v[1] * b->m[3 + i] + v[2] * b->m[6 + i]
+                       + b->m[9 + i] + b->pos[i]);
+}
+
+/* 0x46e9f0: which shot, and for the fixed ones where the eye is */
+static void director(const BikePhys *b, float dt)
+{
+    int was = g_shot;
+    float cam[3];
+    if (g_shot_left < 0) {
+        int found = nearest_camera(cam, b->sec, b->pos);
+        switch (g_shot) {
+        case TV_TRACKSIDE:
+        case TV_ZOOM:           /* a look from the next one, one time in eight elsewhere */
+            if (!found || (rand_next(0) & 7) == 0)
+                random_shot();
+            else
+                memcpy(g_cam.pos, cam, sizeof cam);
+            break;
+        case TV_ORBIT:          /* from a camera, always zoomed; else the old look on */
+            if (found) {
+                rand_next(0);
+                g_shot = TV_ZOOM;
+                memcpy(g_cam.pos, cam, sizeof cam);
+            } else
+                g_shot = TV_TRACKSIDE;
+            break;
+        default:
+            if (found) {
+                g_shot = rand_next(0) & 1 ? TV_TRACKSIDE : TV_ZOOM;
+                memcpy(g_cam.pos, cam, sizeof cam);
+            } else
+                random_shot();
+        }
+        switch (g_shot) {
+        case TV_TRACKSIDE: g_shot_left = 250; break;
+        case TV_CHASE: g_shot_left = 600; break;
+        case TV_ORBIT: g_shot_left = 300; break;
+        case TV_FRONT: g_shot_left = 400; break;
+        case TV_ZOOM: g_shot_left = 260; break;
+        default:
+            g_shot_left = 400;
+            do
+                g_cam.preset = rand_next(0) & 7;
+            while (g_cam.preset <= 1);
+            if (g_cam.preset == 2 || g_cam.preset == 3)
+                g_shot_left -= 100;
+        }
+        g_cam.jumped = 1;
+    }
+    if (g_bikeworld.snap) {     /* 0x4ea510: a bike got up: the chase, at once */
+        g_shot = TV_CHASE;
+        g_shot_left = 600;
+        g_cam.preset = 0;
+        g_bikeworld.snap = 0;
+        g_cam.jumped |= was != TV_CHASE;
+    }
+    if (g_shot != TV_ONBIKE)
+        g_cam.preset = 0;
+    switch (g_shot) {
+    case TV_CHASE:
+        g_cam.orbit = 0.0f;
+        g_cam.ang[1] = 0.0f;
+        g_cam.mode = 7;
+        break;
+    case TV_ORBIT: {            /* round the bike, never lower than 260 above the road */
+        int i = (int)(g_cam.orbit * ANGLE_K);
+        double c = g_cos[i & 0x3fff], s = g_cos[(i - 0x1000) & 0x3fff], v[3];
+        float y;
+        v[0] = (float)(s * OFF_Z);
+        v[1] = (float)(-(g_cos[0x3000] * c) * OFF_Z);
+        v[2] = (float)(c * g_cos[0] * OFF_Z);
+        from_bike(g_cam.pos, v, b);
+        g_cam.orbit = (float)(dt * -0.015707963267948967 + g_cam.orbit);
+        y = (float)(bikephys_road_y(b->sec, g_cam.pos) + 260.0f);
+        if (y > g_cam.pos[1])
+            g_cam.pos[1] = y;
+        memcpy(g_cam.target, b->pos, sizeof g_cam.target);
+        g_cam.mode = 3;
+        break;
+    }
+    case TV_FRONT: {            /* ahead of it looking back, drawn up towards 560 above the road */
+        double v[3];
+        float y;
+        g_cam.orbit = (float)PI;
+        v[0] = (float)((double)OFF_Z * g_cos[0x1000]);
+        v[1] = (float)(-((double)g_cos[0x2000] * g_cos[0x3000]) * OFF_Z);
+        v[2] = (float)((double)g_cos[0x2000] * g_cos[0] * OFF_Z);
+        from_bike(g_cam.pos, v, b);
+        y = (float)(bikephys_road_y(b->sec, g_cam.pos) + 560.0f);
+        if (y > g_cam.pos[1])
+            g_cam.pos[1] = (float)((y - (double)g_cam.pos[1]) * 0.25f + g_cam.pos[1]);
+        memcpy(g_cam.target, b->pos, sizeof g_cam.target);
+        g_cam.mode = 3;
+        break;
+    }
+    case TV_ZOOM: {             /* the lens closes so that the bike keeps its size */
+        double dx = (double)g_cam.pos[0] - b->pos[0], dy = (double)g_cam.pos[1] - b->pos[1];
+        double dz = (double)g_cam.pos[2] - b->pos[2];
+        float d = (float)sqrt(dx * dx + dy * dy + dz * dz);
+        g_cam.zoom = (float)((g_scr_h / 2) / ((double)CAMERA_FOCAL * 256.0f / d));
+        if (g_cam.zoom < 1.0f)
+            g_cam.zoom = 1.0f;
+        if (g_cam.zoom > 3.0f)
+            g_cam.zoom = 3.0f;
+    }   /* fall through */
+    case TV_TRACKSIDE:
+        memcpy(g_cam.target, b->pos, sizeof g_cam.target);
+        g_cam.mode = 3;
+        break;
+    case TV_ONBIKE: {           /* fixed to the bike, leaning with it */
+        float m[3][3], r[3][3], rm[3][3], v[3];
+        int i, j;
+        g_cam.orbit = 0.0f;
+        memcpy(m, b->frame, sizeof m);
+        for (i = 0; i < 3; i++) {
+            const float *off = g_preset_off[g_cam.preset];
+            v[i] = (float)(((double)off[0] * m[0][i] + (double)off[1] * m[1][i]
+                            + (double)off[2] * m[2][i]) + b->frame[9 + i]);
+            g_cam.pos[i] = (float)((double)b->pos[i] + v[i]);
+        }
+        r3d_rotation(r, g_preset_ang[g_cam.preset], ANGLE_K);
+        mul(rm, (const float (*)[3])r, (const float (*)[3])m);
+        for (i = 0; i < 3; i++)
+            for (j = 0; j < 3; j++)
+                g_cam.c[i][j] = rm[j][i];
+        break;                  /* (stays mode 1: 0x458620 leaves it) */
+    }
+    }
+    g_shot_left = (int)((double)g_shot_left - dt);
+}
+
+float camera_zoom(void)
+{
+    return g_cam.zoom;
+}
+
+void camera_step(const BikePhys *b, float dt, int countdown, int finished, int tv)
 {
     float *yaw = &g_cam.ang[1];
+    float v[3];
+    g_cam.zoom = 1.0f;          /* 0x4583e0 */
+    g_cam.mode = g_cam.onboard ? 6 : 7;
+    if (tv && g_land.ncam > 0) {
+        g_cam.mode = 1;
+        director(b, dt);
+        if (g_cam.mode == 1)
+            return;
+    }
     if (countdown) {            /* 0x458620: the yaw comes back to 0, pi / 128 a 10 ms */
         if (*yaw > 0.0f) {
             *yaw = (float)(dt * -0.02454369260617026 + *yaw);
@@ -201,7 +415,10 @@ void camera_step(const BikePhys *b, float dt, int countdown, int finished)
                 *yaw = 0.0f;
         }
     }
-    if (g_cam.onboard && !g_cam.preset)
+    if (g_cam.mode == 3) {      /* 0x4700e0: from where it is at the point */
+        r3d_camera(g_cam.pos, g_cam.target);
+        r3d_get_camera(g_cam.c, v);
+    } else if (g_cam.mode == 6 && !g_cam.preset)
         onboard(b);
     else
         chase(b, dt, finished);
