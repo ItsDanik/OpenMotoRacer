@@ -105,7 +105,7 @@ Left + Return (Solo), Left Left + Return (Practice), Return (track page), Return
 Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
 `tools/orig.sh stop` and `pactl unload-module module-null-sink`.
 
-## Done (2026-10-30, session 3: replays, the TV, the winner's lap)
+## Done (2026-10-30, session 3: replays, the TV, the winner's lap, then the rest of the race, the CD and ARM)
 - Replays (`replay.c`, NOTES §4.21b): YES on the results watches the race again under the TV's
   cameras, to the bit (`tools/replaycheck.sh`). The demos start after 30 s on the title.
 - The TV director (`camera.c`), the record split line on the dashboard (`rules.c`).
@@ -137,6 +137,8 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   or later page compared. It is GOG's logic with plain colours on the CD's data. No music from the CD yet.
 - The ARM build (`tools/arm.sh`, NOTES §4.23): pictures and physics the same as the PC's under qemu; `OMR_PERF=1`. Speed on a
   real MiSTer still to measure (Danik: the command is in the NOTES); nothing made faster yet.
+- The glass after a race (the old question of its page 2 against the level's pages 2..19): a race, back through the menus,
+  Options: the glass whole, no track picture in it (seen in the port).
 
 ## Waiting for Danik
 - The music under Pause: the port holds it, as the game's code asks; GOG's copy lets it run on (its winmm.dll
@@ -148,7 +150,12 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   the original, or a user folder? (For now a user folder, the game's read as a fallback.)
 
 ## Next, in order
-4. The glass capture's page 2 against the level's pages 2..19.
-7. Then speed on the MiSTer's ARM, releases, the MiSTer core (the skill's steps 8-10).
-8. **Last: the split screen** for two players on one PC (the original has none). Danik,
-   2026-10-30: leave it for last and **stop before starting work on it**.
+1. Speed on a real MiSTer: Danik runs the command in NOTES §4.23 (the program: `build/arm/openmotoracer`; not reachable
+   from here without the MiSTer's address). If it is too slow, make the painters faster with the pictures' check (span6, row).
+2. The MiSTer core (`new-hybrid-core`; id `MotoRacer`) and the releases: need Danik's word. The core's step 3 pushes to
+   the shared Hybrid_MiSTer, its testing needs the MiSTer, and "local git only" still stands.
+3. **Last: the split screen** for two players on one PC (the original has none). Danik, 2026-10-30: leave it for last and
+   **stop before starting work on it**.
+Small things known and left: F12's sizes and 16:9, Shift+F12, Ctrl+U and the numpad's volumes, the music's pause on losing
+focus, the signs on a 16:9 view, the bikes drawn without the game's culling. The helpers' worktrees in `.claude/worktrees/`
+are merged and empty of anything unique (the session's lock kept them; `git worktree remove -f -f` once it has ended).
