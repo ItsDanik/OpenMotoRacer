@@ -34,7 +34,7 @@ const char *saves_home(void)
 /* every folder on the way, as mkdir -p */
 static int make_dirs(const char *path)
 {
-    char p[512];
+    char p[700];
     size_t i;
     snprintf(p, sizeof p, "%s", path);
     for (i = 1; p[i]; i++)
@@ -48,12 +48,35 @@ static int make_dirs(const char *path)
     return mkdir_one(p) == 0 || errno == EEXIST;
 }
 
+/* the player's folder's path of a save (a track's folder: '\\' to '/') */
+static void home_path(char *path, size_t size, const char *name)
+{
+    char *p;
+    if (!g_home[0])
+        saves_init(0);
+    snprintf(path, size, "%s/%s", g_home, name);
+    for (p = path + strlen(g_home); *p; p++)
+        if (*p == '\\')
+            *p = '/';
+}
+
+/* the folders a save's path needs */
+static int make_parents(const char *path)
+{
+    char dir[700];
+    char *slash;
+    snprintf(dir, sizeof dir, "%s", path);
+    slash = strrchr(dir, '/');
+    if (!slash)
+        return 1;
+    *slash = 0;
+    return make_dirs(dir);
+}
+
 FILE *save_open_own(const char *name, const char *mode)
 {
     char path[700];
-    if (!g_home[0])
-        saves_init(0);
-    snprintf(path, sizeof path, "%s/%s", g_home, name);
+    home_path(path, sizeof path, name);
     return fopen(path, mode);
 }
 
@@ -61,13 +84,24 @@ FILE *save_open(const char *name, const char *mode)
 {
     char path[700], rel[300];
     FILE *f;
-    if (!g_home[0])
-        saves_init(0);
-    snprintf(path, sizeof path, "%s/%s", g_home, name);
+    home_path(path, sizeof path, name);
     if (mode[0] == 'w')
-        return make_dirs(g_home) ? fopen(path, mode) : 0;
+        return make_parents(path) ? fopen(path, mode) : 0;
     if ((f = fopen(path, mode)))
         return f;
     snprintf(rel, sizeof rel, "data\\%s", name);
     return files_find(rel, path, sizeof path) ? fopen(path, mode) : 0;
+}
+
+void save_forget(const char *name)
+{
+    char path[700], rel[300], game[700];
+    home_path(path, sizeof path, name);
+    remove(path);
+    snprintf(rel, sizeof rel, "data\\%s", name);
+    if (files_find(rel, game, sizeof game)) {
+        FILE *f = make_parents(path) ? fopen(path, "wb") : 0;
+        if (f)
+            fclose(f);
+    }
 }

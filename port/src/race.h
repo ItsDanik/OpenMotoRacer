@@ -33,6 +33,7 @@ enum {
     EV_DEMO_NEXT = 0x100000     /* the demo list moves on */
 };
 void race_event(unsigned bits);
+int race_label_place(int k, int *sx, int *sy);  /* what 0x483670 asks of the camera */
 int race_player(void);                  /* 0x508834: the rider the screen shows */
 int race_local(void);                   /* 0x4ea4c0: the local player's record */
 extern int g_race_kind;                 /* 0x4e9834: 0 a race, 1 its replay, 2 a demo */

@@ -446,38 +446,13 @@ static void along(float o[3], const BikePhys *b, R z)
     o[2] = (float)(((R)b->m[8] * zf + b->m[11]) + b->pos[2]);
 }
 
-void cpu_step(BikePhys *b, float dt, int countdown)
+/* 0x46bf80 at 0x46c1xx and 0x45e940 at 0x45eb0e, the same code: a dirt bike above the road
+   flies; else the bike on the road (a landing, a dirt bike's bumps), its matrix from the road
+   under the wheels' axles; then the wheel points */
+static void settle(BikePhys *b, int dirt, int bend, int flat)
 {
-    int dirt = dirt_rider(b), bend, flat = 0, keys0, i;
-    float old[3], hit[3], road;
-    W.dt = dt;                          /* 0x45d540: 0x581014 */
-    W.countdown = countdown;
-    keys0 = b->keys1;
-    b->detail = 0;
-    b->events = 0;
-    bp_start_step(b);
-    memcpy(old, b->pos, 12);
-    drive(b, dt);
-    b->kick = 0.0f;
-    if (bp_walls(b->sec, old, b->pos, hit, b->vdir, b->wall_n)) {
-        memcpy(b->pos, hit, 12);
-        b->sec = bp_walk(b->sec, b->pos);
-        b->cpu_speed = (float)(b->cpu_speed * 0.5f);
-        b->engine = (float)(b->engine * 0.5f);
-        b->hit_timer = 200.0f;
-        b->events |= 1;
-    }
-    b->speed = b->engine;
-    bend = bp_bends(b->sec, 8);
-    if (bend)
-        b->turbo_req = 0;
-    else {                              /* on a straight: now and then the turbo */
-        flat = dirt;
-        if ((bikephys_crt_rand() & 0xff) == 0 && b->cpu_speed > b->top)
-            b->turbo_req = 1;
-    }
-    if (!W.countdown)
-        bp_turbo(b, dt);
+    float road;
+    int i;
     road = (float)bp_road_y(b->sec, b->pos);
     if (dirt && (flat ? (R)road + 8.0f < b->pos[1] : (R)road + 32.0f < b->pos[1]))
         b->ground = 0;                  /* a dirt bike above the road flies */
@@ -544,6 +519,41 @@ void cpu_step(BikePhys *b, float dt, int countdown)
             b->front[i] = (float)((((R)m[3 + i] * yf + (R)m[6 + i] * zf) + m[9 + i])
                                   + b->pos[i]);
     }
+}
+
+void cpu_step(BikePhys *b, float dt, int countdown)
+{
+    int dirt = dirt_rider(b), bend, flat = 0, keys0;
+    float old[3], hit[3];
+    W.dt = dt;                          /* 0x45d540: 0x581014 */
+    W.countdown = countdown;
+    keys0 = b->keys1;
+    b->detail = 0;
+    b->events = 0;
+    bp_start_step(b);
+    memcpy(old, b->pos, 12);
+    drive(b, dt);
+    b->kick = 0.0f;
+    if (bp_walls(b->sec, old, b->pos, hit, b->vdir, b->wall_n)) {
+        memcpy(b->pos, hit, 12);
+        b->sec = bp_walk(b->sec, b->pos);
+        b->cpu_speed = (float)(b->cpu_speed * 0.5f);
+        b->engine = (float)(b->engine * 0.5f);
+        b->hit_timer = 200.0f;
+        b->events |= 1;
+    }
+    b->speed = b->engine;
+    bend = bp_bends(b->sec, 8);
+    if (bend)
+        b->turbo_req = 0;
+    else {                              /* on a straight: now and then the turbo */
+        flat = dirt;
+        if ((bikephys_crt_rand() & 0xff) == 0 && b->cpu_speed > b->top)
+            b->turbo_req = 1;
+    }
+    if (!W.countdown)
+        bp_turbo(b, dt);
+    settle(b, dirt, bend, flat);
     bp_frame_and_lean(b);
     if (dirt || ZERO(b->hit_timer)) {   /* the lean: half again (a road bike a fifth more) */
         b->lean = (float)(b->lean * (dirt ? 1.5 : 1.2));
@@ -569,6 +579,111 @@ void cpu_step(BikePhys *b, float dt, int countdown)
     b->turbo_pressed1 = b->turbo_pressed;
     b->turbo_pressed = 0;
     bp_dials(b);
+}
+
+/* ------------------------------------------------------------------ the passive step */
+
+/* 0x45e560 in practice (the other branch, the eased one, is Link's): the bike turned nine
+   tenths of the way to where the point +0x198 says, the motion's direction eased towards the
+   way the target moved, the bike put on the target */
+static void follow(BikePhys *b, const float target[3], const float before[3])
+{
+    static const float zero[3] = { 0.0f, 0.0f, 0.0f };
+    float L[12], Li[12], A, B, d, yaw, v[3];
+    R dA;
+    b->engine = b->speed;
+    bp_look(L, zero, b->fwd);
+    transpose(Li, L);
+    A = (float)-bp_heading(b->m);
+    B = (float)bp_heading(Li);
+    A = bp_wrap_ge(A);                  /* 0x45b1b0(A, B, 0.9) */
+    B = bp_wrap_ge(B);
+    dA = A;
+    if (dA + PI < B)
+        B = (float)((R)B - TWO_PI);
+    if (dA - PI > B)
+        B = (float)((R)B + TWO_PI);
+    d = wrap_unrounded(((R)B - A) * 0.9f);
+    yaw = d;
+    if (d > PI)
+        yaw = (float)((R)d - TWO_PI);
+    b->steer = 0.0f;
+    bp_turn_yaw(b, yaw);
+    v[0] = (float)((R)target[0] - before[0]);
+    v[1] = (float)((R)target[1] - before[1]);
+    v[2] = (float)((R)target[2] - before[2]);
+    if (fabs(v[0]) > (R)1e-5f || fabs(v[1]) > (R)1e-5f || fabs(v[2]) > (R)1e-5f) {
+        R f, g;
+        float l = (float)sqrt(((R)v[0] * v[0] + (R)v[1] * v[1]) + (R)v[2] * v[2]);
+        if (l != 0.0f) {
+            R k = 1.0 / l;
+            v[0] = (float)(v[0] * k), v[1] = (float)(v[1] * k), v[2] = (float)(k * v[2]);
+        }
+        f = (R)b->hit_timer * 0.005f;
+        g = 1.0 - f;
+        b->vdir[0] = (float)((R)v[0] * g + (R)b->vdir[0] * f);
+        b->vdir[1] = (float)((R)v[1] * g + (R)b->vdir[1] * f);
+        b->vdir[2] = (float)(g * v[2] + f * b->vdir[2]);
+    }
+    memcpy(b->pos, target, 12);
+    b->sec = bp_walk(b->sec, b->pos);
+}
+
+void cpu_passive_step(BikePhys *b, const float target[3], const float before[3], float dt,
+                      int countdown)
+{
+    int dirt = dirt_rider(b), bend, flat = 0;
+    float old[3], hit[3];
+    W.dt = dt;
+    W.countdown = countdown;
+    b->detail = 0;
+    b->events = 0;
+    bp_start_step(b);
+    memcpy(old, b->pos, 12);
+    follow(b, target, before);
+    b->kick = 0.0f;
+    if ((fabs((R)old[0] - b->pos[0]) > (R)1e-5f || fabs((R)old[1] - b->pos[1]) > (R)1e-5f
+         || fabs((R)old[2] - b->pos[2]) > (R)1e-5f)
+        && bp_walls(b->sec, old, b->pos, hit, b->vdir, b->wall_n)) {
+        memcpy(b->pos, hit, 12);
+        b->sec = bp_walk(b->sec, b->pos);
+        b->cpu_speed = (float)(b->cpu_speed * 0.5f);
+        b->engine = (float)(b->engine * 0.5f);
+        b->hit_timer = 200.0f;
+    }
+    b->speed = b->engine;
+    bend = bp_bends(b->sec, 8);
+    if (bend)
+        b->turbo_req = 0;
+    else {
+        flat = dirt;
+        if ((bikephys_crt_rand() & 0xff) == 0 && b->cpu_speed > b->top)
+            b->turbo_req = 1;
+    }
+    if (!W.countdown)
+        bp_turbo(b, dt);
+    settle(b, dirt, bend, flat);
+    bp_frame_and_lean(b);
+    if (dirt)                           /* the lean: half again; a road bike's only when not hit */
+        b->lean = (float)(b->lean * 1.5);
+    else if (ZERO(b->hit_timer))
+        b->lean = (float)(b->lean * 1.2);
+    else
+        b->lean = 0.0f;
+    b->lean = (float)(((R)b->lean - b->lean1) * 0.5 + b->lean1);
+    b->lean1 = b->lean;
+    bp_wheel_spin(b);                   /* (+0x2dc8: a passive rider has no keys) */
+    bp_suspension(b);
+    /* 0x461aa0: the shadow points (drawing); 0x466d70: dust, skid marks (effects) */
+    bp_tumble(b, dt);
+    if (!b->crashed)                    /* as bikephys_step: the drawer keeps its matrix */
+        memcpy(b->tumble, b->m, sizeof b->m);
+    if (W.pose)                         /* 0x467b30(1) */
+        W.pose(b);
+    b->turbo_pressed1 = b->turbo_pressed;
+    b->turbo_pressed = 0;
+    bp_dials(b);
+    b->lane = bp_lane(b);
 }
 
 /* ------------------------------------------------------------------ the start (0x47bc60) */

@@ -4,6 +4,7 @@
    these routines put up are hud.c's. */
 #include "rules.h"
 #include "choices.h"
+#include "ghost.h"
 #include "hud.h"
 #include "land.h"
 #include "menu.h"
@@ -184,9 +185,12 @@ void rules_restart(void)
     /* 0x4656c0: this track's records, none when the file has no block for it */
     if (!best_lap_load(&g_record))
         memset(&g_record, 0x7f, sizeof g_record);
-    /* 0x411205: the player's own best here, else the table's slowest (the time attack's
-       ghost: with the ghost) */
-    scores_split_reference(&g_reference);
+    /* 0x411205: the player's own best here, else the table's slowest; in the time attack the
+       ghost's, and none without a ghost */
+    if (g_mode != MODE_PRACTICE || !g_time_attack)
+        scores_split_reference(&g_reference);
+    else if (!ghost_count())
+        memset(&g_reference, 0x7f, sizeof g_reference);
     for (g_ncheck = k = 0; k < g_land.nsec; k++)          /* 0x47b4ff */
         if (g_land.sec[k].checkpoint >= 0)
             g_ncheck++;
@@ -251,6 +255,18 @@ void rules_time(int ms)
 const unsigned char *rules_record(void)
 {
     return g_record.b;
+}
+
+unsigned char *rules_reference(void)
+{
+    return g_reference.b;
+}
+
+void rules_take_ghost(int k)
+{
+    memcpy(g_reference.b + 0xd, g_racer[k].split, 0xc0);
+    memcpy(g_reference.b, "SHADOW", 7);         /* 0x4dbea8 */
+    g_record = g_reference;
 }
 
 /* ------------------------------------------------------------------ laps */
@@ -445,6 +461,12 @@ void rules_laps(void)
         }
         if (r->state != RS_RACING)
             continue;
+        /* 0x47ea0f: the ghost over the last line has the time its run was saved with */
+        if (k == 2 && r->laps == g_laps && g_mode == MODE_PRACTICE && g_time_attack) {
+            r->time = (int)ghost_total();
+            if (g_laps == 1)
+                r->lap[0] = r->best = r->time;
+        }
         if (COUNTS(k)) {
             int i;
             for (i = 0; i < r->laps && i < 8; i++)

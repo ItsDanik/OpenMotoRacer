@@ -182,6 +182,9 @@ void bikephys_step(BikePhys *b, unsigned keys, int joy_x, int joy_y, float dt, i
 /* 0x47ecd0, after every bike's step: riders 1..n-1 of all[] (all[0] unused) */
 void bikephys_collide(BikePhys *all[], int n, float dt);
 
+/* 0x467e30: the crash starts, thrown along v (the ghost's, when its recording says so) */
+void bikephys_crash(BikePhys *b, const float v[3]);
+
 /* the key handlers 0x431250 (down) and 0x432700 (up) on obj+0x31e9: action 0..5 as the
    bits above, 6 the turbo; race_running = 0x5429b0 */
 void bikephys_key(BikePhys *b, unsigned *keys, int action, int down, int race_running);

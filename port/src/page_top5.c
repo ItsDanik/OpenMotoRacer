@@ -3,6 +3,7 @@
    (NOTES §4.12.5). The race's end marks a new record by the name 'TINI' and the page then
    takes the player's three letters and saves the table. */
 #include "choices.h"
+#include "ghost.h"
 #include "exe.h"
 #include "font.h"
 #include "menu.h"
@@ -236,8 +237,7 @@ void page_top5_frame(void)
         if (g_mode == MODE_CHAMPIONSHIP)
             menu_change_page(3);        /* Abort */
         else {
-            /* Reset deletes the track's time-attack ghost (<track>\timatak[R_][_]<laps>.bin):
-               the ghost comes with the race, and where the port keeps it is not decided */
+            ghost_forget();             /* Reset: the track's time-attack ghost is gone */
             menu_change_page(6);
         }
     } else

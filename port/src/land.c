@@ -591,6 +591,32 @@ void land_anim_step(float dt)
             anim_step(&g_land.anim[i], dt);
 }
 
+/* 0x40ce60's list of sections from where the camera is: is section other on it? */
+int land_section_seen(int sec, const float cm[3][3], int other)
+{
+    const Section *s;
+    double d;
+    int ahead, behind, n = g_land.nsec, k;
+    if (n <= 0 || sec < 0 || sec >= n)
+        return 0;
+    s = &g_land.sec[sec];
+    d = (double)cm[0][2] * s->plane[0][0] + (double)cm[1][2] * s->plane[0][1]
+        + (double)cm[2][2] * s->plane[0][2];
+    if (d >= 0.25)
+        ahead = BLOCKS_AHEAD, behind = 1;
+    else if (d > -0.25)
+        ahead = behind = BLOCKS_AHEAD / 2;
+    else
+        ahead = 1, behind = BLOCKS_AHEAD;
+    for (k = 0; k <= 4 * ahead + 4; k++)
+        if ((sec + k) % n == other)
+            return 1;
+    for (k = 1; k <= 4 * behind + 4; k++)
+        if (((sec - k) % n + n) % n == other)
+            return 1;
+    return 0;
+}
+
 void land_draw(int sec, const float cm[3][3], const float pos[3])
 {
     static const float one[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };

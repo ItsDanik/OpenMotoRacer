@@ -479,8 +479,8 @@ static void finish_place(void)
     const Racer *r = &g_racer[me()];
     TextArgs a;
     int p;
-    if ((g_mode == MODE_PRACTICE && g_time_attack) || r->state == RS_GRID || r->time <= 0
-        || text_find(id_finish))
+    if ((g_mode == MODE_PRACTICE && g_time_attack && !g_racer[2].loaded) || r->state == RS_GRID
+        || r->time <= 0 || text_find(id_finish))
         return;
     p = r->state == RS_FINISHED ? r->place : rules_place_of(me());
     if (p < 0)
@@ -763,6 +763,25 @@ static void countdown(void)
     }
 }
 
+/* 0x483670: over every other bike in view, its place, its name and an arrow down */
+static void labels(void)
+{
+    Font *f = font_get(5);
+    char s[32], name[9];
+    int k, sx, sy, w, h;
+    if (!f)
+        return;
+    for (k = 1; k < g_riders; k++) {
+        if (k == me() || !g_racer[k].loaded || !race_label_place(k, &sx, &sy))
+            continue;
+        rider_name(k, name);
+        snprintf(s, sizeof s, "%c^%s\\\n]", rules_place_of(k) + 0x29, name);
+        font_measure(f, s, &w, &h, 1);
+        /* (the colour 0x490a90 gives it does nothing here: fonts 1 and 5 use their own) */
+        put(5, s, sx - f->width[']'] / 2, sy - f->height - h, 0x21, 1, NULL);
+    }
+}
+
 /* 0x413180 */
 static void racing(void)
 {
@@ -778,6 +797,8 @@ static void racing(void)
             sound_queue_voice(0x34, 500);
         }
     }
+    if (!g_solo || (g_mode == MODE_PRACTICE && g_time_attack))
+        labels();
     if (r->state != RS_GRID && r->state != RS_RACING) {
         best_panel(0);
         return;

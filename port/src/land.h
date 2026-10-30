@@ -83,6 +83,7 @@ int land_section(const float pos[3], int hint);         /* 0x40c740 / 0x40c7e0; 
 int land_walk(const float pos[3], int hint, float *dist);       /* 0x40c7e0 */
 /* 0x40ce60: the road blocks and decor a camera (C at +0x68, pos at +0x98) sees from the
    section sec, into the renderer */
+int land_section_seen(int sec, const float cm[3][3], int other);
 void land_draw(int sec, const float c[3][3], const float pos[3]);
 /* 0x48b7a0: the moving decor, the step's dt (ms x 0.1) on */
 void land_anim_step(float dt);

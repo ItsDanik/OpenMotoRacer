@@ -2627,4 +2627,6 @@ void bp_wheel_spin(BikePhys *b) { wheel_spin(b, (unsigned)b->keys1); }
 void bp_suspension(BikePhys *b) { suspension(b); }
 void bp_tumble(BikePhys *b, float dt) { tumble(b, dt); }
 void bp_dials(BikePhys *b) { dials(b); }
+int bp_lane(const BikePhys *b) { return lane(b); }
+void bikephys_crash(BikePhys *b, const float v[3]) { crash(b, v); }
 double bikephys_frame_pitch(const BikePhys *b) { return frame_pitch(b); }

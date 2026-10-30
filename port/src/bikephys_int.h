@@ -37,5 +37,6 @@ void bp_wheel_spin(BikePhys *b);                /* 0x466940 (a computer bike: it
 void bp_suspension(BikePhys *b);                /* 0x466a80 */
 void bp_tumble(BikePhys *b, float dt);          /* 0x4683e0 */
 void bp_dials(BikePhys *b);                     /* 0x467930 */
+int bp_lane(const BikePhys *b);                 /* 0x46d340 */
 
 #endif

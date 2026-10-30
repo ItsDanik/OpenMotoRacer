@@ -15,6 +15,7 @@
 #include "exe.h"
 #include "files.h"
 #include "generic.h"
+#include "ghost.h"
 #include "horizon.h"
 #include "hud.h"
 #include "input.h"
@@ -311,13 +312,28 @@ static void race_log(void)
     }
 }
 
+/* 0x47df40's time-attack branch: the ghost (rider 2) as its recording says */
+static float g_ghost_at[3];     /* +0x2df5: where the recording has put it */
+static void ghost_rider(float dt)
+{
+    BikePhys *g = &g_phys[2];
+    float before[3], v[3];
+    int crash = 0;
+    memcpy(before, g_ghost_at, sizeof before);
+    ghost_play(dt, &g->speed, g_ghost_at, g->fwd, &g->turbo_req, &crash, v);
+    g->engine = g->speed;
+    if (crash)
+        bikephys_crash(g, v);
+    cpu_passive_step(g, g_ghost_at, before, dt, g_counting);
+}
+
 /* one step of Game_Frame (0x47d660) of ms milliseconds: the inputs, the timers, the
    countdown and the time limit, each driven bike's step (0x45d540) and bike against bike
    (0x47ecd0), the race's rules, the camera */
 static void step(int ms)
 {
     BikePhys *all[RIDERS];
-    int k;
+    int k, attack = g_solo && g_mode == MODE_PRACTICE && g_time_attack;
     g_control = 1;              /* Game_Frame: the player's keys are read */
     if (!inputs(ms))
         return;
@@ -336,12 +352,23 @@ static void step(int ms)
     for (k = 1; k < g_riders; k++)      /* 0x47df40: dt = ms x 0.1; 0x45d540 */
         if (!g_racer[k].loaded)
             continue;
+        else if (k == 2 && attack)
+            ghost_rider((float)(ms * 0.1));
         else if (g_phys[k].driven)
             bikephys_step(&g_phys[k], g_keys[k] | (k == g_player ? g_joy_keys : 0),
                           k == g_player ? g_joy_x : 0x8000, k == g_player ? g_joy_y : 0x8000,
                           (float)(ms * 0.1), g_counting, g_time_left);
         else                            /* a computer rider (0x46bf80) */
             cpu_step(&g_phys[k], (float)(ms * 0.1), g_counting);
+    if (attack) {                       /* 0x47e0bd: the player's run, for the next ghost */
+        BikePhys *p = &g_phys[1];
+        float dir[3];
+        for (k = 0; k < 3; k++)
+            dir[k] = (float)((double)p->m[6 + k] + p->m[9 + k]);
+        ghost_record((float)(ms * 0.1), p->speed, p->pos, dir, p->turbo_req, p->crash_flag,
+                     p->crash_v);
+        p->crash_flag = 0;
+    }
     bikephys_collide(all, g_riders, (float)(ms * 0.1));
     for (k = 1; k < g_riders; k++)
         to_rider(&g_rider[k], &g_phys[k]);
@@ -574,6 +601,12 @@ static void start(void)
     if (g_winner_lap)
         winner_give_back();
     text_clear();
+    /* 0x47bf70: in practice the second record is the time attack's ghost, when there is one */
+    if (g_mode == MODE_PRACTICE) {
+        if (g_time_attack)
+            ghost_restart();
+        g_racer[2].loaded = g_time_attack && ghost_count() != 0;
+    }
     /* 0x411010: srand(0), the riders' records for bike against bike */
     memset(&g_bikeworld.rider, 0, sizeof g_bikeworld.rider);
     for (k = 1; k < g_riders; k++)
@@ -596,6 +629,7 @@ static void start(void)
     figure_start();
     memset(g_phys, 0, sizeof g_phys);
     grid();
+    memcpy(g_ghost_at, g_phys[2].pos, sizeof g_ghost_at);
     /* 0x47bf70: srand(timeGetTime()), kept for the race's replay; the computer riders'
        speeds (0x47bc60) */
     if (g_race_kind == 1)
@@ -666,8 +700,9 @@ int race_load(char *err, int errsize)
     memset(g_racer, 0, sizeof g_racer);
     for (k = 1; k < g_riders; k++)
         g_racer[k].loaded = 1;
-    if (g_mode == MODE_PRACTICE)
-        g_racer[2].loaded = 0;  /* the second record: the time attack's ghost [guess] */
+    ghost_reset();              /* 0x47b420 */
+    if (g_mode == MODE_PRACTICE && g_time_attack)
+        ghost_load(rules_reference());
     g_racer[g_player].human = 1;
     g_events = 0;
     g_onboard = 0;              /* 0x410120 */
@@ -837,7 +872,13 @@ static void race_end(int ms)
             if (g_mode != MODE_PRACTICE)
                 dialog_results();
             else {
-                /* (the time attack's ghost saved when beaten: with the ghost) */
+                /* 0x412d4f: the player first over the line (a ghost beaten, or none): this run
+                   is the new ghost, the old one's file overwritten */
+                if (g_time_attack && g_racer[g_player].place == 0) {
+                    ghost_take(g_racer[g_player].time);
+                    rules_take_ghost(g_player);
+                    ghost_save(rules_reference());
+                }
                 scores_write_race();
                 dialog_continue();
             }
@@ -937,6 +978,8 @@ static void blend(Rider *o, const Rider *a, const Rider *b, float t)
 
 /* 0x467b30: a fallen rider, or one with a raised hand, the hand skeleton; else 0x45f160: the
    detail by the distance over the zoom (0x6d1f74) */
+static int g_eye_sec;           /* the section the camera is in, this picture */
+
 static int detail_of(const Rider *r, const float cam[3])
 {
     double dx = r->pos[0] - cam[0], dy = r->pos[1] - cam[1], dz = r->pos[2] - cam[2];
@@ -945,6 +988,54 @@ static int detail_of(const Rider *r, const float cam[3])
         return 1;
     d /= camera_zoom();
     return d >= 3000.0 ? 4 : d >= 2500.0 ? 3 : d < 1000.0 ? 0 : 2;
+}
+
+/* 0x46e8b0, with the planes of 0x46e320 (0.6 x the zoom each side of straight ahead) and
+   a margin of 2048: is the point near enough the view? */
+static int near_the_view(const float c[3][3], const float eye[3], const float p[3])
+{
+    double v[3], ahead = 0, across = 0, x, y, len;
+    int i;
+    for (i = 0; i < 3; i++)
+        v[i] = (double)p[i] - eye[i];
+    if (sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) > g_land.detail[1][g_detail] * 2.0)
+        return 0;
+    for (i = 0; i < 3; i++) {
+        ahead += v[i] * c[i][2];
+        across += v[i] * c[i][0];
+    }
+    if (ahead <= -2048.0 || ahead - g_land.detail[1][g_detail] >= 2048.0)
+        return 0;
+    x = 0.6 * camera_zoom();
+    len = sqrt(1.0 + x * x);
+    y = (ahead - x * across) / len;
+    if (y <= -2048.0)
+        return 0;
+    y = (ahead + x * across) / len;
+    return y > -2048.0;
+}
+
+/* Rider k's label: is the bike drawn (+0, set by 0x458b80) and where does the point above
+   it fall (0x4818a0)? In the camera's coordinates, 125 up (0x4d1a20). */
+int race_label_place(int k, int *sx, int *sy)
+{
+    const Rider *r = &g_shown[k];
+    float c[3][3], eye[3], v[3], x, y, z, focal = FOCAL * camera_zoom();
+    r3d_get_camera(c, eye);
+    if (!near_the_view((const float (*)[3])c, eye, r->pos)
+        || !land_section_seen(g_eye_sec, (const float (*)[3])c, r->sec))
+        return 0;
+    v[0] = r->pos[0] - eye[0];
+    v[1] = r->pos[1] - eye[1] + 125.0f;
+    v[2] = r->pos[2] - eye[2];
+    x = c[0][0] * v[0] + c[2][0] * v[2] + c[1][0] * v[1];
+    y = c[0][1] * v[0] + c[2][1] * v[2] + c[1][1] * v[1];
+    z = c[0][2] * v[0] + c[2][2] * v[2] + c[1][2] * v[1];
+    if (!(z >= 64.0f))          /* (0..64: the original keeps whatever was on its stack) */
+        return 0;
+    *sx = (int)nearbyintf(320.0f + x * focal * (1.0f / z));
+    *sy = (int)nearbyintf(240.0f - y * focal * (1.0f / z));
+    return 1;
 }
 
 void race_frame(void)
@@ -994,6 +1085,7 @@ void race_frame(void)
     /* the TV's eye can be far from the bike: the whole track searched (0x480103) */
     sec = land_section(eye, (g_race_kind || g_playback || g_winner_lap) && g_land.ncam > 0
                        ? -1 : me->sec);
+    g_eye_sec = sec;
     focal = FOCAL * camera_zoom();
     for (y = 0; y < g_scr_h; y++)
         memset(g_screen + y * g_pitch, 0, sizeof(uint16_t) * (size_t)g_scr_w);
@@ -1006,7 +1098,7 @@ void race_frame(void)
         if (i == g_follow && onboard_now()) {
             if (cockpit_shown())
                 bike3d_cockpit(&g_shown[i], g_shown[g_follow].lean);
-        } else if (g_racer[i].loaded)                   /* (practice's second record) */
+        } else if (g_racer[i].loaded)
             bike3d_draw_rider(&g_shown[i], detail_of(&g_shown[i], eye));
     hud_bike(b);
     hud_dials_3d();

@@ -3691,7 +3691,7 @@ keeps playing until the race changes it.
    0x504bc4**, 0x4dc028 = 0x50487c.
 7. **`race->vtable[1]` = 0x47b420(track 0x4dc08c, kind 0x4e9834)**, the whole race load:
    - Two 0x4191a0 resets. If time attack (0x4dc148): 0x4136a0 loads the ghost
-     `<track.dir>timatak` + (`_` or `R` for reverse) + (`_` or `P` for pocket) + laps
+     `<track.dir>timatak` + (`_` or `R` for reverse) + (`_`, or nothing for pocket: §4.21c) + laps
      digit + `.bin` (`%s%1d.bin`) into 0x581018.
    - 0x4dc144 = reverse; 0x4dc140 = 1 if not reversed, else -1. Some counters are cleared.
    - 0x4100f0. Then 0x410120: race state; 0x4dc08c = track; 4 cameras; 0x4dc0ac = solo;
@@ -7415,7 +7415,8 @@ only bit0 is kept. Otherwise +0x31ed = 0, +0x31f1 = +0x31f5 = 0x8000. The keyboa
 
 ##### 2.3 The race phases
 0x411010 (race start): 0x4dc0b4 = 1 (countdown), 0x4dc0a8 = 6000 ms, 0x5429b0 = 0, unless
-0x4dc0ac == 0 (no countdown: Practice time attack) → 0x4dc0b4 = 0, 0x5429b0 = 1. Player 1's
+0x4dc0ac == 0 (Link: 0x4dc0ac is Solo, so a Practice time attack **has** its countdown: §4.21c)
+→ 0x4dc0b4 = 0, 0x5429b0 = 1. Player 1's
 obj+0x88 = 0x4dc0a0 (1 automatic, 0 manual) in Solo; every other rider 1.
 
 #### 3. The carac table (0x509278 + bike·0x124, parser 0x42a580) [asm]
@@ -10856,6 +10857,111 @@ right by 0x4f1610; 0x48a000 the lines' heights added up, and centred or at the b
 0x48a9e0: a block starts when the one before has nothing alive; 0x48a150 draws it, moved by
 MX·(W·dt/MH), MY·(H·dt/MV), on a darkened box ([D], 0x49a5a0) in the software renderer. The help
 (F1, 0x48b120, 0x48b180) is the same parser with a page's blocks: not ported yet.
+
+### 4.21c The time attack's ghost (mapped and written 2026-10-30)
+
+Practice with TIME ATTACK on (0x4dc148): the player's lap, when first over the line, is saved and
+rides as rider 2 the next time. `port/src/ghost.c`, the follower in `cpu.c`, the rest in `race.c`,
+`rules.c`, `hud.c`, `page_top5.c`, `saves.c`.
+
+**The objects.** Class at 0x419020 (ctor: count 0, at 0, max 10000, a 520000-byte buffer, total 0,
+clock 0): 0x52c0d8 the ghost, 0x52c0f0 the run being recorded. +0 count, +4 at, +8 max, +0xc buffer,
++0x10 total (float, ms), +0x14 clock (dt units). 0x4191a0 reset (+0, +4, +0x14), 0x4191b0 rewind
+(+4, +0x14), 0x4191c0 record, 0x4192a0 play, 0x4190d0 copy (the samples, count, total; at, clock 0).
+
+**A sample, 0x34 bytes** (0x4191c0, the player's values): +0 clock (the dts added, float), +4 speed
+(+0x124), +8 position (+0x30), +0x14 where it points (+0xd4 + +0xe0, the Z row and T of the matrix),
++0x20 turbo (+0x2e85), +0x24 crash flag (+0x31ad, which 0x47df40 clears after recording), +0x28 how
+it was thrown (+0x31a1). Past 10000 samples nothing is kept: 160 s at 62.5 steps a second. The
+recorder runs through the countdown and on past the line until the end of the race: the first
+samples are the countdown's (the original's first clocks: 0.1, 0.6, 2.2, then 1.6 apart).
+
+**The file** (0x4138c0 "wb", 0x4136a0 "rb"), in the track's folder: u32 pocket 0x4dc078, u32 reverse
+0x4dc068, u32 laps 0x4dc074, the 0xf9-byte record 0x581018 (name "SHADOW\0" at +0, the splits 0xc0
+bytes at +0xd, the rest 0x7f or what was there), u32 count, u32 max, f32 total ms, count x 0x34 samples.
+Name: `<0x4e8380 ""><track>\timatak` + ("R" reverse, else "_") + ("_" unless Pocket) + `%1d` laps +
+`.bin`. With Pocket the game appends its "P" to the wrong buffer 0x53f3c0 (loader, writer and Reset
+alike), so the name just lacks a letter: `timatak_1.bin`, `timatakR1.bin`. The port makes the same names.
+
+**When it is loaded and used.** 0x47b420 (the race's load): both reset, then if time attack the file
+(in other modes too, harmless). 0x47bf70 (the start, mode 0): time attack off: R(2)+0x68 = 0; on:
+rewind the ghost, R(2)+0x68 = count != 0, reset the recorder. So Continue / YES uses the new ghost
+without reading the file. 0x411010: time attack in practice keeps 0x581018 (the ghost's splits, for the
+split line) if the ghost has samples, else fills it with 0x7f; everything else fills it and Solo
+loads it from bestscor.dat. Port: `rules_restart`, `rules_reference`.
+
+**A step** (0x47df40, Solo, mode 0, time attack): only rider 1 steps with 0x45d540. If R(2) is loaded:
+the old target (+0x2df5) goes to +0x2e01, 0x4192a0(ghost, dt, &+0x124, &+0x2df5, &+0x198, &+0x2e85, &crash,
+v), +0xec = +0x124, a crash 0x467e30(R(2), v), then the passive step 0x45e940(R(2), dt). Then the recorder
+and R(1)+0x31ad = 0. The ghost is not driven: no keys, no computer rider's logic.
+
+**0x4192a0** [asm]: clock += dt; while at < count and s[at].clock < clock: at++. At the end: nothing
+changes, so the ghost stays where it was (and the passive step keeps it there). Otherwise a = s[max(at-1, 0)],
+b = s[at], t = (clock - a.clock) / (b.clock - a.clock) stored in a float, 0 when negative or not a number
+(`fcom 0; test ah,1`), 1 when above 1 by the bits. The mix is the x87's, and the second half of it goes
+through float for all but x of the position:
+x = a.x(1-t) + b.x t; y, z = a(1-t) + (float)(b t); dir[i] = a(1-t) + (float)(b t); speed = a(1-t) + b t;
+turbo from a if t < 0.5, else b; a crash in any sample from the old at to the new at, inclusive.
+
+**The passive step 0x45e940 and 0x45e560** (`cpu_passive_step`, `follow`): the heading blended to the
+sample's by 0.9 (0x45b1b0), steering 0, the turn 0x45cb00, +0x18c eased with hit_timer * 0.005 when the
+target moved more than 1e-5, position = target, the section walk. Then the wall check (halves the speed,
+hit_timer 200, no event bit), speed = engine, the bends (sec, 8); no bend: a rand() draw for the turbo;
+the turbo; the same road settling as a computer rider (0x46bf80: `settle`, taken out of `cpu_step`), the frame and
+lean; lean x 1.5 on dirt, x 1.2 on the road when not hit (else 0), no clamp, smoothed by 0.5; wheel spin,
+suspension, tumble, the pose 0x467b30(1), dials, the lane 0x46d340.
+
+**Not see-through.** 0x458b80 has no case for it: it is drawn solid as any rider (bike row 0 from +0x78,
+skin k-1, or 0 if that is the player's bike), which the captures show. **No collisions**: 0x47ecd0 does
+nothing in mode 0. **Its sound**: 0x4079e0 for every loaded rider, so race_sound.c has its engine already.
+**Places**: rider 2 counts, so POS x/2 and the "2nd position". Rider 2 over the last line (0x47e3d0: R(2),
+loaded, laps == 0x4dc074, mode 0, time attack, state 1): time = ftol(0x52c0e8, the file's total); with 1 lap
+lap[0] = best = time too. It takes the first place when it is ahead, so the player's place at the end decides.
+
+**The label over it** 0x483670, called from 0x413180 before the state test, in Link or a time attack
+(§4.20 3.7): for every other loaded rider with +0 set (drawn, by 0x458b80): pos - eye + (0, 125 [0x4d1a20], 0)
+through the camera (0x4818a0, 0x49b230), z >= 0; text 0x4f10bc `"%c^%s\\\n]"` with c = ')' + place and the
+name (+0x2dd4), font 5 (0x4f0d70: its low-res partner under small fonts), at x = sx - width[']'] / 2,
+y = sy - font height (+0xa18) - 0x5d893c - the text's height (0x492b10, one line = 1), flags 0x21, no halving.
+The recolouring 0x490a90 has no effect here: fonts 1 and 5 use their own palette.
+The port asks `race_label_place`: 0x46e8b0 (no further than 2 x LenBPlane; forward plane, far plane and the
+two side planes of 0x46e320 with a margin of 2048) and the section on 0x40ce60's list (`land_section_seen`).
+The bikes themselves are still all drawn in the port, unculled: the label is the only thing asking.
+
+**The end** 0x412a50 (asm 0x412d42..0x412dd0): mode 0, time attack, R(1) place 0x5873a6 == 0: 0x52c100 =
+(float)R(1)'s time 0x5871fe, copy 0x4190d0 (run -> ghost), 0xc0 bytes R(1)+0x2f89 -> 0x581025, strcpy
+0x581018 = "SHADOW", 0x581018 -> 0x581118, 0x4138c0. No other comparison: the file is overwritten when the
+player's first; the file keeps the samples past the line up to the end. A time over does not get there.
+
+**Reset** (page 9's "Reset time attack" button, through 0x4b5190): deletes the current choices' file (laps too),
+page 6. The race's table stays. Seen in the original: the file gone, page 6.
+
+**Port's differences**: saves go to the home folder like the others (Danik has not decided otherwise);
+read from there, else the game's data/. Reset removes the home copy; if the game's folder still has one,
+it leaves an empty file in the home folder in front of it (`save_forget`), so that copy no longer counts
+and the player's folder is never written. `ghost_load` refuses a file with another header, a count over
+10000 or a wrong size (the original would read whatever was there).
+
+**Checked against the original** (GOG's build, -NoD3D -windowed -FrameRateMax60, Speed Bay, 1 lap):
+- A file written by the port, in the original: read, ghost count 3402, total 41376.0, plays. Its passive
+  step, from cpuwatch's recording of rider 2 (2059 steps), through `ghost_play` and `cpu_passive_step`: the
+  target 2059 of 2059 bit-exact, and every field cpucheck compares bit-exact on every step, but the front
+  wheel point (2018: the drawer rewrites it, as for the computer riders). The rand() seed: all.
+- A file written by the original (rider 1 given to the computer by poking +8 = 0, the time left topped up,
+  0x542a20 poked at the end, since a rider not driven never sets it): 520273 bytes, 10000 samples, total
+  41376.0 (the port's autopilot makes the same lap: 41376), same layout, plays in the port.
+- The picture: the port's frame with the ghost at the capture's place: the label equal to the pixel; the
+  bike and rider equal in the frame before. The difference at that very moment is the far model: see below.
+- A ghost over the line while the idle player still rides (the port's file with its clocks x 0.8): in both, the
+  best-lap panel gets a new first row, 00'33"10 COMPUTER over 00'43"33 DSI, POS 2/2, then GAME OVER at the time limit.
+- Reset in the original: the file goes. Countdown: both bikes on the same spot, the ghost on top, the same in both.
+- In the port: a faster ghost's file stays, a slower one's is replaced, a time over saves nothing, Continue
+  rides the new ghost at once; a ghost in the game's folder is read, Reset hides it; reverse and Pocket
+  names as above; a race and its replay with a ghost are the same to the bit.
+
+**Seen on the way, not changed**: `race_frame`'s `detail_of` picks the far model from the shown position,
+one step ahead of the game's +0x638 (0x45f160 from +0x3c, in the step): any rider goes to the far model a
+step early at 1000 units. `g_phys[k].lod` holds the game's value. Not ghost-specific, the pictures would change.
 
 ### 4.22 The joysticks (mapped and written 2026-10-26)
 

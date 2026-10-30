@@ -50,6 +50,10 @@ int rules_place_of(int k);      /* 0x459f50 */
 /* 0x4b3100, MSVC's qsort (its order of equal keys is the game's): over 32-bit values */
 typedef int (*QsortCmp)(unsigned a, unsigned b);
 void msvc_qsort(unsigned *base, int num, QsortCmp cmp);
+/* the time attack's ghost: its record (0x581018, the splits it is measured against), and the
+   run of rider k taken as the new ghost's (0x412d86) */
+unsigned char *rules_reference(void);
+void rules_take_ghost(int k);
 const unsigned char *rules_record(void);        /* 0x581118: the track's best lap record */
 
 #endif
