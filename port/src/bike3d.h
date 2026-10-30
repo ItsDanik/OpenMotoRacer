@@ -22,6 +22,7 @@ typedef struct {                /* a rider's bike, the fields the drawer reads (
                                    drawer writes them while not crashed, the crash moves them */
     Pose pose;                  /* the body's angles; none: the still pose (.ROT 4) */
     int hand;                   /* +0x319d: the hand skeleton, whatever the distance */
+    float shadow[6][3], crash_shadow[4][3];     /* +0x2ea9, +0x30ed: on the road (shadow.c) */
 } Rider;
 
 /* the banks (pages 0, 1), the skeleton, the pose, wheels; rgb1: page 1 read in RGB */
@@ -38,6 +39,9 @@ void bike3d_place(Rider *r, const float p[3]);  /* 0x45c7c0 */
 void bike3d_draw_rider(Rider *r, int lod);
 /* the drawer's steps 2-6 alone: body and body_pt as a picture would leave them */
 void bike3d_body(Rider *r);
+
+/* 0x4dc130: the race's lighting on (the wheels lit, sections' dark) or off (the menus') */
+void bike3d_lighting(int on);
 
 /* the on-board view (F6): once a step while it shows, the frame's pitch (0x45ca00) into
    the cockpit's shake (0x4ea4e4); then the handlebar and cockpit, lean = the followed

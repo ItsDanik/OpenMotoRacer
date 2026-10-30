@@ -76,7 +76,10 @@ typedef struct BikePhys {
     float m1[12];               /* +0x140: the matrix one step ago */
     float push_dir[3];          /* +0x174: an extra push (a wall, a bike) */
     float push;                 /* +0x180: its speed, decays 33.3 m/s a second */
-    float skid_w[2];            /* +0x184, +0x188: skid marks' width (effects) */
+    float skid_w[2];            /* +0x184, +0x188: the sideways speed, the marks' half width */
+    int skid_id[2];             /* +0x2f71, +0x2f75: the strips of marks it lays */
+    float shadow[6][3];         /* +0x2ea9: the shadow's points */
+    float crash_shadow[4][3];   /* +0x30ed: a crashed bike's second one */
     float vdir[3];              /* +0x18c: the smoothed direction of motion */
     float fwd[3];               /* +0x198: computer bikes: the unit Z row (where they point) */
     float cpu_speed;            /* +0x1a4: computer bikes' wanted speed, m/s */
@@ -161,6 +164,10 @@ typedef struct {
     int nriders;                /* 0x509bac */
     unsigned clock;             /* 0x50bbc8: ms */
     void (*pose)(BikePhys *);   /* 0x467b30, where the step calls it (none in the checks) */
+    void (*shadow)(BikePhys *); /* 0x461aa0, the same */
+    void (*effects)(BikePhys *, unsigned keys);         /* 0x466d70, the same */
+    /* 0x467c40, the same (without it the stream 1 is only drawn from) */
+    void (*debris)(int n, const float pos[3], int base, int mask, const float *m);
 } BikeWorld;
 
 extern BikeWorld g_bikeworld;
@@ -196,6 +203,13 @@ int bikephys_crt_rand(void);
    and the bike given back (0x412a50, 0x411010), its top speed as it was */
 void bikephys_winner_take(BikePhys *b);
 void bikephys_winner_give_back(BikePhys *b, float top);
+
+/* for the drawing's own files: 0x40fd40, 0x48d0f0, 0x410010, 0x490220 and a carac float */
+void bp_rot(float *m, double a0, double a1, double a2);
+double bp_lateral(const BikePhys *b);
+void bp_mulvec(float o[3], const float v[3], const float *m);
+double bp_heading(const float *m);
+float bp_carac(const BikePhys *b, int off);
 
 /* drawing helpers: the matrix as rows, the lean, the frame's pitch */
 static inline const float *bikephys_row(const BikePhys *b, int r) { return b->m + 3 * r; }

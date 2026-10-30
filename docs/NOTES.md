@@ -5827,6 +5827,153 @@ above), the LOD models, lighting and the shadow.
 - The angle-to-index constant is the game's double 2607.594587618272 (0x4d0300,
   0x4d1bf8, 0x4d00d0), not 16384/2π computed (2607.5945876176133); corrected everywhere.
 
+#### 4.15.9 The shadows and the lighting in the race (mapped 2026-10-30; `shadow.c`, `bike3d.c`, `r3d.c`) [asm]
+
+The faces, the drawing and the picture were already in "4. Bikes, shadows, level of detail,
+lighting" (§4.7, §4.3, §4.4 there). What was added to write it:
+
+**The shadow's points 0x461aa0(obj)**, called by the steps (0x45d580, the computer's 0x46bf80)
+just before the frame and lean, stored at obj+0x2ea9 (six points):
+
+- d = (0, 0, 50) M (0x410010: M = +0xbc, its translation included); a = pos + d;
+  angles = 0x458e20(pos, a) = (atan2(ny, h), atan2(−nx/h, nz/h), 0) on the unit direction;
+  R = 0x40fd40(angles); its inverse 0x40fe80; L54 = (40, 0, 0) through the inverse, that is the
+  first column of R x 40: across the bike, level with the road. L48 = (0, 0, 40) M.
+- front = +0x1b4, which the drawer rewrites as rear + unit(front − rear) x c38 x 96 (c38 the carac
+  float at 0x38); the port's drawing doesn't write back to the physics, so `shadow.c` works it out.
+- Each point is laid on the road from its own section, straight down (0x40c7e0 from +0x31c1,
+  0x40c960, the same height as 0x40c8b0): + 4.0, the two in the middle + 8.0.
+- A crashed bike (+0x30c1, and NewMotorEngine 0x52c234: the first int of LEVEL.BPT, 1 on all ten
+  tracks, so the port doesn't read it) has four more at +0x30ed round P = +0x30b5 (where the body
+  came down): h = 0x490220(+0x3085); M' = R(0, −h, 0), rows X, Y, Z, T; Z2 = Z x 2;
+  c0 = (Z2 − X) x 32 + T + P, c1 = (Z2 + X) x 32 + T + P, c2 = (X − Z2) x 32 + T + P,
+  c3 = (−Z2 − X) x 32 + T + P; all on the road of P's section + 2.0.
+
+0x4dc130 is no shadow switch (it is the lighting's, below), and the light vector 0x52c228.. has no
+part in the points: **the shadow doesn't follow a sun**, it is always straight under the wheels.
+The on-board player has no shadow: the cockpit branch of 0x458b80 doesn't call 0x461f70.
+
+**Lighting.** The port's `bike3d_lighting(on)` is 0x4dc130, on round the bikes in `race_frame`, off
+for page 10 and the podium. `r3d_dark(dark, swap)` is set before a bike's faces, reset after. So:
+
+- 0x465d60: section flag +0xe0 = 0: lit; else dark. Dark sections per track (`tools/track.py`'s
+  flag_e0): Speed Bay 32 (34, and the odd ones of 147..205), West Way 154, Rock Forest 20, Lost
+  Ruins 155, Snow Ride 40, Great Wall 18, Red City 263, Dirt Arena 3, ile10 8, ile11 15. The whole
+  bike and rider go dark at once on such a section, with no fade; that they are the places in a
+  shadow across the road [guess, from where they lie].
+- The far model (LOD 2 to 4) and the skeleton: paletted faces halved when dark, kinds 1 → 0x15
+  (halves the texel), 2 → 0x27, 42's flat colour halved. RGB-page faces aren't touched.
+- The wheels: 0x48c400 in the race goes through 0x4221d0 and 0x48c6d0, whose 0x422540 leaves words
+  of 8..24 << 13, below 0x3e000: **a wheel's paletted faces are always halved**, in the sun too. On
+  a dark section 0x4221d0 swaps kinds 0x10 → 0x15 and 0x26 → 0x27, which halve RGB texels as well.
+- Twin of kind 44: 62 near the camera, as `queue()`'s other twins.
+- A paletted flat face (0x4a3cf0) keeps its colour as it is: pal[c] or the raw value, halved when
+  dark, with no 5:5:5 step. Only the unpaletted path goes through 0xffc1 → 0x402020, which loses
+  green's low bit (`flat_face` had it for both: 166 pixels of the dark bike were one green step off).
+
+**Checked** (captures in the scratch folder, none kept; the original at `-FrameRateMax60`, which
+`tools/orig.sh` doesn't pass by default):
+
+- Lit: Speed Bay's grid against `build/ref/orig_race_speedbay_champ.png` and a new capture: the box
+  round the player's bike and shadow (240,340..400,460) is equal to the pixel (the build before
+  this work: 3318 wrong). In the whole picture only the texts, the countdown's number, and what
+  moved (the palm's fronds, gulls, boats) differ: the other riders and their shadows are equal.
+- Dark: on the original, memtool wrote 1 in the flags of sections 2, 3, 4 at the player's section 3
+  (no throttle, so it stays there), a scratch copy of the port did the same when loading: the box
+  240,260..400,460 round the bike, rider and shadow is **equal to the pixel, wheels included**.
+- A crash's second shadow was only compared by eye with `orig_fall_a.png`, a different moment.
+
+
+#### 4.15.10 Dust, spray, tyre marks (mapped 2026-10-30; `effects.c`) [asm]
+
+The bike's step calls **0x466d70(obj, keys)**, keys the step's, +0x2dc8 still the last step's:
+
+- Nothing without a track. Only for bikes with section in [s − 10, s + 30) (wrapped, 0x40ec30) of
+  the followed rider's s. So the stream 1 draws depend on where the camera's rider is.
+- lat = 0x48d0f0(obj), the sideways speed. m = 0x40ec60(section, pos): the ground's kind (lateral
+  l = (pos − section pos) . X; edge[0] < l < edge[1] gives ground_on +0xe4, else ground_off +0xe8).
+- **Spray**: on the ground and m > 0: q = ftol(speed/top x 64.0f); if q > 4: dot = (M2 + M3) . vdir
+  (rows Z and T), n = ftol(q x (1 − |dot|) x 5.0), size = (q + 2n)/3 with C's division; while the
+  bits of the clock 0x4ea508 < 30.0: dir = unit(rear − rear1), a piece at pos with speed x 0.55.
+  For the followed rider the clock += dt, past 50 less 50, bits above 50: 0. So spray comes in
+  bursts, 30 of each 50 units of dt, for every bike by the one clock.
+- Then only if the bits of speed > 5.0:
+  - **New strips**: (brake just pressed: !(+0x2dc8 & 2) and keys & 2) or just sliding (!+0x2da4,
+    +0x2da0): two strips from the ring (0x457350, 16 of them, an old strip is emptied); half width
+    +0x188 = 1.0 (a computer's 5.0).
+  - **Marks**: ((keys & 2) or sliding with |lat| > 0.5) and on the ground: (±w, 0, 0) M give two
+    points each side of the rear and of the front wheel, added to their strips (0x457200: the road
+    of each point's own section + 2.0; at 62 faces the strip stops). A driven bike's w: −1 when
+    |lat| didn't grow, +2.0 when it did, within [1, 12].
+  - **Smoke**: ((wheelie and bits(+0x3081) < 25.0) or (keys & 2) or (sliding, |lat| > 0.5)) and on
+    the ground: 24 puffs for a driven bike, 4 for a computer's; six draws of stream 1 each: r1
+    (life = ((r1 & 1) x 2 + 2) x 15: 30 or 60), three of a spin nothing reads, c = r & 3, a = r & 3,
+    negated unless keys & 4. Each at (rear1 − rear) x 0.03125 x i + rear, 10 up; speed (a, 0, c) M,
+    the translation of M included. Type 5, size 14.
+
+**Computer riders leave no braking marks**: their step (0x46bf80, at 0x46c760) gives this call the
+step's keys but puts the old +0x2dc8 back first, and doesn't keep the brake in it, so "brake just pressed" holds
+on each step of braking: each step starts two new strips with one pair of points each, which have
+no face. (Faithful. Their sliding does leave marks, width 5.)
+
+**Crash 0x467c40(n, pos, base, mask, m)**: three draws for a spin nothing reads; each of n pieces
+life = ((r & 1) x 5 + 5) x 8 (40 or 80), f1, f2, f3 = r & 3, size = (r & mask) + base; smoke at pos,
+10 up, speed f3 M0 + f2 M1 + f1 M2 + T. The crash: (6, pos, 15, 16, M); the body landing: (4, +0x30b5,
+7, 4, +0x3085). So 3 + 5n draws, as the old stub kept.
+
+**The pieces**: 128 at 0x52c498, 0x104 bytes; 0x457620 and 0x4576a0 take the first not live, none
+free: nothing. Only their own life ends them, even over a race's end; the strips go at a start
+(0x457320). One move a step, 0x457590 from Game_Frame step 15 (0x4b0730, read in the asm; the
+decompile's ftols aren't to be trusted there):
+
+- Type 5 (smoke, 0x4afe90, kind 0x44 = 68, page 1): old = size; size = ftol(dt x 0.6 + old); a
+  square of half side 2 x old centred on the point; v.y += dt x −0.0864; y += v.y dt; v.x *= 0.8
+  (z the same); life −= dt, dead below 0. **The size's cut depends on the frame rate**: at dt 1.6
+  (`-FrameRateMax60`, the port) 0.96 is lost and smoke stays 14; at dt 3.3 (the hidden display
+  without the switch, slow machines) it grows by 1 a move. The memory shows both: 14 everywhere at
+  dt 1.6 (15 after a frame of 17 ms), 14 + moves at 3.3, up to 32. So captures to compare smoke with
+  must be taken with the switch. Texels (224,160)..(255,191): one frame of the page's strip
+  of 32 x 32 (u 224..255), set again at each move, the first before any picture; the other frames
+  aren't used.
+- Types 1..4 (spray by the ground's kind, 0x4b00e0, kind 0x26 = 38, page 1; other kinds no piece):
+  size n/2, top n, height 1. While 2 top >= size and size <= 256: size, height += dt x 3.84, each cut
+  to an int; then height −= dt x 1.28, size += dt x 1.28. half = size/2; height < 0: dead; quad
+  (−half, h, 0) (half, h, 0) (half, 0, 0) (−half, 0, 0). v = dir speed, v.y += dt x −0.024525, made
+  unit again; pos += dir (speed dt 0.01 x 128). Texels and colour by type in `effects.c`.
+- **Drawn** 0x4575c0 → 0x4b0be0: detail >= 2; at detail 2 one in 8 pieces. The camera's heading
+  +0xc0 (0x490220(C)) x 2607.594587618272 (0x4d2080) gives a rotation built from the game's cos
+  table with g_cos[0] and g_cos[0x3000], so about Y: upright squares facing the camera, two faces
+  back to back.
+- **Kind 68** (in the see-through batches): each channel towards white by a/32, a = texel & 0x1f:
+  s + ((31 − R) a >> 5) << 11, the same for G's top five bits and for B. Kind 69, its twin, wasn't
+  seen created and isn't written.
+- **Strips** (0x4573e0 after the pieces): kind 0xc, colour 0x4208 = pack(8, 8, 8). **Kind 12**, in the
+  batches: half the screen + half the colour, no texture (0x402020 packs 0x4208 → 0x2104), so the
+  road goes dark.
+
+Stream 1 is used otherwise only by `rules.c`'s choice of a voice (`rand_next(1) > 0x3fff`), so these
+draws change which voice speaks, as in the game, and never a rider's place: `tools/replaycheck.sh`'s
+logs stay equal byte for byte with the build before. In `physcheck` and `cpucheck` the hooks are NULL
+and the crash keeps drawing its 3 + 5n: their reports are the same.
+
+The order in a picture: bikes each with its shadow, the pieces, the strips.
+
+**Checked** against the original at `-FrameRateMax60` (no two rides are in step, so not to the pixel):
+
+- The table 0x52c498 read beside the pictures. Smoke as above. On grass at speed the original's
+  type 3 pieces run (size, height) (8,7) (14,13) (16,10) (18,7) (20,4) (22,1) with top 4 at speed
+  17.8; a scratch build of the port printed the same steps on sand (type 2): (8,7) (16,10) (20,4)
+  with top 4, and (8,7) (16,10) (22,1) with top 5.
+- Under the brake the port's 128 pieces are all taken and the smoke comes in pulses as slots free.
+  The original's table was only read at speed under dt 3.3 (100 to 119 live) and after the stop
+  under dt 1.6 (10 to 30 live), not during a brake at dt 1.6; its pictures show the same pulses.
+- By eye, brake from speed on Speed Bay's straight and on the pavement: the same white patch of
+  smoke behind the rear wheel, towards pink on sand, the same dark strip in the middle. No smoke at
+  12 on the dial in the original, none at 15 in the port; 5.0 in the bits of speed is 18 on the dial.
+- Not compared with a capture: a computer rider's marks, a crash's debris, spray at detail 2 (one
+  in 8), and whether the spray's pictures on the road look the same (they are small and rare in
+  the captures). These rest on the asm.
+
 ### 4.16 The race: load, grid, frame (mapped 2026-10-26, in progress)
 
 The race object 0x52c478 (vtable 0x4d04c8): +0 0x47bf30 defaults, +4 **0x47b420 load**,

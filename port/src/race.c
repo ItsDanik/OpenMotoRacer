@@ -12,6 +12,7 @@
 #include "config.h"
 #include "cpu.h"
 #include "dialog.h"
+#include "effects.h"
 #include "exe.h"
 #include "files.h"
 #include "generic.h"
@@ -28,6 +29,7 @@
 #include "replay.h"
 #include "rules.h"
 #include "scores.h"
+#include "shadow.h"
 #include "signs.h"
 #include "sound.h"
 #include "text.h"
@@ -199,6 +201,8 @@ static void to_rider(Rider *r, const BikePhys *b)
     r->spin_rear = b->spin_rear, r->spin_front = b->spin_front;
     r->crashed = b->crashed, r->roll_side = b->roll_side;
     r->pose = b->pose, r->hand = b->detail;
+    memcpy(r->shadow, b->shadow, sizeof r->shadow);
+    memcpy(r->crash_shadow, b->crash_shadow, sizeof r->crash_shadow);
     if (b->crashed) {
         memcpy(r->body, b->tumble, sizeof r->body);
         memcpy(r->body_pt, b->tumble_pt, sizeof r->body_pt);
@@ -343,6 +347,7 @@ static void step(int ms)
         else                            /* a computer rider (0x46bf80) */
             cpu_step(&g_phys[k], (float)(ms * 0.1), g_counting);
     bikephys_collide(all, g_riders, (float)(ms * 0.1));
+    effects_step((float)(ms * 0.1));    /* 0x457590 */
     for (k = 1; k < g_riders; k++)
         to_rider(&g_rider[k], &g_phys[k]);
     land_anim_step((float)(ms * 0.1));          /* 0x48b7a0 */
@@ -591,11 +596,19 @@ static void start(void)
     g_bikeworld.dt = 1.6f;
     g_bikeworld.frame_ms = STEP_MS;
     g_bikeworld.pose = pose_step;
+    g_bikeworld.shadow = shadow_step;
+    g_bikeworld.effects = effects_bike;
+    g_bikeworld.debris = effects_debris;
     pose_restart();
     signs_start();
     figure_start();
+    effects_restart();
     memset(g_phys, 0, sizeof g_phys);
     grid();
+    for (k = 1; k < g_riders; k++) {    /* (the first picture may come before the first step) */
+        shadow_step(&g_phys[k]);
+        memcpy(g_rider[k].shadow, g_phys[k].shadow, sizeof g_rider[k].shadow);
+    }
     /* 0x47bf70: srand(timeGetTime()), kept for the race's replay; the computer riders'
        speeds (0x47bc60) */
     if (g_race_kind == 1)
@@ -929,6 +942,8 @@ static void blend(Rider *o, const Rider *a, const Rider *b, float t)
     o->spin_front = mix_angle(a->spin_front, b->spin_front, t);
     mixv(&o->body[0][0], &a->body[0][0], &b->body[0][0], 9, t);
     mixv(o->body_pt, a->body_pt, b->body_pt, 3, t);
+    mixv(&o->shadow[0][0], &a->shadow[0][0], &b->shadow[0][0], 18, t);
+    mixv(&o->crash_shadow[0][0], &a->crash_shadow[0][0], &b->crash_shadow[0][0], 12, t);
     if (a->pose.n == b->pose.n)
         for (i = 0; i < b->pose.n; i++)
             for (k = 0; k < 3; k++)
@@ -1002,12 +1017,17 @@ void race_frame(void)
     r3d_race(g_detail);
     r3d_focal(focal);
     land_draw(sec, (const float (*)[3])c, eye);
+    bike3d_lighting(1);
     for (i = 1; i < g_riders; i++)
         if (i == g_follow && onboard_now()) {
             if (cockpit_shown())
                 bike3d_cockpit(&g_shown[i], g_shown[g_follow].lean);
-        } else if (g_racer[i].loaded)                   /* (practice's second record) */
+        } else if (g_racer[i].loaded) {                 /* (practice's second record) */
             bike3d_draw_rider(&g_shown[i], detail_of(&g_shown[i], eye));
+            shadow_draw(&g_shown[i]);
+        }
+    bike3d_lighting(0);
+    effects_draw(g_detail, a);
     hud_bike(b);
     hud_dials_3d();
     if (!dialog_holds()) {      /* the dialogs' drawing flags -10: bit 3 off */

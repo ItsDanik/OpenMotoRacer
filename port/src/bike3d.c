@@ -5,6 +5,7 @@
 #include "bike3d.h"
 #include "bikes.h"
 #include "files.h"
+#include "land.h"
 #include "r3d.h"
 #include <math.h>
 #include <stdint.h>
@@ -500,15 +501,34 @@ static void bone_matrix(int slot, const M pinv, const V pinvt)
     g_made[slot] = 1;
 }
 
-static void wheel(const Model *m, const M r, const V at, const V d, int skin)
+static int g_lighting;          /* 0x4dc130 */
+
+void bike3d_lighting(int on)
+{
+    g_lighting = on;
+}
+
+/* 0x465d60 != 0x1f: the rider's section is a dark one (+0xe0) */
+static int dark_section(const Rider *rd)
+{
+    return g_lighting && g_land.sec && rd->sec >= 0 && rd->sec < g_land.nsec
+           && g_land.sec[rd->sec].flag != 0;
+}
+
+/* 0x48c400; in the race 0x4221d0(dark section) and 0x48c6d0, whose 0x422540 leaves every
+   point's word at 8..24 << 13 (the normals only decide which, and no span reads more than
+   "below 0x3e000"): a wheel's paletted faces are always halved */
+static void wheel(const Model *m, const M r, const V at, const V d, int skin, int dark)
 {
     M n;
     V p, t;
     int base;
     add(p, at, d);
     r3d_place(n, t, (const float (*)[3])r, p);
+    r3d_dark(g_lighting, dark);
     if ((base = r3d_points(m->nv, (const float (*)[3])m->v, (const float (*)[3])n, t)) >= 0)
         r3d_faces(base, m->nf, m->f, skin);
+    r3d_dark(0, 0);
 }
 
 static void part(const M r, const V pos, int i, int *base)
@@ -542,8 +562,10 @@ static void draw_far(const Rider *rd, int lod)
     v[0] = 0.0f, v[1] = carac(rd->bike, 0x40) * 96.0f, v[2] = 0.0f;
     vm(t, v, (const float (*)[3])mm1, rd->rear);
     r3d_place(n, tt, (const float (*)[3])mm1, t);
+    r3d_dark(dark_section(rd), 0);
     if ((base = r3d_points(m->nv, (const float (*)[3])m->v, (const float (*)[3])n, tt)) >= 0)
         r3d_faces(base, m->nf, m->f, rd->skin);
+    r3d_dark(0, 0);
 }
 
 void bike3d_draw(int bike, int skin)
@@ -666,7 +688,7 @@ static void rider(Rider *rd, int lod, int draw)
         scl(v, reach, fdir);
         add(axle_f, head, v);
         sub(d, axle_f, front);
-        wheel(&g_wheel[1], (const float (*)[3])Mfront, front, d, skin);
+        wheel(&g_wheel[1], (const float (*)[3])Mfront, front, d, skin, dark_section(rd));
         sub(v, b[15].pivot, b[1].pivot);
         q = f32((double)length(v) * ln / reach);
         norm(w, v);
@@ -695,7 +717,7 @@ static void rider(Rider *rd, int lod, int draw)
         mm(swing, (const float (*)[3])Rphi, (const float (*)[3])Mrear);
         vm(axle_r, b[16].pivot, (const float (*)[3])swing, Pbody);
         sub(d, axle_r, rear);
-        wheel(&g_wheel[0], (const float (*)[3])Mbody0, rear, d, skin);
+        wheel(&g_wheel[0], (const float (*)[3])Mbody0, rear, d, skin, dark_section(rd));
     }
 
     /* 10: the rider's reference: the frame while riding (kept for a crash), else what the
@@ -734,8 +756,10 @@ static void rider(Rider *rd, int lod, int draw)
     }
     if (base < 0)
         return;
+    r3d_dark(dark_section(rd), 0);
     for (i = 0; i <= g_skl.n; i++)
         r3d_faces(base, g_skl.b[i].nf, g_skl.b[i].f, skin);
+    r3d_dark(0, 0);
 }
 
 /* ---------------------------------------------------------------- the on-board view */
