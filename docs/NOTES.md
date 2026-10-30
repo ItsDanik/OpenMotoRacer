@@ -11353,6 +11353,20 @@ as bits (32 at most). No real joystick is read under `--shot`; `OMR_INPUT`'s
 `joy:X,Y,BUTTONS` holds a fake joystick 0 for the tests, `OMR_DEVICE` sets 0x4dc11c,
 `-jN` / `OMR_JOYDEAD` the dead zone.
 
+### 4.23 The MiSTer's ARM (2026-10-30)
+`tools/arm.sh` builds a static ARM program in the hybrid toolchain's container; `tools/arm.sh check` runs every test
+picture and replay on it under qemu-arm. Result: all 59 pictures the same as the PC's in 5-6-5, the replays the same,
+and the three race logs the same as the PC's byte for byte, so the physics and the riders are bit-exact on ARM (the
+floats through VFP, `-ffp-contract=off`, `-fsigned-char`). SDL's conversion to a BMP rounds differently on ARM (at most
+1 in a channel over the whole picture), which is why the check compares 5-6-5 and not the files' sums.
+**Speed:** qemu tells nothing about time. `OMR_PERF=1` prints every 5 s the pictures a second, the time to make one
+and the slowest, the screen's wait left out. PC, Speed Bay, computer riding, 8000 pictures: 0.69 ms a picture, slowest
+4.40 ms. Callgrind over 1500 pictures (with the load): the painters take most of it, span6 34%, row 12%, span 11%,
+horizon_draw 9%, row6 6%, faces 4%, triangle 4%, rows6 4%. **Not measured on a MiSTer yet**: nothing has been made faster,
+and the skill's Step 8 starts from that measurement. The command, on the MiSTer's shell, with the program and the game copied there:
+`SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy OMR_PERF=1 OMR_HOME=/tmp/omr OMR_PAGE=1 OMR_CHOICES=1,0,4,0,0 OMR_AUTOPILOT=1 ./openmotoracer -data "Moto Racer" --shot /tmp/x.bmp 6000`.
+
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and

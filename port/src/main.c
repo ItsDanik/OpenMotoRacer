@@ -66,7 +66,29 @@ static void usage(void)
          "  OMR_AUTOPILOT=1    the computer rides the player's bike; =win: and the others\n"
          "                     crawl, with no time limit (to reach the winner's lap)\n"
          "  OMR_RACELOG=FILE   a sum of every rider's place and speed, a line a step\n"
-         "  OMR_WATCH_AT=N     the race's replay is asked for at step N");
+         "  OMR_WATCH_AT=N     the race's replay is asked for at step N\n"
+         "  OMR_PERF=1         every 5 seconds: pictures a second, the time to make one, the slowest");
+}
+
+/* OMR_PERF: what the MiSTer's ARM has to be measured with (the picture's making, without
+   waiting for the screen) */
+static void perf_frame(Uint64 start, Uint64 drawn)
+{
+    static Uint64 since, work, worst;
+    static int n;
+    Uint64 now = SDL_GetPerformanceCounter(), freq = SDL_GetPerformanceFrequency();
+    if (!since)
+        since = start;
+    work += drawn - start;
+    if (drawn - start > worst)
+        worst = drawn - start;
+    n++;
+    if (now - since >= 5 * freq) {
+        fprintf(stderr, "perf: %.1f pictures a second, %.2f ms to make one, slowest %.2f ms\n",
+                (double)n * (double)freq / (double)(now - since),
+                1000.0 * (double)work / (double)n / (double)freq, 1000.0 * (double)worst / (double)freq);
+        since = now, work = worst = 0, n = 0;
+    }
 }
 
 static void fail(const char *msg, int headless)
@@ -262,10 +284,12 @@ static void scripted_input(const char *script, int frame)
 
 int main(int argc, char **argv)
 {
+    int perf;
     const char *data = getenv("OMR_DATA"), *home = getenv("OMR_HOME"), *shot = 0, *env, *script = getenv("OMR_INPUT");
     char err[512], shotbuf[512];
     int shot_frames = 0, frame, i, page = 25;
 
+    perf = getenv("OMR_PERF") != 0;
     if ((env = getenv("OMR_LANG")))
         g_lang = atoi(env);
     if ((env = getenv("OMR_SHOT")) && sscanf(env, "%511s %d", shotbuf, &shot_frames) == 2)
@@ -353,6 +377,7 @@ int main(int argc, char **argv)
                 }
 
     for (frame = 0; !g_quit; frame++) {
+        Uint64 perf_start = perf ? SDL_GetPerformanceCounter() : 0;
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             switch (e.type) {
@@ -404,6 +429,8 @@ int main(int argc, char **argv)
             race_frame();
         else
             menu_frame();
+        if (perf)
+            perf_frame(perf_start, SDL_GetPerformanceCounter());
         if (shot && frame + 1 >= shot_frames) {
             if (!video_shot(shot))
                 fail(SDL_GetError(), 1);

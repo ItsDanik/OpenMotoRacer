@@ -135,6 +135,8 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
 - The CD (`exe.c`, NOTES §3.5a): the port runs on the CD's files alone, every track started. MOTO.EXE itself runs
   under wine (how: NOTES): title and main menu differ in the pointer only; Solo can't be pressed there, so no race
   or later page compared. It is GOG's logic with plain colours on the CD's data. No music from the CD yet.
+- The ARM build (`tools/arm.sh`, NOTES §4.23): pictures and physics the same as the PC's under qemu; `OMR_PERF=1`. Speed on a
+  real MiSTer still to measure (Danik: the command is in the NOTES); nothing made faster yet.
 
 ## Waiting for Danik
 - The music under Pause: the port holds it, as the game's code asks; GOG's copy lets it run on (its winmm.dll

@@ -143,6 +143,8 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - Joysticks (NOTES §4.22): `joy.c`, SDL's joysticks as the game's WinMM ones (dead zone, rescale,
   the bindings 0x411b30, the dialogs' arrows, Ctrl+J/K); `-jN` / `OMR_JOYDEAD` the dead
   zone, `OMR_DEVICE` the input device, `OMR_INPUT` `F:joy:X,Y,B` a pretend joystick.
+- The MiSTer's ARM (NOTES §4.23): `tools/arm.sh` the static build, `tools/arm.sh check` all pictures and replays on it
+  under qemu (the same as the PC's); `OMR_PERF=1` the speed readout. Not yet measured on a real MiSTer.
 - Test switches: `OMR_PAGE`, `OMR_CHOICES="MODE,TRACK,LAPS[,REV,POC]"`, `OMR_TILE=SX,SY` (the chequered tile's scroll, to match a capture;
   `tools/cmpshot.py` finds it), `OMR_INPUT="F:key F:hold:key F:release:key F:move:X,Y F:click F:down F:up"` (input at frame F),
   `OMR_TEXT="FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT"` (one text object).

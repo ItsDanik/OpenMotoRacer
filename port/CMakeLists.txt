@@ -9,7 +9,7 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-add_compile_options(-Wall -Wextra -O2 -fwrapv -ffp-contract=off)
+add_compile_options(-Wall -Wextra -O2 -fwrapv -ffp-contract=off -fsigned-char)   # (char as on the PC: ARM's is unsigned)
 
 # SDL2, linked dynamically
 find_package(PkgConfig REQUIRED)
