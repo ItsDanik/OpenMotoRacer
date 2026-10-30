@@ -49,6 +49,7 @@ typedef struct {                /* 0x78 bytes, 0x4338b0 */
     int race_flags;             /* +0x18: how the race is drawn while held */
     int done;                   /* +0x20 */
     int reserve;                /* +0x1c: the race's messages (0x53ba68) go */
+    int box_id;                 /* +0x2c: the box's place in that list */
     int active;                 /* +0x28: each frame's hotkeys and box (0x434960) */
     void (*on_draw)(void);      /* +0x34 */
     int capitals;               /* +0x3c: capitals, the hotkey in small letters */
@@ -94,6 +95,7 @@ static void free_slot(int s)
     int i;
     if (!g_slot[s])
         return;
+    text_remove(g_slot[s]->box_id);
     for (i = 0; i < g_slot[s]->nrows; i++) {
         text_free(g_slot[s]->row[i].normal);
         text_free(g_slot[s]->row[i].high);
@@ -937,11 +939,14 @@ static void draw_one(void)
     d->frames += g_ticks;
     if (d->on_draw)
         d->on_draw();
-    /* +0x1c: the race's message list cleared once. (A base object the size of the box goes in
-       it for new messages to dodge: the dodging is not written, text_add.) */
+    /* +0x1c: the race's message list cleared once, and the box's place taken in it, for new
+       messages to keep out of (0x434ae0) */
     if (d->reserve) {
         d->reserve = 0;
+        layout();
         text_clear_list(1);
+        text_reserve(1, d->rect[0], d->rect[1], d->rect[2] - d->rect[0] + 1,
+                 d->rect[3] - d->rect[1] + 1, 0, &d->box_id);
     }
     layout();
     memcpy(b, d->rect, sizeof b);

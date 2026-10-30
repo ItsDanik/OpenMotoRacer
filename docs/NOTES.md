@@ -1156,8 +1156,49 @@ updated and drawn before the pointer, cleared on a page change. **Checked**: "FU
 VERSION" (`OMR_TEXT="31,0,60,0x22,3,-500,5,1,FULL D3D VERSION"`) covers the same 2171
 pixels as in the original's title capture (orig_p14_title_fulld3d.png against
 orig_p14_title.png), every one equal in 5-6-5; shown 0-499 ms, hidden 500-999 ms.
-Not written yet: motion 1 (0x416b40's fly-to-target) and the dodging (0x417ac0), each
-prints a message when a page asks for it.
+Motion 1 (0x416b40's fly-to-target) came with the race's dialogs (`dialog.c`, §4.19); the dodging
+with the race's messages (below).
+
+##### 4.8.3.8 Keeping out of each other's way: 0x417d20's arguments 11..13 (written 2026-10-30) [asm 0x417e00..0x417f9b, 0x418160 the same]
+The list 0x53ba68's objects, and GAME OVER's in 0x53b8e8, are placed with **steps 5, 5 and
+re-centre 1**: 0x4188b0 (every say: GET READY, the countdown, the switches' messages), 0x481970
+(the final place), 0x482220 ("3 LAPS"), 0x482120, and the CD form's pictures. The other callers of
+either routine with non-zero steps are 0x483e90 and 0x484380 (steps 5, 5, no re-centre: font 6 in
+0x53b8e8, not in the port) and 0x4121e0 (the stub's list 0x53b9a8, never). The font form's four
+messages have none, so they stay in the middle.
+
+After 0x417900's aligning, the place is **tested against every live object of that list only**
+(0x417ac0: the target for a motion 1 object, else its present position). Its test is not a full
+box test: the new box's left or right edge must be in the other's span and its top or bottom in the
+other's, so a smaller object wholly inside it is missed; right and bottom edges counted one past.
+If taken:
+1. y step > 0: y += step until free or y >= screen height − h; failing that, from the start, y −=
+   step until free or y < 1.
+2. Failing that, x step > 0: the same left (x < 1) then right (x >= screen width − w).
+3. Failing that, re-centre: the original arguments x, y through 0x417900 with 0x42. Without
+   re-centre the object goes where it first stood.
+
+**The loops move once more after the free test**: the object lands one step beyond the free place,
+so a dodge always leaves at least a five-pixel gap more than needed.
+
+0x418160's sprite form tests at the place plus the first sprite's offset (+0xc − +4, +0x10 − +8)
+and takes it off after, with the parts' summed width and height. Every first part the port has
+is offset 0, so `dodge` leaves that out.
+
+Motion 1 sets all three to 0 (no aligning, no dodge).
+
+0x417b90 → 0x417bd0: the **base object** (0x415cd0, vtable 0x4d0540, 0xac bytes): no text, no draw,
+an id, a lifetime, a box. Alive by 0x416920 (the screen test as usual). Two callers: **0x434ae0**,
+a dialog's first draw with +0x1c: the list cleared, the box (+0x68, as wide as x2 − x1 + 1) put
+there with lifetime 0, its id in +0x2c, removed by 0x4354e0; and **0x482f00**, the in-race table,
+200 ms (not in the port). Port: `text.c` `place_taken`, `walk`, `dodge`, `text_reserve`.
+
+What it changes on GOG's data as far as seen: nothing in the race's ordinary pictures (the test
+pictures keep their sums, the countdown and GET READY and "3 LAPS" are clear of each other). It
+shows when two messages come together: Ctrl+S then Ctrl+K in a race, "SOUND OFF" stays at y 24..36
+and "KEYBOARD" lands at y 54..66, **the same rows and columns in the port and in the original**
+(a run under wine, 2026-10-30, measured on the red pixels). The tracker's "flying texts" was this
+line of the notes: motion 1 had already come with the dialogs.
 
 
 #### 4.8.4 Where the words come from

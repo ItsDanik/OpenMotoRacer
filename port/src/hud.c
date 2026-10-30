@@ -131,7 +131,9 @@ static void say(int *id, const char *s, int life, int align, int x, int y, int e
     a.fore = named_colour(COL_RED);
     a.back = named_colour(COL_BLACK);
     a.list = 1;         /* 0x53ba68 */
-    text_add(&a);       /* (its steps 5, 5 out of other texts' way: not written) */
+    a.dodge_x = a.dodge_y = 5;
+    a.centre_if_full = 1;
+    text_add(&a);
 }
 
 /* 0x481af0, 0x481c50, 0x481db0, 0x481f10: a picture character of font 11 blinking in the
@@ -224,6 +226,8 @@ static void picture_message(int *id, int which, int life, int blink)
     a.blink = blink;
     a.id_out = id;
     a.list = 1;         /* 0x53ba68 */
+    a.dodge_x = a.dodge_y = 5;
+    a.centre_if_full = 1;
     a.parts = 1;
     a.lo[0] = &spr_msg_lo[which];
     a.hi[0] = &spr_msg_hi[which];
@@ -271,8 +275,8 @@ void hud_game_over(void)
     a.align = 0x42;
     a.motion = 4;
     a.id_out = &id_gameover;
-    /* (steps 5, 5 and re-centring out of other objects' way in 0x53b8e8: nothing else
-       is there in a race but the screen-mode text, not written) */
+    a.dodge_x = a.dodge_y = 5;
+    a.centre_if_full = 1;
     a.vx = 2;
     a.s = 2.0;
     a.k = 5.0;
@@ -309,6 +313,8 @@ static void laps_text(int m)
         a.lifetime = 4000;
     }
     a.id_out = &id_laps;
+    a.dodge_x = a.dodge_y = 5;
+    a.centre_if_full = 1;
     a.vy = 1;
     a.k = 0.2;
     a.own_colours = 1;
@@ -546,6 +552,8 @@ static void finish_place(void)
     a.y = 5;
     a.align = 0xc2;
     a.id_out = &id_finish;
+    a.dodge_x = a.dodge_y = 5;
+    a.centre_if_full = 1;
     a.list = 1;         /* 0x53ba68 */
     text_add(&a);
 }

@@ -67,5 +67,7 @@ void text_draw(void);                   /* 0x418860: both lists */
 void text_draw_list(int list);          /* one (1 = 0x53ba68) */
 void text_clear(void);                  /* 0x417750 */
 void text_clear_list(int list);         /* one (1 = 0x53ba68) */
+/* 0x417b90: an empty box in a list, drawn by nobody, that new objects keep out of */
+void text_reserve(int list, int x, int y, int w, int h, int lifetime, int *id_out);
 
 #endif
