@@ -128,6 +128,7 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
    .GEN parser, `generic.c`) / F11 / F12, the music's pause.
 4. The track's billboards (+0x5c) and AnimDecor (land.c, "not read yet"); the bikes'
    shadows and lighting; the glass capture's page 2 against the level's pages 2..19.
-5. Two players on one PC: the original has no split screen (ask Danik what he expects).
 6. The CD's `MOTO.EXE`: line it up with GOG's `game.EXE` (which tables the port reads).
 7. Then speed on the MiSTer's ARM, releases, the MiSTer core (the skill's steps 8-10).
+8. **Last: the split screen** for two players on one PC (the original has none). Danik,
+   2026-10-30: leave it for last and **stop before starting work on it**.
