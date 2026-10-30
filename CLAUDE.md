@@ -131,6 +131,8 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   `OMR_AUTOPILOT=1` the computer rides the player's bike (`=win`: and the others crawl, no time
   limit, to reach the winner's lap), `OMR_RACELOG=FILE` a sum a step, `OMR_WATCH_AT=N` replay at
   step N.
+- The time attack's ghost (NOTES §4.21c): `ghost.c`, the game's file `<track>/timatak[R_][_]<laps>.bin`
+  in the home folder (the original reads the port's, and the reverse), played as rider 2, Reset.
 - Joysticks (NOTES §4.22): `joy.c`, SDL's joysticks as the game's WinMM ones (dead zone, rescale,
   the bindings 0x411b30, the dialogs' arrows, Ctrl+J/K); `-jN` / `OMR_JOYDEAD` the dead
   zone, `OMR_DEVICE` the input device, `OMR_INPUT` `F:joy:X,Y,B` a pretend joystick.

@@ -119,6 +119,9 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   the diamond in all six) and the place's figure, compared at Speed Bay; boats and gulls move. Not
   checked: later signs of a ride, AnimDecor types 1, 4, 8, 7, other tracks' moving objects, the signs
   on a 16:9 view; four figure captures differ, probably older pictures than the memory read.
+- The time attack's ghost (`ghost.c`, NOTES §4.21c): the movement exact on a recording of the original,
+  files pass both ways. Not tested: a person beating a ghost on the original (its file came from a
+  computer-ridden lap with pokes), Pocket and reverse files in the original, a crash inside a recording.
 
 ## Waiting for Danik
 - The CD's MOTO.EXE (NOTES §1): its text code differs from GOG's; run GOG's logic on the
