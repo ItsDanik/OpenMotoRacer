@@ -79,6 +79,8 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - **The game's tables are read from the player's game.EXE** at their addresses
   (`exe.c`: the PE placed at 0x400000, the build known by its FNV-1a sum; unknown builds
   are refused with a message).
+- The CD: `-data` at the CD's files works alone, `MOTO.EXE` read from `DISK1/data.z` (`exe.c`, NOTES §3.5a): GOG's logic on
+  the CD's data, title and main menu equal to MOTO.EXE's; no music without `NN.wav` (its tracks aren't files).
 - The screen is the game's: 640x480 RGB565 (`video.c`), shown 4:3.
 - `--shot FILE N` (`OMR_SHOT`): no window, N frames, the screen as a BMP. `--help` lists
   the test switches (`OMR_*`).

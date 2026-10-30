@@ -56,6 +56,7 @@ Every claim carries its address and its proof. Dead ends are written down too.
   GOG's with tables moved: its text code differs (and 22 of its 34 fonts). Open: run the
   CD build as GOG's logic with the CD's data (colours from GOG's values?), or ask CD
   players for the official 3.22 patch (whose game.EXE may be GOG's own, to check).
+  (Done for now, the first of the two: §3.5a.)
 
 ## 3. Formats
 
@@ -116,6 +117,31 @@ differ only in the junk after the names). GOG changes DEMO (2 demo files fewer),
 DESIGN (3 pictures, + TEMP.ACT), FONTES (22 fonts, + DEBUG.RAW, SYMBOL.RAW), ILE09 (2
 texture pages, 3 fewer), KTMCROSS (CARAC2/4.BPT, + 2 leftovers), MENU (EALOGO.LEZ), and
 adds ILE10, ILE11 (not on the CD; not in LIST.BPT either).
+
+### 3.5a The CD's MOTO.EXE in the port (2026-10-30)
+The port takes `game.EXE`, else `MOTO.EXE`, else `MOTO.EXE` out of `DISK1/data.z` (stored in the archive,
+`exe.c` `archive_read`; only the table and that file are read). Its tables, found by following GOG's strings to
+the pointers that hold them, then compared record for record: pictures 0x4d9840 (209, no differences), language
+folders 0x4da8a8, seeds 0x4d2bb8 (8th 0; the port never draws stream 7), sounds 0x4de830, 0x4de7d8, 0x4de7c8,
+0x4de868, 0x4de8f8, 0x4de978, 0x4de6d8 (ids and names all equal), podium's sound objects 0x4e4a68, cheats 0x4e7530
+(count 0x4e7528, switches 0x4d2350 for GOG's 0x4dc050), words 0x4d8340 (191, two wordings differ: 86 and 160, the
+port doesn't format with either), scripts 0x4e73f0, 0x4e7450; the cursors' resources have the same numbers.
+**No named colours**: the program pushes R,G,B as numbers (0x422fa0's 103 calls: white, black, yellow, 128 grey,
+cyan, and reds from 100 to 240 by menu row, 236 on the HUD). `font.c` uses plain colours on this build, which is
+not the CD's look in every place: the port runs **GOG's logic on the CD's data** (the choice left open in §1).
+"FULL D3D VERSION" is the patch's: not on this build. Registry value `Version` 1 makes the program use the
+`title*GP.lez` pictures (0x4d247c) ("Moto Racer GP"); the port doesn't read it and shows the plain title.
+Not handled: the CD's audio tracks are not files, so a CD with no `NN.wav` beside it has no music.
+
+**Running MOTO.EXE under wine** (build/origcd: MOTO.EXE, DATA, GOG's DDraw.dll, D3DImm.dll, dgVoodoo.conf; drive
+e: at that folder with `.windows-label` moto_rac and `HKLM\Software\Wine\Drives` e: cdrom). Without the install's
+registry it says PROGRAM INCORRECTLY INSTALLED. Under `HKLM\SOFTWARE\Wow6432Node\DelphineSoft\MotoRacer\CurrentVersion\Moto`
+(the 32-bit view: reg.exe's plain path doesn't reach it): strings DataPath `e:\`, SavingPath `e:\`, Language ENGLISH,
+dwords Version 0, InstallType 3, PId = the sum of 0x47bf90 over Windows' ProductId (`e = 2e ^ c`; here 140469129).
+Title and main menu: the port on the CD's files differs from it in the pointer only (175 and 179 pixels, box of
+the pointer; main with OMR_TILE=89,89). The name page wasn't compared (its letters turn). **Pressing Solo did
+nothing**: keys, xdotool's press and click: the button lights and the page stays. So no page past the main menu
+and no race has been compared with MOTO.EXE. The drive and link were removed afterwards from the prefix.
 
 ## 4. Map of the program
 

@@ -102,3 +102,11 @@ OMR_CHOICES=2,0,4 run champ_pocket 17 30
 OMR_CHOICES=2,0,4 run champ_won 18 30
 OMR_PODIUM=1 OMR_CHOICES=2,0,4 run podium_first 24 500
 OMR_PODIUM=4 OMR_CHOICES=2,0,4 run podium_fourth 24 500
+# the 1997 CD's files with its own MOTO.EXE, read from the installer archive (where the CD is here)
+if [ -d "Moto Racer CD" ]; then
+    export OMR_DATA="$PWD/Moto Racer CD"
+    run cd_title 14 400
+    OMR_TILE=89,89 run cd_main 3 200
+    OMR_AUTOPILOT=1 OMR_CHOICES="1,0,1,0,0" run cd_race 1 700
+    unset OMR_DATA
+fi

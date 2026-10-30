@@ -22,7 +22,16 @@ static const unsigned char black[3];
 
 const unsigned char *named_colour(int c)
 {
-    const unsigned char *p = exe_at(exe_addr(X_COLOURS) + 4 * (unsigned)c, 3);
+    /* the 1997 program pushes its colours as numbers in its code, with no table to read:
+       the plain colours by their names (NOTES §3.5a) */
+    static const unsigned char plain[][3] = {
+        { 255, 255, 255 }, { 0, 0, 0 }, { 128, 128, 128 }, { 0, 255, 255 }, { 255, 0, 255 },
+        { 255, 255, 0 }, { 255, 0, 0 }, { 0, 0, 255 }, { 0, 255, 0 }, { 0, 255, 0 }, { 255, 160, 0 }
+    };
+    const unsigned char *p;
+    if (!exe_addr(X_COLOURS))
+        return c >= 0 && c < (int)(sizeof plain / sizeof plain[0]) ? plain[c] : black;
+    p = exe_at(exe_addr(X_COLOURS) + 4 * (unsigned)c, 3);
     return p ? p : black;
 }
 

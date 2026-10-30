@@ -24,9 +24,11 @@ enum {
     X_PODIUM_SOUNDS,    /* the podium's four sound objects (0x4e9128, 0x50 bytes each) */
     X_GEN_SHORT,        /* the victory sequence's scripts: the short list (0x4f1640), */
     X_GEN_LONG,         /* the long one (0x4f16a0) */
+    X_CHEAT_VARS,       /* the three unlock switches the cheats name (0x4dc050) */
     X_COUNT
 };
 unsigned exe_addr(int what);
+int exe_is_cd(void);                    /* the 1997 CD's MOTO.EXE, not GOG's game.EXE */
 
 /* the bytes at the program's address va (len of them inside the image), else 0 */
 const unsigned char *exe_at(unsigned va, unsigned len);

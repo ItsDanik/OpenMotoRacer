@@ -1,6 +1,7 @@
 /* Pages 25 and 14 (NOTES §4.9.1, §4.9.2): the Delphine Software logo, its letters
    spiralling in for 20 s, then the Moto Racer title, its three pieces flying in over a
    picture that gains each one as it lands. */
+#include "exe.h"
 #include "clock.h"
 #include "font.h"
 #include "menu.h"
@@ -199,8 +200,8 @@ void page_title_frame(void)
         bitmap_draw(PIC(P_TITLE + 3), BM_OWN, 100, 0);
         /* "FULL D3D VERSION" is added on frames 11 to 20 of every 21 (here 60ths of a
            second): each copy blinks 500 ms on, 500 off from its own start, and the copies
-           pile up (48 at most) */
-        for (i = 0; i < g_ticks; i++) {
+           pile up (48 at most). The patch's: the 1997 program has no such text. */
+        for (i = 0; !exe_is_cd() && i < g_ticks; i++) {
             if (++g_mr_frames > 10) {
                 Font *f = font_get(31);
                 TextArgs a;

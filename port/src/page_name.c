@@ -230,8 +230,9 @@ static void confirm(void)
     memcpy(g_player_name, g_name, sizeof g_name);
     for (i = 0; i < n && i < 16; i++) {
         unsigned var = exe_u32(a + 12 * i + 4);
-        int *p = var == 0x4dc050 ? &g_reverse_unlocked2 : var == 0x4dc054 ? &g_pocket_unlocked2
-               : var == 0x4dc058 ? &g_island_unlocked : 0;
+        unsigned sw = var - exe_addr(X_CHEAT_VARS);
+        int *p = sw == 0 ? &g_reverse_unlocked2 : sw == 4 ? &g_pocket_unlocked2
+               : sw == 8 ? &g_island_unlocked : 0;
         if (strcasecmp(exe_str(exe_u32(a + 12 * i)), g_player_name) != 0)
             continue;
         if (p)

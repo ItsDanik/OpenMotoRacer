@@ -132,19 +132,21 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   original's memory (two rides never run in step; compare smoke only with `-FrameRateMax60`, which `tools/orig.sh`
   doesn't pass). Not compared: computer riders' marks, the crash's debris, spray at detail 2, a real dark section.
   The ghost gets its shadow and effects as 0x45e940 calls them (seen in the port, not compared).
+- The CD (`exe.c`, NOTES §3.5a): the port runs on the CD's files alone, every track started. MOTO.EXE itself runs
+  under wine (how: NOTES): title and main menu differ in the pointer only; Solo can't be pressed there, so no race
+  or later page compared. It is GOG's logic with plain colours on the CD's data. No music from the CD yet.
 
 ## Waiting for Danik
 - The music under Pause: the port holds it, as the game's code asks; GOG's copy lets it run on (its winmm.dll
   ignores the request, recorded under wine). A one-line change in `sound.c` (`music_pause` empty) if he prefers GOG's.
-- The CD's MOTO.EXE (NOTES §1): its text code differs from GOG's; run GOG's logic on the
-  CD's data, or ask for the official 3.22 patch?
+- The CD's MOTO.EXE: GOG's logic on the CD's data for now (NOTES §3.5a). Enough, or should the CD's own look be
+  ported too? And the CD's music: read the audio tracks from the image, or have the player rip them to `NN.wav`?
 - Music: loop for ever (GOG, now) or the CD's "play a repeating track twice"?
 - Where saves go (bestscor.dat, championship saves, ghosts): the game's data folder, as
   the original, or a user folder? (For now a user folder, the game's read as a fallback.)
 
 ## Next, in order
 4. The glass capture's page 2 against the level's pages 2..19.
-6. The CD's `MOTO.EXE`: line it up with GOG's `game.EXE` (which tables the port reads).
 7. Then speed on the MiSTer's ARM, releases, the MiSTer core (the skill's steps 8-10).
 8. **Last: the split screen** for two players on one PC (the original has none). Danik,
    2026-10-30: leave it for last and **stop before starting work on it**.
