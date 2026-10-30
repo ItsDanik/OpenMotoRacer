@@ -8,6 +8,7 @@
 #include "exe.h"
 #include "font.h"
 #include "menu.h"
+#include "pointer.h"
 #include "race.h"
 #include "rules.h"
 #include "scores.h"
@@ -47,6 +48,7 @@ typedef struct {                /* 0x78 bytes, 0x4338b0 */
 
 static Dialog *g_dlg;           /* the slot 0x4e8904 */
 static int g_ctrl, g_shift;     /* 0x4dc108, 0x4dc10c */
+static int g_left_held, g_right_held;   /* 0x4e897c, 0x4e8980 */
 
 int dialog_open(void)
 {
@@ -508,6 +510,80 @@ int dialog_key(int vk, int down)
     return taken || (g_dlg ? g_dlg->keyboard : 1);
 }
 
+/* ------------------------------------------------------------------ the mouse */
+
+/* 0x435430: the first row whose shown item, where it is now, has the point */
+static int row_at(int x, int y)
+{
+    int i, b[4];
+    for (i = 0; i < g_dlg->nrows; i++) {
+        const Row *r = &g_dlg->row[i];
+        if (r->is_static || !r->shown || !text_alive(r->shown))
+            continue;
+        text_now(r->shown, b);
+        if (b[0] <= x && x <= b[2] && b[1] <= y && y <= b[3])
+            return i;
+    }
+    return -1;
+}
+
+/* 0x433ec0, 0x200: hovering chooses a row, and off the rows none is chosen. Not while a
+   button is held. */
+static void mouse_move(int x, int y)
+{
+    int r;
+    if (g_left_held || g_right_held)
+        return;
+    r = row_at(x, y);
+    if (r != g_dlg->sel) {
+        select_row(r);
+        if (r >= 0)
+            enter(r);
+    }
+}
+
+/* 0x433ec0, 0x201 and 0x202: a press belongs to the row under the button going down and
+   happens as it comes up, wherever the pointer is by then */
+static void mouse_left(int x, int y, int down)
+{
+    if (down) {
+        g_left_held = 1;
+        select_row(row_at(x, y));
+    } else {
+        g_left_held = 0;
+        if (g_dlg->sel >= 0 && g_dlg->row[g_dlg->sel].action)
+            g_dlg->row[g_dlg->sel].action();
+        if (g_dlg->done)
+            close_dialog();
+    }
+}
+
+void dialog_mouse_move(int x, int y)
+{
+    pointer_touched(x, y);
+    if (g_dlg)
+        mouse_move(x, y);
+}
+
+void dialog_mouse_button(int left, int down)
+{
+    if (!g_dlg)
+        return;
+    if (left)
+        mouse_left(g_mx, g_my, down);   /* (the place the last move left it) */
+    else
+        g_right_held = down;            /* (no row answers it: +0x28 is 0) */
+}
+
+/* the pointer's shape after a message (0x4329a5, 0x4e8960): the row's, or "no" off the rows */
+static void set_pointer(void)
+{
+    if (!g_dlg)
+        pointer_shape(CUR_ARROW);
+    else
+        pointer_shape(g_dlg->sel >= 0 ? CUR_ROW : CUR_NO);
+}
+
 /* ------------------------------------------------------------------ drawing */
 
 /* 0x49a5a0: the inside at half brightness, a 5-pixel bevel from 230/256 to 128/256 */
@@ -557,6 +633,7 @@ void dialog_draw(void)
 {
     Dialog *d = g_dlg;
     int i, b[4];
+    set_pointer();
     if (!d)
         return;
     d->frames += g_ticks;

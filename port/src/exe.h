@@ -33,6 +33,9 @@ const unsigned char *exe_at(unsigned va, unsigned len);
 unsigned exe_u32(unsigned va);
 const char *exe_str(unsigned va);       /* a zero-ended string there, else "" */
 
+/* a Windows resource of the program by its type and number (its first language), else 0 */
+const unsigned char *exe_resource(int type, int id, unsigned *len);
+
 /* the game's word number id in the menus' language (0x415a70 fills text[] at 0x53b5e8:
    the language's, else the English) */
 const char *exe_text(int id);

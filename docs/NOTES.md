@@ -9033,8 +9033,8 @@ recordings in build/phys/ can check each piece step for step.
 shaded box and the closing slide; the pause menu (arg 1) with RESTART, QUIT RACE, CONTINUE.
 Its picture after Escape matches build/ref/orig_race_escmenu.png on every button pixel
 (SmallFonts 1: font 33, halved places). The race's restart and quit go through events done
-at the next frame, as 0x4dc0c4's. Not yet: the results and continue dialogs, the mouse, F1 /
-F11 / F12, the sound pause 0x424090, the championship's 0x4580f0 after QUIT RACE.
+at the next frame, as 0x4dc0c4's. The mouse: §2.6a. Not yet: the championship's 0x4580f0 after
+QUIT RACE.
 
 Scratch notes for NOTES §4.17 part B §3–§4 (helper, 2026-10-26). Read in build/mr.asm unless
 marked. Tags: [asm] read in the machine code, [decomp] Ghidra's text only, [guess],
@@ -9262,6 +9262,33 @@ dissolve set of the current shape (circle set if the current is 0x4dbf90): t ≥
 −180 B, −270 C, −360 B, −450 A, −540 B, −630 C, below −630 **hidden**. So the pointer
 vanishes 3.63 s after the mouse stops. (The menu's own drawn pointer, NOTES §4.4.6.7, is
 not used in the race.) Port: draw these cursor bitmaps at the mouse position.
+
+##### 2.6a The mouse and the pointer in the port (written 2026-10-30)
+
+`dialog.c` `dialog_mouse_move/button` are 0x433ec0's 0x200, 0x201, 0x202, 0x204/5 as in §2.2, the
+hit test `row_at` is 0x435430 (the shown item's box **where it is now**, so a row still flying
+in is hit where it flies). The held flags 0x4e897c/0x4e8980 are cleared only by the handler, as
+in the game: a dialog closed by a key while the button is down leaves the flag set until the
+next button-up reaches a dialog. A button-up with a row chosen presses that row even if the
+button went down before the dialog existed.
+
+`pointer.c` is 0x45a190 with the timer 0x4dbfb4. The cursors are read from game.EXE's own
+resources (`exe_resource`: RT_GROUP_CURSOR 12 gives the RT_CURSOR number; 4 bytes hot spot,
+BITMAPINFOHEADER, 2 palette entries, XOR rows, AND rows, bottom up; all 32x32, 1 bit) and put
+**into the picture** as Windows would: `(screen & AND) ^ XOR`. The game uses SetCursor; drawing it
+makes it scale with the window like the menus' pointer and works on a screen without a hardware
+cursor (the MiSTer), and the pictures show it. While the Pause key holds the race the picture
+is not redrawn: `pointer_undraw` puts back what it covered so the pointer still moves.
+Deviation: the timer starts at 3000 as in the image (0x4dbfb4), but no pointer is shown until
+a first mouse message arrived (the port's `g_seen`): the tests run without a mouse, and a
+player who never touched it has nothing to see for 3.6 s. The timer runs in race frames only
+(0x4120e0) and every mouse message anywhere resets it, so a mouse moved in the last menu shows
+the arrow for the race's first 3.6 s, as in the game.
+Not read: 0x4dbfb0 (WM_NCMOUSEMOVE over the window frame: the arrow, no dissolving), the band
+0x624b18 − 0x68b008 (the port's picture is always the full 640x480).
+Compared: the original's pause menu answers `xdotool` the same way (hover, click on CONTINUE RACE
+goes on); its Windows cursor does not show in an X capture of the window, so the pointer's shape
+is from the code and the resources alone.
 
 ##### 2.7 Joystick
 

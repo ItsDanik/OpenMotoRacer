@@ -8,6 +8,8 @@
 int dialog_open(void);          /* there is one */
 int dialog_holds(void);         /* +0x10: the race does not step */
 int dialog_key(int vk, int down);       /* 0x433ec0: 1 if it took the key */
+void dialog_mouse_move(int x, int y);           /* 0x433ec0's mouse messages */
+void dialog_mouse_button(int left, int down);
 void dialog_frame(void);        /* 0x434960 (from 0x4126a0), once a race frame */
 void dialog_draw(void);         /* 0x434ae0, after the dashboard */
 void dialog_shade(int x0, int y0, int x1, int y1);      /* 0x49a5a0 */

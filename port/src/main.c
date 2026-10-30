@@ -17,6 +17,7 @@
 #include "video.h"
 #include "input.h"
 #include "joy.h"
+#include "dialog.h"
 #include "race.h"
 #include <SDL.h>
 #include <ctype.h>
@@ -214,15 +215,21 @@ static void scripted_input(const char *script, int frame)
         if (f != frame)
             continue;
         unsigned jb;
-        if (sscanf(what, "move:%d,%d", &x, &y) == 2)
+        if (sscanf(what, "move:%d,%d", &x, &y) == 2) {
             menu_mouse_move(x, y);
+            dialog_mouse_move(x, y);
+        }
         else if (sscanf(what, "joy:%d,%d,%u", &x, &y, &jb) == 3)
             joy_fake(x, y, jb);
         else if (strcmp(what, "click") == 0) {
             menu_mouse_button(1, 1);
+            dialog_mouse_button(1, 1);
             menu_mouse_button(1, 0);
-        } else if (strcmp(what, "down") == 0 || strcmp(what, "up") == 0)
+            dialog_mouse_button(1, 0);
+        } else if (strcmp(what, "down") == 0 || strcmp(what, "up") == 0) {
             menu_mouse_button(1, what[0] == 'd');
+            dialog_mouse_button(1, what[0] == 'd');
+        }
         else {
             /* KEY: pressed and let go; hold:KEY, release:KEY: for the race's held keys */
             int hold = strncmp(what, "hold:", 5) == 0, release = strncmp(what, "release:", 8) == 0;
@@ -375,12 +382,16 @@ int main(int argc, char **argv)
                 break;
             case SDL_MOUSEMOTION:
                 menu_mouse_move(e.motion.x, e.motion.y);
+                dialog_mouse_move(e.motion.x, e.motion.y);
                 break;
             case SDL_MOUSEBUTTONDOWN:
             case SDL_MOUSEBUTTONUP:
-                if (e.button.button == SDL_BUTTON_LEFT || e.button.button == SDL_BUTTON_RIGHT)
+                if (e.button.button == SDL_BUTTON_LEFT || e.button.button == SDL_BUTTON_RIGHT) {
                     menu_mouse_button(e.button.button == SDL_BUTTON_LEFT,
                                       e.type == SDL_MOUSEBUTTONDOWN);
+                    dialog_mouse_button(e.button.button == SDL_BUTTON_LEFT,
+                                        e.type == SDL_MOUSEBUTTONDOWN);
+                }
                 break;
             }
         }

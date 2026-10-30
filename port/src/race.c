@@ -4,6 +4,7 @@
    the dashboard, the race's rules, the pause menu (Escape), the computer riders
    (cpu.c). */
 #include "race.h"
+#include "pointer.h"
 #include "bikephys.h"
 #include "bikes.h"
 #include "camera.h"
@@ -942,11 +943,14 @@ void race_frame(void)
     if (g_paused) {             /* the last picture stays; no time passes */
         g_step_at += g_now - g_last_now;
         g_last_now = g_now;
+        pointer_undraw();
+        pointer_draw();
         return;
     }
     if (g_events && !events())
         return;
     text_clock(g_now);
+    pointer_step((int)(g_now - g_last_now));    /* 0x4120e0 */
     dialog_frame();
     if (dialog_holds()) {       /* (the time since the last step kept) */
         g_step_at += g_now - g_last_now;
@@ -1003,5 +1007,6 @@ void race_frame(void)
     }
     dialog_draw();
     credits_frame();
+    pointer_draw();
     sound_update();             /* 0x405f30: the voice queue */
 }
