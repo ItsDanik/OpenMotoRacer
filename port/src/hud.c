@@ -800,6 +800,15 @@ static void racing(void)
 
 /* the controller's name after Ctrl+J / Ctrl+K (0x431922, 0x431a0c), 3 s at the top;
    slot 0 the joystick's (0x4e98d8), 1 the keyboard's (0x4e98dc) */
+void hud_sound_notice(const char *s, int trouble)
+{
+    static int id;
+    if (trouble)                /* 0x4dbb20 with texts 134 and 135, blinking lower down */
+        say(&id, s, 2000, 0x22, 0, 0x1e, FX_BLINK, 0x20, 4);
+    else
+        say(&id, s, 2000, 0x22, 0, 0x14, FX_FADE_OUT, F_MESSAGES, 4);
+}
+
 void hud_notice(int slot, const char *s)
 {
     static int id[2];

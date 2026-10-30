@@ -27,6 +27,7 @@ void dialog_free(void);         /* the slot emptied without the closing effects 
 void dialog_pause(int arg);     /* 0x436420: arg 1 from Escape, 0 after a single race */
 void dialog_results(void);      /* 0x437b70: [REPLAY] YES / NO */
 int dialog_help(void);          /* 0x43cf90: 0 if Help.gen does not load */
+void dialog_side(int kind);     /* F12 1 (0x438f70), F11 3 (0x43a400): opened, or closed again */
 void dialog_continue(void);     /* 0x4358b0: [CONTINUE] YES / NO */
 
 #endif

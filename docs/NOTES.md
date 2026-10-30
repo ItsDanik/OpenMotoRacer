@@ -9600,10 +9600,37 @@ Value with high word set, index < count, 16 bpp and **both** w ≠ W **and** h �
 0x4dc0cc = pixel count, 0x4dc0c8 = mode, 0x4dc0d0 = index, 0x4e9ce4 = 1 (quirk: a mode
 sharing the width or the height with the current one is refused).
 
-##### Port
-Resolution rows and the mode list: no-ops or window scale (Danik's call); sound rows →
-the port's sound flags. Unresolved: row+0x24's purpose, 0x4dbff0's meaning (full screen
-or windowed: the FS tick looks inverted if it means windowed), 0x408f30, the '^' glyph.
+##### In the port (written 2026-10-30; `dialog.c` `dialog_side`, `race_sound.c` `race_sound_toggle_*`)
+The rows are as in the two tables. What the table's actions do in the race:
+- **0x408b30** (SND, Ctrl+S): no server → text 134 ("no sound") with 0x4dbb20, 2 s, y 30, effect
+  3, font 0x20. Else 0x4db664 ^= 1, and **0x4db65c and 0x4db660 take the same value** (so the MOTO
+  and AMB ticks follow it, seen); switching on starts the engines and the ambience afresh and
+  forgets the last voice and effect. Message text 120 on / 121 off in slot 0x4e98ec (2 s, align
+  0x22, y 20, FadeOut, font 12), which replaces the one before.
+- **0x408f30** (VOICE, Ctrl+V): 0x4db668 ^= 1, texts 122 / 123. **0x409410** (CD, Ctrl+A): the
+  music, no CD → text 135 as for 134; texts 124 / 125. **0x408900** (MOTO): 0x4db65c ^= 1, no
+  message, engines stopped or started afresh. **0x408800** (AMB): 0x4db660 ^= 1, the objects
+  stopped or armed again, no message.
+- These switches are written to CONFIG.BPT at the end as the options' are (so a test that presses
+  one must start from a scratch home).
+- The two columns in the three orders: keys and mouse side, help, race (0x4329a5); each frame's
+  hotkeys help, race, side (0x4126a0); drawn side, race, help (0x47ff90). The column change
+  (0x4e8918's bits, 0x4587e0) waits for the next frame in `dialog_frame`, as the close's slide
+  does not: the old column is freed at once when the key F11 or F12 does it, and on `done` when a
+  row did.
+
+What the port leaves: **L, M, H do nothing**, the screen being the game's 640x480 always (the
+original starts a re-init through 0x4e9ce4); **B does nothing** (no 16:9 band in the port's
+picture) and its tick stays off; **FS** is SDL's desktop full screen, its tick now from the port's
+state: off at the start, as a window under wine shows it. **Shift+F12** (the list of Windows'
+modes) is not written. The original keeps a column open across races; the port's goes with the
+race (`dialog_free`).
+
+Compared with the original (F11, F12, the pointer on MOTO, on MEDIUM; a run under wine,
+2026-10-30): **the tags and long texts to the pixel**, the rest of the left column being sky and
+sea that move with the race. Clicked in the port only: SND takes MOTO's and AMB's ticks with it and
+says SOUND OFF; DISP changes column; HIDE closes; the same key closes; the other key changes
+column. Not compared: the messages' moment and the pointer itself (a capture never shows it).
 
 ### 4.20 The race view: cameras, dashboard, drawing order (mapped 2026-10-26)
 

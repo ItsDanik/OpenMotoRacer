@@ -117,6 +117,16 @@ void race_key(int vk, int down)
         controller(vk == 'J');
         return;
     }
+    if (g_ctrl_held && down && (vk == 'S' || vk == 'V' || vk == 'A')) {
+        /* 0x431250 0x53, 0x56, 0x41: the switches of the F11 column, with their messages */
+        if (vk == 'S')
+            race_sound_toggle_effects();
+        else if (vk == 'V')
+            race_sound_toggle_voices();
+        else
+            race_sound_toggle_music();
+        return;
+    }
     if (vk == VK_ESCAPE && down) {
         if (g_winner_lap) {     /* 0x431533: on to the results */
             g_winner_sequence = 1;
@@ -130,6 +140,12 @@ void race_key(int vk, int down)
     if (vk == 0x70) {                           /* F1 (0x431cf2): the help, in Solo */
         if (down && !g_ctrl_held && !g_shift_held && g_solo && !g_playback)
             dialog_help();
+        return;
+    }
+    if (vk == 0x7a || vk == 0x7b) {             /* F11 and F12 (0x432200): the columns */
+        /* (Shift+F12's list of Windows' screen modes: not in the port) */
+        if (down && !g_ctrl_held && !g_shift_held)
+            dialog_side(vk == 0x7a ? 3 : 1);
         return;
     }
     if (vk == VK_TAB) {                         /* the look back */

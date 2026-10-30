@@ -11,6 +11,7 @@
 #include "menu.h"
 #include "pointer.h"
 #include "race.h"
+#include "race_sound.h"
 #include "rules.h"
 #include "scores.h"
 #include "choices.h"
@@ -32,8 +33,11 @@ typedef struct {                /* 0x6c bytes */
     Text *shown;                /* +0 */
     int is_static;              /* +0x58: the title */
     unsigned char hot[4];       /* +0x68: [0] the letter found each frame */
-    void (*action)(void);       /* +0x20, +0x2c */
+    void (*action)(void);       /* +0x2c: the hotkey, Return */
+    void (*up)(void);           /* +0x20: the left button up */
+    void (*down)(void);         /* +0x1c: the left button down */
     int cursor;                 /* +0x34 */
+    int (*ticked)(void);        /* +0x60, +0x64: the first letter a tick or a space */
 } Row;
 
 typedef struct {                /* 0x78 bytes, 0x4338b0 */
@@ -56,11 +60,12 @@ typedef struct {                /* 0x78 bytes, 0x4338b0 */
     int sel;                    /* +0x54: -1 none */
 } Dialog;
 
-/* the slots, in the order the window procedure 0x4329a5 asks them: 0x4e890c the help, 0x4e8904
-   the race's. (0x4e8910's message boxes are Direct3D's warnings and the list of Windows'
-   screen modes: not in the port.) */
-enum { SLOT_HELP, SLOT_RACE, SLOTS };
+/* the slots, in the order the window procedure 0x4329a5 asks them: 0x4e8908 the F11 and F12
+   columns, 0x4e890c the help, 0x4e8904 the race's. (0x4e8910's message boxes are Direct3D's
+   warnings and the list of Windows' screen modes: not in the port.) */
+enum { SLOT_SIDE, SLOT_HELP, SLOT_RACE, SLOTS };
 static Dialog *g_slot[SLOTS];
+static int g_next_side;         /* 0x4e8918's 0x200000, 0x400000: the other column next */
 static Dialog *g_dlg;           /* the one at work */
 static int g_left_held, g_right_held;   /* 0x4e897c, 0x4e8980 */
 
@@ -202,7 +207,7 @@ static void button(int text, int x, int y, int tx, int ty, int align, int motion
     r->high = item(s, 32, tx, ty, tx, ty, align, FX_BLINK, 0, 2, 0, 0, 0, 0, 0, 0);
     if (escape)
         r->hot[1] = VK_ESCAPE;
-    r->action = action;
+    r->action = r->up = action;
     r->cursor = CURSOR_ROW;
 }
 
@@ -234,7 +239,7 @@ static void still(int text, int x, int y, int align, int escape, void (*action)(
     r->high = item(s, 32, x, y, x, y, align, FX_BLINK, 0, 2, 0, 0, 0, 0, 0, 0);
     if (escape)
         r->hot[1] = VK_ESCAPE;
-    r->action = action;
+    r->action = r->up = action;
     r->cursor = CURSOR_ROW;
 }
 
@@ -457,7 +462,7 @@ static void help_key(int ch, int y, int align, void (*action)(void), int k0, int
     r->hot[0] = (unsigned char)k0;
     r->hot[1] = (unsigned char)k1;
     r->hot[2] = (unsigned char)k2;
-    r->action = action;
+    r->action = r->up = action;
     r->cursor = CURSOR_ROW;
 }
 
@@ -494,6 +499,118 @@ int dialog_help(void)
     return 1;
 }
 
+/* ------------------------------------------------------------------ F11 and F12 */
+
+enum { SIDE_DISPLAY = 1, SIDE_SOUND = 3 };      /* +0x00 */
+
+static void act_side_hide(void) /* 0x43a2b0 */
+{
+    g_dlg->done = 1;
+}
+
+static void act_side_sound(void)        /* 0x43a3d0: 0x4e8918 = 0x400000 */
+{
+    g_dlg->done = 1;
+    g_next_side = SIDE_SOUND;
+}
+
+static void act_side_display(void)      /* 0x43b6d0: 0x4e8918 = 0x200000 */
+{
+    g_dlg->done = 1;
+    g_next_side = SIDE_DISPLAY;
+}
+
+/* the screen's size (0x43a2d0, 0x43a300, 0x43a320) and the 16:9 band (0x43a370): the port's
+   picture is 640x480 and whole (NOTES §4.19 §5b) */
+static void act_side_none(void)
+{
+}
+
+/* a row of a column: the short tag flies in from the left edge, the long text shows while the
+   pointer is on it. Pressed as the button goes down; no row is chosen at first. */
+static void side_row(int i, int y, int tag, int text, void (*action)(void), int (*ticked)(void))
+{
+    Row *r = &g_dlg->row[i];
+    r->normal = r->shown = item(exe_text(tag), 32, -60, y, 0, y, 0x40, FX_NONE, 1, 0, 1, 0,
+                                4.0, 7.0, 0, 0);
+    r->high = item(exe_text(text), 32, 0, y, 0, y, 0x40, FX_NONE, 0, -500, 0, 0, 0, 0, 0, 0);
+    r->action = r->down = action;
+    r->cursor = CURSOR_ROW;
+    r->ticked = ticked;
+}
+
+static void side_begin(int kind)
+{
+    if (!new_dialog(SLOT_SIDE, kind))
+        return;
+    g_dlg->hold = g_dlg->keyboard = g_dlg->box = g_dlg->reserve = 0;
+    g_dlg->nrows = kind == SIDE_DISPLAY ? 8 : 7;
+    /* (the rows left out stay static and empty) */
+    {
+        int i;
+        for (i = 0; i < g_dlg->nrows; i++)
+            g_dlg->row[i].is_static = 1;
+    }
+}
+
+static void side_row_on(int i)
+{
+    g_dlg->row[i].is_static = 0;
+}
+
+/* 0x438f70 */
+static void dialog_display_menu(void)
+{
+    side_begin(SIDE_DISPLAY);
+    if (!g_dlg)
+        return;
+    side_row(0, -20, 138, 141, act_side_none, 0);
+    side_row(1, -40, 137, 140, act_side_none, 0);
+    side_row(2, -60, 136, 139, act_side_none, 0);
+    side_row(3, 10, 142, 143, act_side_none, 0);
+    side_row(4, 50, 147, 148, video_toggle_fullscreen, video_fullscreen);
+    side_row(6, 80, 149, 150, act_side_sound, 0);
+    side_row(7, 100, 151, 152, act_side_hide, 0);
+    side_row_on(0), side_row_on(1), side_row_on(2), side_row_on(3);
+    side_row_on(4), side_row_on(6), side_row_on(7);
+    g_dlg = 0;
+}
+
+/* 0x43a400 */
+static void dialog_sound_menu(void)
+{
+    int i;
+    side_begin(SIDE_SOUND);
+    if (!g_dlg)
+        return;
+    side_row(0, -50, 153, 154, race_sound_toggle_music, race_sound_music_on);
+    side_row(1, 0, 157, 158, race_sound_toggle_engine, race_sound_engine_on);
+    side_row(2, -20, 155, 156, race_sound_toggle_effects, sound_effects_on);
+    side_row(3, 50, 161, 162, race_sound_toggle_voices, sound_voices_on);
+    side_row(4, 80, 163, 164, act_side_display, 0);
+    side_row(5, 100, 151, 152, act_side_hide, 0);
+    side_row(6, 20, 159, 160, race_sound_toggle_ambience, race_sound_ambience_on);
+    for (i = 0; i < 7; i++)
+        side_row_on(i);
+    g_dlg = 0;
+}
+
+/* 0x432200..: the same key again closes the column, the other key changes it */
+void dialog_side(int kind)
+{
+    if (g_slot[SLOT_SIDE]) {
+        int same = g_slot[SLOT_SIDE]->kind == kind;
+        g_dlg = g_slot[SLOT_SIDE];
+        close_dialog();
+        if (same)
+            return;
+    }
+    if (kind == SIDE_SOUND)
+        dialog_sound_menu();
+    else
+        dialog_display_menu();
+}
+
 /* ------------------------------------------------------------------ each frame */
 
 /* 0x434860: the box round the rows' shown items (where the flying ones are going) */
@@ -521,13 +638,19 @@ void dialog_frame(void)
 {
     unsigned char used[64];
     int n = 0, a, i, s;
+    static const int order[SLOTS] = { SLOT_HELP, SLOT_RACE, SLOT_SIDE };
+    if (g_next_side) {          /* 0x4126a0 -> 0x4587e0 */
+        int kind = g_next_side;
+        g_next_side = 0;
+        dialog_side(kind);
+    }
     for (a = 0; a < ACTIONS; a++)
         used[n++] = (unsigned char)toupper(g_binding[a][0] & 0xff);
     for (i = 0x70; i <= 0x77; i++)
         used[n++] = (unsigned char)i;
     used[n++] = 9;
     for (s = 0; s < SLOTS; s++) {
-      g_dlg = g_slot[s];
+      g_dlg = g_slot[order[s]];
       if (!g_dlg || !g_dlg->active)
         continue;
       for (i = 0; i < g_dlg->nrows; i++) {
@@ -703,12 +826,14 @@ static int mouse_left(int x, int y, int down)
         int r = row_at(x, y);
         g_left_held = 1;
         select_row(r);
+        if (r >= 0 && g_dlg->row[r].down)
+            g_dlg->row[r].down();
         return r >= 0;
     }
     g_left_held = 0;
-    if (g_dlg->sel < 0 || !g_dlg->row[g_dlg->sel].action)
+    if (g_dlg->sel < 0 || !g_dlg->row[g_dlg->sel].up)
         return 0;
-    g_dlg->row[g_dlg->sel].action();
+    g_dlg->row[g_dlg->sel].up();
     return 1;
 }
 
@@ -836,6 +961,8 @@ static void draw_one(void)
         char *s;
         if (!r->shown)
             continue;
+        if (r->ticked)          /* the fonts 2, 6, 32 and 33 have it, as '^' */
+            text_string(r->shown)[0] = r->ticked() ? '^' : ' ';
         if (!r->is_static && d->capitals) {     /* the hotkey in the font's small letters */
             int lowered = 0;
             for (s = text_string(r->shown); *s; s++) {
@@ -855,7 +982,7 @@ static void draw_one(void)
 /* 0x47ff90 step 19 */
 void dialog_draw(void)
 {
-    static const int order[SLOTS] = { SLOT_RACE, SLOT_HELP };
+    static const int order[SLOTS] = { SLOT_SIDE, SLOT_RACE, SLOT_HELP };
     int s;
     set_pointer();
     for (s = 0; s < SLOTS; s++)

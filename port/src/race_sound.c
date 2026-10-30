@@ -8,6 +8,7 @@
    sound_pan, sound_frequency), as the game's do, with every volume, pan and frequency an
    integer computed as the game's x87 computes it (doubles, __ftol truncating). */
 #include "race_sound.h"
+#include "hud.h"
 #include "bikes.h"
 #include "choices.h"
 #include "clock.h"
@@ -1194,10 +1195,10 @@ static void ambience(const float cam[3], const float look[3])
 
 /* ------------------------------------------------------------------ the calls */
 
-void race_sound_start(const float cam[3], int player)
+/* the engines and the shouts from nothing (0x4084e0, and 0x408900, 0x408b30 switching on) */
+static void engines_afresh(void)
 {
     int i;
-    g_player = player;
     g_last_followed = 0;
     g_slide_on = g_air_on = g_flat_on = 0;
     g_flat_said = 0;
@@ -1210,6 +1211,105 @@ void race_sound_start(const float cam[3], int player)
         reset(&g_near[i]);
         g_near[i].detune = i * 100;
     }
+}
+
+/* 0x408900, 0x408800 and 0x408b30 ask for the server first: no sound, this says so */
+static int no_sound(void)
+{
+    if (sound_running())
+        return 0;
+    hud_sound_notice(exe_text(134), 1);
+    return 1;
+}
+
+void race_sound_toggle_engine(void)
+{
+    int i;
+    if (no_sound())
+        return;
+    g_engine_on ^= 1;
+    if (g_engine_on)
+        engines_afresh();
+    else {                      /* 0x406190 */
+        stop_all(&g_own);
+        for (i = 0; i < 4; i++)
+            stop_all(&g_near[i]);
+    }
+}
+
+void race_sound_toggle_ambience(void)
+{
+    int i;
+    if (no_sound())
+        return;
+    g_ambience_on ^= 1;
+    for (i = 0; i < g_namb; i++)
+        if (g_ambience_on)
+            rearm(&g_obj[i]);
+        else
+            amb_stop(&g_obj[i]);
+}
+
+/* in a race: the engines and the ambience go with it */
+void race_sound_toggle_effects(void)
+{
+    int i;
+    if (no_sound())
+        return;
+    sound_toggle_effects();
+    g_engine_on = g_ambience_on = sound_effects_on();
+    if (g_engine_on) {
+        engines_afresh();
+        for (i = 0; i < g_namb; i++)
+            rearm(&g_obj[i]);
+        sound_set_last_voice(-1);
+        sound_set_last_effect(-1);
+    }
+    hud_sound_notice(exe_text(sound_effects_on() ? 120 : 121), 0);
+}
+
+void race_sound_toggle_voices(void)
+{
+    if (no_sound())
+        return;
+    sound_toggle_voices();
+    hud_sound_notice(exe_text(sound_voices_on() ? 122 : 123), 0);
+}
+
+void race_sound_toggle_music(void)
+{
+    int fx, voices, music;
+    if (!sound_running()) {
+        hud_sound_notice(exe_text(135), 1);
+        return;
+    }
+    music_toggle();
+    sound_get_switches(&fx, &voices, &music);
+    hud_sound_notice(exe_text(music ? 124 : 125), 0);
+}
+
+int race_sound_engine_on(void)
+{
+    return g_engine_on;
+}
+
+int race_sound_ambience_on(void)
+{
+    return g_ambience_on;
+}
+
+int race_sound_music_on(void)
+{
+    int fx, voices, music;
+    sound_get_switches(&fx, &voices, &music);
+    return music;
+}
+
+void race_sound_start(const float cam[3], int player)
+{
+    int i;
+    g_player = player;
+    engines_afresh();
     memcpy(g_cam_prev, cam, sizeof g_cam_prev);
     /* (0x405ea0 runs at the track's load; the port reads Sound.Spt again at each start) */
     ambience_parse();
