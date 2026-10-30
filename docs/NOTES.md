@@ -2113,8 +2113,9 @@ not ask (0x424090 only).
 Measured (a run under wine, 2026-10-30, track 04 of Speed Bay, effects and voices off with Ctrl+S
 and Ctrl+V, the sound recorded from the null sink and each 1.5 s found in 04.wav by correlation,
 score 0.999..1.000): **the music runs straight through Pause, through F1 and through the pause
-menu**, the file's position minus the time the same to a millisecond over 45 s. So on GOG's copy the
-music never stops. The same asm in the 1997 CD's MOTO.EXE (`push 0x809`, 0x4a81f0) would pause a real
+menu**, the file's position minus the time the same to a millisecond over 45 s, in two sessions.
+The game did stand: two pictures 3 s apart under Pause are equal in the upper 200 rows, and again
+under F1. So on GOG's copy the music never stops. The same asm in the 1997 CD's MOTO.EXE (`push 0x809`, 0x4a81f0) would pause a real
 disc: read, not run.
 
 **Port's choice, to be judged by Danik:** `music_pause` (0x4096e0) holds the music and goes on from
@@ -9832,8 +9833,10 @@ modes) is not written. The original keeps a column open across races; the port's
 race (`dialog_free`).
 
 Compared with the original (F11, F12, the pointer on MOTO, on MEDIUM; a run under wine,
-2026-10-30): **the tags and long texts to the pixel**, the rest of the left column being sky and
-sea that move with the race. Clicked in the port only: SND takes MOTO's and AMB's ticks with it and
+2026-10-30, again after merging the roadside objects): **the tags and long texts to the pixel**:
+what differs in the left column is the boat and birds that move with the race (54 and 12 pixels)
+and, in the hover pictures, the port's pointer alone (about 175 pixels in a 15x25 box, the capture
+never shows it). Under the Continue dialog neither the original nor the port opens a column. Clicked in the port only: SND takes MOTO's and AMB's ticks with it and
 says SOUND OFF; DISP changes column; HIDE closes; the same key closes; the other key changes
 column. Not compared: the messages' moment and the pointer itself (a capture never shows it).
 
