@@ -135,7 +135,7 @@ Text *text_new(const TextArgs *a)
         if (!f)
             return 0;
         font_measure(f, a->text, &w, &h, 0);
-        if (!a->bare)
+        if (!a->bare && !a->no_gap)
             h += f->line;
     }
     if (a->motion != 1)
@@ -475,13 +475,18 @@ void text_draw_one(Text *t)
         font_draw(f, t->text, t->x, t->y, 0x21, level);
 }
 
+void text_draw_list(int list)
+{
+    int i;
+    for (i = 0; i < TEXTS; i++)
+        if (alive(g_texts[i], 0) && g_texts[i]->list == list)
+            text_draw_one(g_texts[i]);
+}
+
 void text_draw(void)
 {
-    int i, list;
-    for (list = 1; list >= 0; list--)
-        for (i = 0; i < TEXTS; i++)
-            if (alive(g_texts[i], 0) && g_texts[i]->list == list)
-                text_draw_one(g_texts[i]);
+    text_draw_list(1);
+    text_draw_list(0);
 }
 
 void text_clear(void)
@@ -489,4 +494,12 @@ void text_clear(void)
     int i;
     for (i = 0; i < TEXTS; i++)
         delete_text(i);
+}
+
+void text_clear_list(int list)
+{
+    int i;
+    for (i = 0; i < TEXTS; i++)
+        if (g_texts[i] && g_texts[i]->list == list)
+            delete_text(i);
 }

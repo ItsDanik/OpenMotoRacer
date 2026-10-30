@@ -14,6 +14,6 @@ void hud_bike(const struct BikePhys *b);        /* the shown bike (0x508834) */
 void hud_key(int vk);                           /* F7: dials, digits, none (0x432107) */
 void hud_notice(int slot, const char *s);       /* a controller change, 3 s */
 void hud_dials_3d(void);        /* the dial and needles, before the 3D is drawn */
-void hud_draw(void);            /* 0x4806e0, after the 3D, before the text lists */
+void hud_draw(int dials);       /* 0x4806e0, after the 3D, before the text lists */
 
 #endif

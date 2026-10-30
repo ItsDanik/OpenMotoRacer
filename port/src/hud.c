@@ -815,11 +815,12 @@ void hud_restart(void)
     g_dash.built = 0;
 }
 
-void hud_draw(void)
+void hud_draw(int dials)
 {
     int k;
     g_frames += g_ticks;
-    dials_digits();
+    if (dials)                  /* 0x47ff90's flags & 8 */
+        dials_digits();
     for (g_loaded = 0, k = 1; k < g_riders; k++)        /* 0x4817a0 */
         g_loaded += g_racer[k].loaded;
     if (!g_race_over) {

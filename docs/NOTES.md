@@ -9464,6 +9464,43 @@ delete 0x4f15f8 (0x48a440 + free, = 0), 0x4096e0(0) + 0x409700(0) resume CD and 
 free, cursor arrow. **Not mapped**: the Help.gen page layout and the elements' slide
 (0x48b190 / 0x48a000 / 0x48a150 / 0x489de0) — the .GEN engine.
 
+##### F1 in the port (written 2026-10-30; `dialog.c` `dialog_help`, `generic.c` `help_*`)
+
+The page layout the first read left open: Help.gen is a script of 29 one-line blocks (`[L0]` no
+life, `[W50]` the key's width, `[FKeyboardHelp]`, `[FHelp]`, the text in `\(...\)`). 0x48b120 sets
++0x1c = 1, and with it 0x48a4a0 and 0x48b190 lay the blocks **one under the other**: 0x48a000(block,
+y, &next) puts the lines from y, next = y + the lines' heights (+ the [V] offset, none here).
+0x48b190(page) stacks them again from 0 and then takes the first line's y of the block asked for
+off every piece, so that block is at the top of the screen and the others follow it: it is one
+long list that scrolls by whole blocks, not pages. A block without lines: nothing moves (returns
+0, +0x20 kept). 0x43deb0 draws every block each frame through 0x48a150(1): with 1 no piece is ever
+marked seen (0x417350), so +0xa4 stays 1 and pieces off the screen stay alive. No block has [D],
+[MX], [MY].
+
+The rows are as in §5a; the rows 3 and 4 (Home, End) have item 6, a bare object that is never
+drawn or hit, and +0x58 = 0: the hotkey search of 0x433ec0 has no test of +0x58 at all, so
+any row's hotkeys answer. All the help's actions return 1 (asm), so a key they take never reaches
+the race. No row is chosen at first, so the pointer is the "no" circle until it is on a key.
+
+`race_frame` now takes 0x47ff90's flags from the dialog that holds the race (`dialog_flags`): bit 3
+the dials (and their digits), bit 6 the dashboard and all texts, else bit 5 the list 0x53ba68 only.
+Normal −2, the race's dialogs −10, the help −0x4a. So the pause menu has no dials, which the
+original's capture always showed (the port drew them until now).
+
+Two things found while comparing, both also true of the pause menu:
+- +0x1c: a dialog's first draw empties the message list 0x53ba68, so "GET READY" goes with it
+  (`text_clear_list(1)`; the box object 0x417b90 put in the list for new messages to dodge is not
+  written, as the dodging itself is not).
+- A dialog's items are 0x416170 + 0x416300, then 0x433a30 and slot 6: **no line's gap in their
+  height**, unlike 0x417d20's text objects (`TextArgs.no_gap`). Seen as the key caps aligned to
+  their bottom edge one pixel too high, and the pause menu's box one row too tall.
+
+Compared with the original (F1, PgDn, Down, End, a run under wine, 2026-10-30): the list to the
+pixel on all four (x < 210; 4..183 pixels of sky and sea differ with the race's moment), the five
+key caps to the pixel, the pause menu's box and rows to the pixel. Closing puts the dashboard back
+and the race goes on. Not compared: the blinking cap under the pointer (the capture shows both
+states of a blink, and the pointer not at all).
+
 ##### Message box 0x43c570 (slot 0x4e8910)
 `0x43c570(title, header, horiz, modal, box, kind, deflt, count, btn[])`, btn = 9-byte
 records (char *text, u8 char, i32 value); 0x43c4e0 = the same with the buttons on the
@@ -10736,7 +10773,7 @@ file. The block's fields are the tags' values at its end: L and H/V hold for eve
 right by 0x4f1610; 0x48a000 the lines' heights added up, and centred or at the bottom.
 0x48a9e0: a block starts when the one before has nothing alive; 0x48a150 draws it, moved by
 MX·(W·dt/MH), MY·(H·dt/MV), on a darkened box ([D], 0x49a5a0) in the software renderer. The help
-(F1, 0x48b120, 0x48b180) is the same parser with a page's blocks: not ported yet.
+(F1, 0x48b120, 0x48b180) is the same parser with its blocks stacked: §4.19 §5a.
 
 ### 4.22 The joysticks (mapped and written 2026-10-26)
 
