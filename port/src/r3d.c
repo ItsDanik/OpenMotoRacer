@@ -500,6 +500,21 @@ void r3d_screen_faces(int base, int nf, const Face *f, float key)
             queue_kind(&f[i], base, key, -1, f[i].kind);
 }
 
+/* 0x49c590 with 0x4f1a18 = 0, called on its own: every face at one key, none culled, its
+   kind through a detail row (detail < 0: the race's own) */
+void r3d_key_faces(int base, int nf, const Face *f, float key, int detail)
+{
+    int i, keep = g_detail;
+    if (base < 0)
+        return;
+    if (detail >= 0)
+        g_detail = detail;
+    for (i = 0; i < nf; i++)
+        if (f[i].kind != 0xd)
+            queue(&f[i], base, key, -1);
+    g_detail = keep;
+}
+
 int r3d_points(int nv, const float (*v)[3], const float n[3][3], const float t[3])
 {
     float nx[4], ny[4], nz[4];

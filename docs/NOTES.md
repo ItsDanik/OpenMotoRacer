@@ -4064,7 +4064,7 @@ v>1: i32 n2, n2 records for sections 0..n2-1 (n2 = nsec on every track):
 v>2: i32 horizon offset -> 0x4db2b0, f32 horizon scale -> 0x4db2b4 (§4.13.3 §8)
      "AnimDecor\0" block (0x48b7e0): i32 version, i32 n, n records of 0x20 (or 0x40)
         bytes: word0 = decor | type<<16 | sub<<24; type 7 with version > 2 adds i32 nframes,
-        i32 npoints, frames of 3f (paths) [asm for the reader, semantics not followed]
+        i32 npoints, frames of 3f (paths) [asm for the reader; what they mean: §4.13.5 §3]
 ```
 
 Section fields as the game uses them:
@@ -4076,7 +4076,7 @@ Section fields as the game uses them:
 - **Road or not** `0x40ec60`: lateral = X·(p − pos); within [+0xf0, +0xf4] → ground
   material +0xe4, else +0xe8 [asm].
 - **Events** `0x486240`: code +0xec 0..5 (16..21 when racing in reverse, 0x4dc140 = −1)
-  set flags 0x5d2edc.. with 75.0 [asm] — the turn-warning signs on the HUD [guess];
+  set flags 0x5d2edc.. with 75.0 [asm] — the turn signs on the screen (§4.13.5 §2);
   6..12 toggle bits of the zone mask +0xf8 [asm].
 - +0xde: no reader found; looks like leftovers [guess].
 
@@ -4175,8 +4175,10 @@ are skipped (`0x473240`) [asm].
   R0 = (cc·cb + sc·sb·sa, sc·ca, sc·sa·cb − cc·sb),
   R1 = (cc·sb·sa − sc·cb, cc·ca, cc·sa·cb + sc·sb),
   R2 = (sb·ca, −sa, ca·cb).
-- billboards: if model +0x5c == 1, angle b = cam +0xc0 (faces the camera).
-- animated objects (+0x30) go through `0x49b490` with the AnimDecor paths (not done).
+- billboards: if model +0x5c == 1, angle b = cam +0xc0 (faces the camera). Nothing in the
+  race ever sets it: dead code, §4.13.5 §1.
+- animated objects (+0x30) go through `0x49b490`. Also never set in the race: §4.13.5 §1.
+  What AnimDecor moves goes through the ordinary path, §4.13.5 §3.
 
 ###### 5.4 Kinds in the race: `0x49c590` remap [asm]
 `*0x4dc0c4 == 0` in the race (1 in the menus). With the property table 0x6d1f88 and the
@@ -4247,8 +4249,6 @@ the tool starts from the camera — expected, not a bug).
 
 ##### 4.13.1.7 Open questions
 
-- AnimDecor: types and sub-types, how `0x49b490` moves the objects (boats, gulls, people).
-- Event codes (+0xec) and the HUD signs: which sprite each code shows.
 - `0x458b80` (per visible section; bikes and shadows?).
 - The chase camera's exact motion (`0x46f840`): lerps 0.2/0.5/(1/3), extra distances.
 - FlatZ 0x6d1f70 and the gouraud zone globals: written, no reader found (no gouraud
@@ -4263,8 +4263,8 @@ the tool starts from the camera — expected, not a bug).
 
 Done (§4.13.4): the .trk, pages 2..19, the section walk, block/decor visibility, the race's
 renderer set-up and kinds, the horizon, the decor matrix, a still test camera.
-Left: billboards (+0x5c), the chase camera `0x46f840` behind the player's bike (needs the
-bike: physics, models), AnimDecor, event signs, the minimap model (+0x28).
+Left: the minimap model (+0x28). (The chase camera: §4.20 §2.5. AnimDecor and the event
+signs: §4.13.5. Billboards do not exist in the race.)
 
 #### 4.13.2 The race's rasterizer (sub 6 perspective, kind 0 flat, kinds 37/51/62)
 
@@ -4592,7 +4592,7 @@ strip, dark-blue fill above, orange fill below, and the strip moves with the yaw
   table stops the see-through kinds (0x6d20c0). At most 2001 faces are drawn a frame
   (0x62e438: the count compared `<=` 2000.0).
 - `land.c`: Level.Spt (FileLand, the 20 banks: pages 2..19 from the level's folder), the
-  .trk (§4.13.1 §2; AnimDecor not read), the section walk, `land_draw` (0x40ce60: blocks
+  .trk (§4.13.1 §2), the section walk, `land_draw` (0x40ce60: blocks
   ahead/behind by the camera's forward against the section's start plane, the decor of the
   sections around, each object once, cameras hidden, the decor matrix 0x403880 with its
   two float temporaries).
@@ -4603,8 +4603,154 @@ strip, dark-blue fill above, orange fill below, and the strip moves with the yaw
   track_horizon) for the eight captures q14, q15, q17, q19, q20, q22, p3, p7 (camera from
   each dump's block). Against the original's screens, the rest is the bikes, riders,
   shadows, tyre marks and the HUD.
-- Not yet: billboards (+0x5c), AnimDecor, the 512x384 and 320x240 horizons, the bikes'
-  pages 0 and 1.
+- Not yet: the 512x384 and 320x240 horizons, the bikes' pages 0 and 1.
+
+#### 4.13.5 What stands by the road and over it: "billboards", the turn signs, the place's figure, AnimDecor (mapped 2026-10-30)
+
+The question was the things seen in the original's race and missing from the port: big
+diamond signs with an arrow, a chequered-flag object with a wreath, sailing boats, birds.
+They turned out to be three different things, and none of them is what `land.c` called
+"billboards".
+
+##### 4.13.5.1 The "billboards" (.trk +0x5c) are dead code [asm]
+
+- The decor's draw method 0x4022f0 (vtable 0x4d0110, +0xc) has a branch for `model +0x5c == 1`
+  (angle b from the camera's +0xc0) and one for `decor +0x30` (through 0x49b490).
+- The loader 0x40d650 writes 0 to +0x5c of all three library models (0x40dcbf, 0x40dcfc,
+  0x40dd05, with ebx = 0). The other writers of that offset are the model's constructor
+  0x41f7ae and a model copy at 0x48bfbe. No writer of 1 was found.
+- `decor +0x30` is set to 0 by 0x4022a0 and by the loader, and nothing else writes it.
+- So neither branch runs in the race, and the port leaves them out. Read from the running
+  game at Speed Bay [test]: +0x5c is 0 in all 49 entries of each of the three library arrays
+  (0x4dc0d8, dc, e0; stride 0x79), and +0x30 is 0 in all 112 decor objects (found by their
+  vtable: they are not evenly spaced from 0x4dc0e4, gaps 0x70 to 0x540).
+- The draw method always takes the **near** model (+0x4c), as the port already did.
+
+##### 4.13.5.2 The turn signs are on the screen, not in the world [asm, test]
+
+The big diamonds (green with a left arrow, red/orange with an S-bend) look as if they stand
+over the road, but they are the library's near models drawn flat on the screen, blinking.
+
+- **Models.** 0x473370 (from the race's start 0x47bf70) looks through the track's library by
+  name (strncmp) for slot 0 `counter` (the dial's face, already `hud_dials_3d`) and slots
+  1..6: `g_45` 0x4eabb8, `d_45` 0x4eabb0, `g_90` 0x4eaba8, `d_90` 0x4eaba0, `g_chica`
+  0x4eab98, `d_chica` 0x4eab90 (g/d: gauche/droite, left/right; chica: chicane). They have 37
+  or 43 faces, all of kind 0 (flat colour).
+- **Records** 0x5d2eb8 + i x 0x18: +0 library index, +4 x, +8 y, +0xc armed, +0x14 time.
+- **Arming.** 0x47e3d0 at 0x47e65d, for every section passed with new furthest progress, when
+  the rider is 0x508834 (the followed one, the port's `race_player()`): 0x486240(section
+  +0xec). There code −= 0x10 if 0x4dc140 == −1 (racing in reverse); 0..5 → armed = 1, time =
+  75.0. So the code runs in the rules' section walk, the numbers 6..12 being the ambience's.
+- **Clock** (the loop of 0x486310, each picture): if 0x4e9834 is 1 or 2, or DisplaySignal
+  0x4f0e14 is 0, or 0x4f15f4 (the victory credits) is set, then time = 0 and no draw. Else
+  time −= dt; below 0 it is disarmed. It is drawn while ftol(time x 0.1) is even: a blink each
+  100 ms, for 750 ms (dt is in units of 10 ms).
+- **Drawing.** Every vertex: x = W − 1 − 320·W/640 + vx·W/640, y = H − 1 − 400·H/480 −
+  vy·H/480, so around (319, 79) at 640x480, with z 2048 (vertex +8 = 2048, +0x18 = 1/2048,
+  +0xc = 0x3e000). Each face through 0x49c590 at key 15.0; 0x4f1a18 stays 0, so the kinds pass
+  through the detail row.
+- **F8** (0x432176, needs 0x4e8944, the port's `g_hotkeys`) toggles 0x4f0e14 and says word 180
+  "Signals OFF" or 181 "Signals ON" through 0x4188b0 (id 0x4e98f0, life 2000, align 0x22, x 0,
+  y 0x14, effect 2 fade-out, font 12, blink 4). DisplaySignal is saved in CONFIG.BPT.
+
+##### 4.13.5.3 AnimDecor: what the boats and gulls do [asm, test]
+
+The boats and gulls were always in the decor list and the port drew them, standing still. The
+"AnimDecor\0" block of the .trk moves them.
+
+- **Loader** 0x48b7e0, object at 0x5f6778: +0 count, +4 a pause flag (always 0), records at +8,
+  stride 0x190. File version 1 has records of 0x20 bytes, others 0x40. More than 0x3f records
+  or 0x4f frames is a fatal error. All ten tracks parse to the last byte.
+- **Record:** +0 type, +4 sub (which angle: 0, 1, 2), +8 decor index, +0xc decor pointer, +0x1c
+  t (file value x 0.1), +0x20 a, +0x24 b, +0x28 c (x 0.1 when type 8), +0x2c period (x 0.1),
+  +0x30 from[3], +0x3c to[3], +0x48 nframes, +0x4c the near model's +0x1c (no reader), +0x50..
+  frame pointers. Type 7 with version > 2 is followed by i32 nframes and, if > 0, i32 npoints
+  and the frames of 3 floats a point.
+- **Step** 0x48b7a0 → 0x48b370, called in Game_Frame at 0x47d871 with dt, after the riders'
+  steps. Each record's t += dt, then by type:
+
+  | Type | What moves | Formula |
+  |------|------------|---------|
+  | 1 | an angle | triangle wave from a to b over the period |
+  | 2 | an angle | (a + b + sin(t/period x 2π + c)(b − a)) x 0.5, with the float 2π 6.2831854820251465 |
+  | 3, 5 | an angle | ramp t/period x a + c |
+  | 4 | the position | triangle wave from `from` to `to` |
+  | 6 | | a fatal error |
+  | 7 | the near model's vertices (+4) | i = int(t/period): 0 → the **medium** model's vertices (+0x1c), else frame[i−1]; the clock wraps at (n+1) x period |
+  | 8 | the position | t mod (c + period); x = t > period ? 1 : t/period, from `from` to `to` |
+
+- Type 7 repoints a library model's vertices, so all decor of that library entry flap together.
+  In every track near nv == medium nv == npoints; medium is not always the same as near
+  (Gull05 in ile01). One record in cerv10 has no frames.
+- Tracks use: ile01 (2,2) (3,1) (2,0) (7,0) ..., ile02 and ile11 (8,0), ile05, ile08, bercy,
+  ile10 (4,0).
+- This touches no rider, physics or random stream. The port steps it in the same place of the
+  fixed step, so replays stay the same (`tools/replaycheck.sh`).
+
+##### 4.13.5.4 The place's figure: the flags and the wreath [asm, test]
+
+At the end of a race the player's place flies in: "1", "2" or "3" in chequered flags, turning,
+before a wreath.
+
+- **Load.** 0x47b600 (from 0x47b420 at 0x47b5cc) reads from `<track>\final\` 1rst, 2nd, 3rd and
+  Laureat, .3df and .map, through 0x420a50(.., −1, 1), into 0x515ff0 + i x 0x70, each centred by
+  0x420250. 0x420a50's end moves the faces with the MAP's bit 0x20000 (flags & 1) to the front
+  by exchanges: for each i whose face lacks the bit, for each later j whose face has it, swap.
+  All of a figure's faces share one key, so that order decides what hides what. Only the
+  Laureats of ILE03 and ILE06 have such faces.
+- **Reset** at the end of 0x47bf70: 0x4f0c40 (turn) = 0, 0x4f0c3c (z) = 16000, 0x4f0c44 = 128.
+- **When.** 0x47b7a0(0, dt), in the frame's drawing with flag 8: when 0x51601c != 0 (the first
+  figure loaded), the mode 0x4dc094 != 0 (not practice), the place +0x2f85 of rider 0x508834 is
+  0..2 and its state +0x2de5 is 2 (finished).
+- **Moves.** turn += dt x 0.015707963267948967. If 0x504eac == 0: z > 2500 → z += dt x −80,
+  stopping at 2500; the wreath's z is z, or when z == 2500 sin(turn x 4.0) x 128 + z. Otherwise
+  (the winner's lap has its credits): z += dt x −30, stopping at 0. Not drawn when z <= 768.
+- **Drawing.** Matrices from the tables' g_cos[0] and g_cos[0x3000]; the figure also turns about
+  Y by the index int(turn x 2607.594587618272). The wreath's faces at key 16.0, the number's at
+  13.0, both with the detail row forced to 3. The near plane is set to 1.0 meanwhile (0x49a120),
+  with no effect in practice since the faces are rendered later.
+
+##### 4.13.5.5 In the port
+
+- `signs.c`: `signs_start`, `signs_event`, `signs_step`, `signs_draw`, `signs_key`,
+  `figure_load`, `figure_start`, `figure_step`, `figure_draw`. `land.c`: `read_anims`,
+  `land_anim_step`. `r3d.c`: `r3d_key_faces`, 0x49c590's loop at a given key and detail.
+  `config.c`: DisplaySignal.
+- The signs' time and the figure are stepped with the fixed steps, not each picture as in the
+  original (the same speed; the blink can differ by one step).
+- Under a dialog (its drawing flags −10, bit 3 off) neither is drawn or moved, in both: seen in
+  the original, the figure's z stays at 16000 under the Continue dialog with state 2 poked.
+- Not handled: the 16:9 screen's different viewport for the signs' position.
+
+##### 4.13.5.6 Compared with the running original (Speed Bay, 640x480, 2026-10-30) [test]
+
+Method: the game frozen with SIGSTOP for its pictures and for reading its memory (reading a
+stopped process works; **`memtool poke` on a stopped process hangs**, so poke it running). A
+sign armed by poking +0xc and a large time; the finish forced by poking state 0x587206 = 2 and
+place 0x5873a6 (rider 1). The port was forced to the same sign, or to the z and turn read from
+the game's memory, with test code that is not in the source. Pixels are compared inside what
+the object changes in the port's own picture, counted as different above 8 of 255 per colour.
+The backgrounds differ, as the two scenes were not at the same moment.
+
+- **Signs:** all six, 0 pixels different inside the diamond out of about 13000.
+- **Which sign:** the first section with an event in a real ride armed slot 5 (`g_chica`, the
+  red S-bend), at lap time 2.34 s, and the port's first event on this track is the same
+  sign. The later order was not checked against the original.
+- **Figure:** "1" at z 9120, 4880 and 2500 (turn 1.35 to 6.35): 3 or 4 pixels of up to 34869.
+  "2" and "3" with the wobble at turn 76.0 and 78.3: 4 of 35147 and 3 of 42091.
+- **Not exact:** four captures of "2" and "3", each taken 0.2 s after the game was let go
+  from a stop, differ in 6224 to 8735 pixels at the turn read from memory. Trying earlier
+  turns on one of them brings it down to 761 of 39611, not to 0, so these look like pictures
+  older than the memory but that is not proven. The captures above at the same large turns
+  were taken longer after a stop and agree, so it is not the size of the turn.
+- **The moves:** `z` and `turn` read from memory move at the mapped rates (53 units between
+  captures: z −4240, turn +0.8325).
+- **AnimDecor:** 42 records (25 of type 2, 11 of type 3, 6 of type 7). The angle of each type 2
+  and 3 object in memory equals the formula from its record's t at two moments, within
+  2.2e-7. Types 1, 4 and 8 do not occur on this track, and type 7 was not checked in memory;
+  those rest on the reading of the code.
+- **F8:** the original shows "Signals OFF" and "Signals ON" at the top, in red. The port's text
+  was not compared to the pixel.
 
 ### 4.14 The Options pages: 11 OPTIONS, 12 SETTINGS (controls), 13 DIAGNOSTIC, 23 DATA DISK (mapped 2026-10-26)
 
@@ -9704,7 +9850,7 @@ the windows, then present.
   - It draws the track object's map model (+0x28 faces, +0x2c vertices): first face white, the rest grey (8,8,8) or (16,16,16), plus rider markers of size 50 or 30.
   - It is placed in camera space, easing toward (−2000, −1200, 4000) for modes 0 and 2 (−500 instead of −1200 in 16:9), or (0, 0, 2000 or 2500) for modes 1 and 3.
   - Modes 0 and 1 turn with the player's heading.
-  - It is inserted with 0x49c590 flag 2, which means bucket 0x1f3f, the farthest one.
+  - It is inserted with 0x49c590 at key 15.0 (0x40f710: pushes 0, 2, verts, 15.0, face). The 2 is the fourth argument, which only Direct3D reads; the fifth is 0, so in software it goes in the bucket of its key, not bucket 0x1f3f as this note said before.
 - **0x486310, dial face and turn signs:**
   - The face is described in 3b.
   - Signs: slots 1..6 hold the six sign models, flat-coloured, centred near (319,79) at 640x480.
@@ -10200,7 +10346,7 @@ Format: font (hi-res), x, y in 640-pixel units, flags (8 = from the right edge; 
   - Both go through 0x4188b0 with the same id, so the second call removes the first: "DEMO" itself never stays [decomp, inference].
 
 ##### 3.6 Not HUD
-- 0x486240 / 0x486310 (flags 0x5d2edc..) light the track's 3D warning objects: six slots, 75.0 units of time, blinking on ftol parity, drawn through 0x49c590 in the 3D pass. No HUD text.
+- 0x486240 / 0x486310 (flags 0x5d2edc..) light the turn signs, flat on the screen (§4.13.5 §2): six slots, 75.0 units of time, blinking on ftol parity, drawn through 0x49c590 in the 3D pass. No HUD text.
 - 0x484380 is the "[ %dX%d]\n[ VIDEO %4.2fM TXT %4.2fM]" text after a screen-mode change (the "640X480 VIDEO …" line in q14).
 - 0x483e90 and 0x4841c0 are debug texts (when 0x4dc124 is set).
 

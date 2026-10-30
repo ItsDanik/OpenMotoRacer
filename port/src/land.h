@@ -24,6 +24,8 @@ typedef struct {                /* 0xfc bytes at the track object +0 */
 typedef struct {                /* a library entry: 0x4dc0d8/dc/e0 */
     char name[64];
     Model m[3];                 /* near, medium, far */
+    float (*v0)[3];             /* the near model's own points (+0x1c); its +4 is what an
+                                   animation of kind 7 shows */
 } LandLib;
 
 typedef struct {                /* a decor object (class 0x4d0110) */
@@ -32,8 +34,22 @@ typedef struct {                /* a decor object (class 0x4d0110) */
     int camera;                 /* its name is CAMERA.. or camera.. (0x40d4f0) */
 } Decor;
 
+typedef struct {                /* a moving piece of decor: 0x190 bytes at 0x5f6780 */
+    int type, sub;              /* +0, +4: 1..5 an angle or a place back and forth or round
+                                   and round, 7 the model's points, 8 a place, then a wait */
+    int decor;                  /* +8 */
+    float t;                    /* +0x1c: its clock, in the step's units */
+    float a, b, c;              /* +0x20 .. +0x28 */
+    float period;               /* +0x2c */
+    float from[3], to[3];       /* +0x30, +0x3c */
+    int nframes, npoints;       /* +0x48; kind 7's */
+    float (**frame)[3];         /* +0x50: nframes of npoints */
+} DecorAnim;
+
 typedef struct {
     int version;
+    int nanim;
+    DecorAnim *anim;            /* 0x5f6778: the .trk's "AnimDecor" block */
     int nsec, nblock, nlib, ndecor;
     int ncam;                   /* 0x51a40c: trackside cameras (0x473240) */
     Section *sec;
@@ -68,5 +84,7 @@ int land_walk(const float pos[3], int hint, float *dist);       /* 0x40c7e0 */
 /* 0x40ce60: the road blocks and decor a camera (C at +0x68, pos at +0x98) sees from the
    section sec, into the renderer */
 void land_draw(int sec, const float c[3][3], const float pos[3]);
+/* 0x48b7a0: the moving decor, the step's dt (ms x 0.1) on */
+void land_anim_step(float dt);
 
 #endif

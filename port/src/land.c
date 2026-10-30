@@ -122,6 +122,75 @@ static void read_name(Reader *r, char *out, int size)
     out[i] = 0;
 }
 
+/* 0x48b7e0: "AnimDecor\0" (else the ten bytes are given back), a version, then the records:
+   0x20 bytes at version 1, else 0x40, the times x 0.1 (the step's units); a record of kind
+   7 from version 3 is followed by its frames of points */
+static void read_anims(Reader *r)
+{
+    Land *l = &g_land;
+    const unsigned char *q = take(r, 10);
+    int v, i, k, f;
+    if (!q)
+        return;
+    if (memcmp(q, "AnimDecor", 10)) {
+        r->p -= 10;
+        return;
+    }
+    v = rd_i32(r);
+    if (v <= 0)
+        return;
+    l->nanim = rd_count(r, 0x20);
+    if (!(l->anim = calloc((size_t)l->nanim + 1, sizeof *l->anim))) {
+        r->bad = 1;
+        return;
+    }
+    for (i = 0; i < l->nanim && !r->bad; i++) {
+        DecorAnim *a = &l->anim[i];
+        unsigned w = (unsigned)rd_i32(r);
+        float x[15];
+        for (k = 0; k < (v == 1 ? 7 : 15); k++)
+            x[k] = rd_f32(r);
+        a->decor = (int)(w & 0xffff);
+        a->type = (int)(w >> 16 & 0xff);
+        a->sub = (int)(w >> 24);
+        a->t = (float)(x[0] * 0.1);
+        a->a = x[1];
+        a->b = x[2];
+        a->c = x[3];
+        a->period = (float)(x[4] * 0.1);
+        if (v > 1)
+            for (k = 0; k < 3; k++) {
+                a->from[k] = x[5 + k];
+                a->to[k] = x[8 + k];
+            }
+        if (a->type == 8)
+            a->c = (float)(a->c * 0.1);
+        if (v > 2 && a->type == 7) {
+            a->nframes = rd_i32(r);
+            if (a->nframes <= 0) {
+                a->nframes = 0;
+                continue;
+            }
+            a->npoints = rd_count(r, 12);
+            if (a->nframes >= 0x50 || !(a->frame = calloc((size_t)a->nframes, sizeof *a->frame))) {
+                r->bad = 1;
+                return;
+            }
+            for (f = 0; f < a->nframes; f++) {
+                if (!(a->frame[f] = calloc((size_t)a->npoints + 1, sizeof *a->frame[f]))) {
+                    r->bad = 1;
+                    return;
+                }
+                for (k = 0; k < a->npoints; k++) {
+                    a->frame[f][k][0] = rd_f32(r);
+                    a->frame[f][k][1] = rd_f32(r);
+                    a->frame[f][k][2] = rd_f32(r);
+                }
+            }
+        }
+    }
+}
+
 /* 0x40d650 */
 static int read_trk(const unsigned char *d, long len)
 {
@@ -175,6 +244,7 @@ static int read_trk(const unsigned char *d, long len)
             read_name(&r, l->lib[i].name, sizeof l->lib[i].name);
             for (k = 0; k < 3; k++)
                 read_model(&r, &l->lib[i].m[k]);
+            l->lib[i].v0 = l->lib[i].m[0].v;
         }
         l->ndecor = rd_count(&r, 32);
         if (!(l->decor = calloc((size_t)l->ndecor + 1, sizeof *l->decor)))
@@ -213,8 +283,8 @@ static int read_trk(const unsigned char *d, long len)
         if (v > 2) {
             l->horizon_offset = rd_i32(&r);
             l->horizon_scale = rd_f32(&r);
+            read_anims(&r);
         }
-        /* then "AnimDecor" (0x48b7e0): the moving decor, not read yet */
     }
     for (i = 0; i < l->nsec; i++)
         if (l->sec[i].block < 0 || l->sec[i].block >= l->nblock)
@@ -234,9 +304,19 @@ void land_free(void)
     int i, k;
     for (i = 0; i < g_land.nblock; i++)
         free_model(&g_land.block[i]);
-    for (i = 0; i < g_land.nlib; i++)
+    for (i = 0; i < g_land.nlib; i++) {
+        if (g_land.lib[i].v0)
+            g_land.lib[i].m[0].v = g_land.lib[i].v0;
         for (k = 0; k < 3; k++)
             free_model(&g_land.lib[i].m[k]);
+    }
+    for (i = 0; i < g_land.nanim; i++) {
+        if (g_land.anim[i].frame)
+            for (k = 0; k < g_land.anim[i].nframes; k++)
+                free(g_land.anim[i].frame[k]);
+        free(g_land.anim[i].frame);
+    }
+    free(g_land.anim);
     free(g_land.sec);
     free(g_land.block);
     free(g_land.lib);
@@ -441,6 +521,74 @@ static void section_decor(int si)
         decor_matrix(m, o->ang);
         r3d_object_m(&g_land.lib[o->lib].m[0], (const float (*)[3])m, o->pos);
     }
+}
+
+/* 0x48b370, one record: the clock run on and wrapped by fprem (the sum of a period and a
+   wait at kind 8, one period more than the frames at 7); what it gives goes to the decor
+   object's angle +0x14 + sub x 4, its place +0x20 or its near model's points +4 */
+static void anim_step(DecorAnim *a, float dt)
+{
+    Decor *o = &g_land.decor[a->decor];
+    float x;
+    int k;
+    a->t += dt;
+    switch (a->type) {
+    case 1:
+    case 4:
+        a->t = fmodf(a->t, a->period);
+        x = a->t / a->period * 2.0f;
+        if (x > 1.0f)
+            x = (float)(2.0 - x);
+        if (a->type == 1) {
+            x = (a->b - a->a) * x + a->a;
+            break;
+        }
+        for (k = 0; k < 3; k++)
+            o->pos[k] = (a->to[k] - a->from[k]) * x + a->from[k];
+        return;
+    case 2:
+        a->t = fmodf(a->t, a->period);
+        x = (float)(((double)a->a + a->b
+                     + sin((double)a->t / a->period * 6.2831854820251465 + a->c)
+                       * ((double)a->b - a->a)) * 0.5f);
+        break;
+    case 3:
+    case 5:
+        a->t = fmodf(a->t, a->period);
+        x = a->t / a->period * a->a + a->c;
+        break;
+    case 7: {
+        LandLib *l = o->lib >= 0 ? &g_land.lib[o->lib] : 0;
+        int n = a->nframes, i = 0;
+        a->t = fmodf(a->t, (float)(n + 1) * a->period);
+        if (a->period > 0.0f)
+            i = (int)(a->t / a->period);
+        /* (frame 0 is the medium model's points: the rest pose, as many as the near's) */
+        if (l && i == 0 && l->m[1].nv >= l->m[0].nv)
+            l->m[0].v = l->m[1].v;
+        else if (l && i > 0 && i <= n && a->npoints >= l->m[0].nv)
+            l->m[0].v = a->frame[i - 1];
+        return;
+    }
+    case 8:
+        a->t = fmodf(a->t, a->c + a->period);
+        x = a->t > a->period ? 1.0f : a->t / a->period;
+        for (k = 0; k < 3; k++)
+            o->pos[k] = (a->to[k] - a->from[k]) * x + a->from[k];
+        return;
+    default:            /* (the game stops with "BAD AnimDecor type"; no track has one) */
+        return;
+    }
+    if (a->sub >= 0 && a->sub < 3)
+        o->ang[a->sub] = x;
+}
+
+void land_anim_step(float dt)
+{
+    int i;
+    for (i = 0; i < g_land.nanim; i++)
+        if (g_land.anim[i].decor < g_land.ndecor)
+            anim_step(&g_land.anim[i], dt);
 }
 
 void land_draw(int sec, const float cm[3][3], const float pos[3])
