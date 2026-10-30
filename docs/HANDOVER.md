@@ -127,6 +127,11 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   columns, the pause menu's box, two messages together. Not compared: the CD's messages (the port only; CHECK
   POINT never reached), the pointer. Not written: F12 L/M/H and B (fixed 640x480), Shift+F12, the music's pause
   on losing focus, Ctrl+U and the numpad volumes, the column staying open across races.
+- Shadows, lighting, effects (`shadow.c`, `effects.c`, NOTES §4.15.9-10): the lit bike and its shadow and the dark
+  bike 0 pixels different from the original's captures. Smoke, marks and spray compared by eye and through the
+  original's memory (two rides never run in step; compare smoke only with `-FrameRateMax60`, which `tools/orig.sh`
+  doesn't pass). Not compared: computer riders' marks, the crash's debris, spray at detail 2, a real dark section.
+  The ghost gets its shadow and effects as 0x45e940 calls them (seen in the port, not compared).
 
 ## Waiting for Danik
 - The music under Pause: the port holds it, as the game's code asks; GOG's copy lets it run on (its winmm.dll
@@ -138,7 +143,7 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   the original, or a user folder? (For now a user folder, the game's read as a fallback.)
 
 ## Next, in order
-4. The bikes' shadows and lighting; the glass capture's page 2 against the level's pages 2..19.
+4. The glass capture's page 2 against the level's pages 2..19.
 6. The CD's `MOTO.EXE`: line it up with GOG's `game.EXE` (which tables the port reads).
 7. Then speed on the MiSTer's ARM, releases, the MiSTer core (the skill's steps 8-10).
 8. **Last: the split screen** for two players on one PC (the original has none). Danik,

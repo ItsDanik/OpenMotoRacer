@@ -567,9 +567,14 @@ void cpu_step(BikePhys *b, float dt, int countdown)
     b->lean1 = b->lean;
     bp_wheel_spin(b);                   /* reads this step's keys (+0x2dc8) */
     bp_suspension(b);
-    /* 0x461aa0: the shadow points (drawing) */
-    b->keys1 = keys0;                   /* the step's keys go to the effects only */
-    /* 0x466d70: dust, skid marks (effects) */
+    if (W.shadow)                       /* 0x461aa0 */
+        W.shadow(b);
+    {
+        int keys = b->keys1;            /* the step's keys go to the effects only */
+        b->keys1 = keys0;
+        if (W.effects)                  /* 0x466d70 */
+            W.effects(b, (unsigned)keys);
+    }
     bp_tumble(b, dt);
     if (!b->crashed)                    /* as bikephys_step: the drawer keeps its matrix */
         memcpy(b->tumble, b->m, sizeof b->m);
@@ -674,7 +679,10 @@ void cpu_passive_step(BikePhys *b, const float target[3], const float before[3],
     b->lean1 = b->lean;
     bp_wheel_spin(b);                   /* (+0x2dc8: a passive rider has no keys) */
     bp_suspension(b);
-    /* 0x461aa0: the shadow points (drawing); 0x466d70: dust, skid marks (effects) */
+    if (W.shadow)                       /* 0x461aa0 */
+        W.shadow(b);
+    if (W.effects)                      /* 0x466d70 */
+        W.effects(b, (unsigned)b->keys1);
     bp_tumble(b, dt);
     if (!b->crashed)                    /* as bikephys_step: the drawer keeps its matrix */
         memcpy(b->tumble, b->m, sizeof b->m);

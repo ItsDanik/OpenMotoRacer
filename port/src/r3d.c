@@ -44,6 +44,7 @@ typedef struct {
     int base;                   /* its object's first point */
     int kind;                   /* the kind drawn (0x49c590's remap) */
     int skin;                   /* 0x49ca70: the palette of a paletted page's face; -1 none */
+    int dark;                   /* its points' light word (0x49b2c0) is below 0x3e000 */
     int next;
 } Entry;
 
@@ -77,11 +78,19 @@ static float g_cam[3][3], g_campos[3];    /* the camera block 0x5161c0 */
 static float g_focal = 1911.0f;           /* 0x49a0e0/0x49a100: the menu's 1911 (0x40a003) */
 static float g_near = 256.0f;             /* 0x625774: the menu's 256, the race's 64 */
 static int g_detail = -1;                 /* the race's detail row; -1 the menus' (0x4dc0c4) */
+static int g_dark;                        /* r3d_dark: the light word of what is queued now */
+static int g_swap;                        /* and the wheels' kinds swapped (0x4221d0) */
 
 void r3d_race(int detail)
 {
     g_detail = detail;
     g_near = detail < 0 ? 256.0f : 64.0f;
+}
+
+void r3d_dark(int dark, int swap)
+{
+    g_dark = dark;
+    g_swap = swap;
 }
 
 void r3d_focal(float f)
@@ -427,17 +436,17 @@ void r3d_begin(void)
 
 /* 0x49c590's remap in the race (*0x4dc0c4 == 0), by the detail row (CurrentDetail): at 3
    and 4 the near faces take the perspective-correct twins (16 -> 31, 21 -> 32, 38 -> 53,
-   39 -> 54), below 2 the textures go (16, 21 -> 0 flat; 38, 39 -> 37 the stencil) but at 2
+   39 -> 54, 44 -> 62), below 2 the textures go (16, 21 -> 0 flat; 38, 39 -> 37 the stencil) but at 2
    for faces with flag 8 */
 static int remap(int kind, float key, int flags)
 {
-    static const int twin[4][2] = { { 16, 31 }, { 21, 32 }, { 38, 53 }, { 39, 54 } };
+    static const int twin[5][2] = { { 16, 31 }, { 21, 32 }, { 38, 53 }, { 39, 54 }, { 44, 62 } };
     int i;
     if (g_detail < 0)
         return kind;
     if (g_detail >= 3) {
         if (key < (g_detail >= 4 ? 6144.0f : 3072.0f))
-            for (i = 0; i < 4; i++)
+            for (i = 0; i < 5; i++)
                 if (kind == twin[i][0])
                     return twin[i][1];
         return kind;
@@ -463,13 +472,23 @@ static void queue_kind(const Face *f, int base, float key, int skin, int kind)
     g_entry[g_nentry].base = base;
     g_entry[g_nentry].kind = kind;
     g_entry[g_nentry].skin = skin;
+    g_entry[g_nentry].dark = g_dark;
     g_entry[g_nentry].next = g_head[b];
     g_head[b] = g_nentry++;
 }
 
 static void queue(const Face *f, int base, float key, int skin)
 {
-    queue_kind(f, base, key, skin, skin < 0 ? remap(f->kind, key, f->flags) : f->kind);
+    int kind = f->kind;
+    if (skin >= 0) {            /* 0x49ca70: in a race at detail 0, 1 flat, see-through 42 */
+        if (g_detail == 0 || g_detail == 1)
+            kind = kind == 2 ? 42 : 0;
+    } else {
+        if (g_swap)             /* 0x4221d0 */
+            kind = kind == 0x10 ? 0x15 : kind == 0x26 ? 0x27 : kind;
+        kind = remap(kind, key, f->flags);
+    }
+    queue_kind(f, base, key, skin, kind);
 }
 
 /* the dashboard's points (0x486310, 0x484810): already on the screen, at depth z */
@@ -604,6 +623,14 @@ void r3d_faces(int base, int nf, const Face *f, int skin)
     faces(base, nf, f, skin);
 }
 
+void r3d_faces_detail(int base, int nf, const Face *f, int detail)
+{
+    int keep = g_detail;
+    g_detail = detail;
+    faces(base, nf, f, -1);
+    g_detail = keep;
+}
+
 void r3d_faces_cockpit(int base, int nf, const Face *f)
 {
     faces(base, nf, f, -2);
@@ -636,8 +663,8 @@ static int ftol(double x)       /* 0x4b3048: truncation; out of range the x87's 
 
 static int see_through(int kind)
 {
-    return kind == 37 || kind == 38 || kind == 39 || kind == 44 || kind == 50 || kind == 51
-           || kind == 53 || kind == 54 || kind == 62;
+    return kind == 12 || kind == 37 || kind == 38 || kind == 39 || kind == 44 || kind == 50
+           || kind == 51 || kind == 53 || kind == 54 || kind == 62 || kind == 68;
 }
 
 static int sub6(int kind)       /* kind table 0x4f1a70: sub 6, the perspective-correct ones */
@@ -670,6 +697,11 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
 {
     uint16_t *o = g_screen + y * g_pitch;
     int x;
+    if (kind == 12) {                                   /* 0x4a4110: half the screen + colour */
+        for (x = x0; x < x1; x++)
+            o[x] = (uint16_t)(((o[x] >> 1) & HALF) + colour);
+        return;
+    }
     for (x = x0; x < x1; x++, u += du, v += dv) {
         unsigned c;
         if (kind == 0x10) {                             /* 0x4a5ab0 */
@@ -687,6 +719,13 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
         if (kind == 0x2c) {                             /* 0x4a57f0: half and half */
             if (c)
                 o[x] = (uint16_t)(((o[x] >> 1) & HALF) + ((c >> 1) & HALF));
+            continue;
+        }
+        if (kind == 68) {                               /* 0x4a4dc0 */
+            unsigned s = o[x], a = c & 0x1f;            /* each channel towards white by a/32 */
+            o[x] = (uint16_t)(s + (((31 - (s >> 11)) * a >> 5) << 11)
+                              + (((31 - ((s >> 6) & 31)) * a >> 5) << 6)
+                              + ((31 - (s & 31)) * a >> 5));
             continue;
         }
         if (kind == 0x15 || kind == 0x27)
@@ -954,11 +993,11 @@ static void flat_triangle(Corner c0, Corner c1, Corner c2, uint16_t c)
     }
 }
 
-/* 0x4a3950: a fan of one colour (the 5:5:5 form: green loses its low bit), cut at the
+/* 0x4a3950: a fan of one colour, cut at the
    near plane as 0x49e510 cuts */
 static void flat_face(const Face *f, int base, int colour)
 {
-    uint16_t c = (uint16_t)(colour & 0xffdf);
+    uint16_t c = (uint16_t)colour;
     int k;
     for (k = 1; k < f->n - 1; k++) {
         int j[3] = { 0, k, k + 1 }, behind[3], nb = 0, i;
@@ -1335,14 +1374,18 @@ static void face(const Entry *e)
 {
     const Face *f = e->f;
     const uint16_t *tex;
+    uint16_t colour = (uint16_t)(f->colour & 0xffdf);
     int k, kind = e->kind, base = e->base;
     if (e->skin >= 0) {         /* 0x4aef20 by face +0x3a, with the face's palette */
         const uint16_t *pal = r3d_page_palette(f->page, e->skin);
+        colour = f->colour < 256 ? pal[f->colour] : (uint16_t)f->colour;
+        if (e->dark)                                    /* the light < 0x3e000: half */
+            colour = (uint16_t)((colour >> 1) & HALF);
         if (kind == 0) {                                /* 0x4a3cf0 */
-            flat_face(f, base, f->colour < 256 ? pal[f->colour] : f->colour);
+            flat_face(f, base, colour);
             return;
         }
-        if (kind != 1 && kind != 2) {
+        if (kind != 1 && kind != 2 && kind != 42) {
             static int told;
             if (!told++)
                 fprintf(stderr, "openmotoracer: paletted face kind %d is not written yet\n",
@@ -1350,18 +1393,24 @@ static void face(const Entry *e)
             return;
         }
         /* 1: 0x4a7b70, palette[texel] opaque; 2: 0x4ab070, the same put off till last and
-           skipping a palette colour of 0, as the kind 0x26 */
+           skipping a palette colour of 0, as the kind 0x26; dark, each halved (0x4a8c70,
+           0x4ac1f0); 42: 0x4a9df0, the face's colour where the palette's is not 0, as the
+           kind 0x25 */
         tex = skin_texels(f->page, e->skin);
-        kind = kind == 1 ? 1 : 0x26;
+        kind = kind == 42 ? 0x25 : kind == 1 ? (e->dark ? 0x15 : 1) : (e->dark ? 0x27 : 0x26);
     } else {
         if (kind == 0) {
-            flat_face(f, base, f->colour);
+            flat_face(f, base, f->colour & 0xffdf);    /* (the 5:5:5 form: green loses its low bit) */
             return;
         }
         if (kind == 5)                                  /* 0x4a4bc0: ret */
             return;
-        if (!sub6(kind) && kind != 0x10 && kind != 0x15 && kind != 0x25 && kind != 0x26
-            && kind != 0x27 && kind != 0x2c) {
+        if (kind == 12) {       /* 0x4a4820: the colour halved, as it adds to half the screen */
+            unsigned c = ((f->colour >> 10) & 31) << 11 | ((f->colour >> 5) & 31) << 6
+                         | (f->colour & 31);            /* 0x402020 */
+            colour = (uint16_t)((((c & 0xffc3) >> 1 | (c & 0x1e)) >> 1) & HALF);
+        } else if (!sub6(kind) && kind != 0x10 && kind != 0x15 && kind != 0x25 && kind != 0x26
+                   && kind != 0x27 && kind != 0x2c && kind != 68) {
             static int told;
             if (!told++)
                 fprintf(stderr, "openmotoracer: 3D face kind %d is not written yet (page %d)\n", kind, f->page);
@@ -1369,7 +1418,7 @@ static void face(const Entry *e)
         }
         tex = f->page >= 0 && f->page < R3D_PAGES ? g_texpage[f->page] : 0;
     }
-    if (!tex)
+    if (!tex && kind != 12)
         return;
     if (sub6(kind)) {
         face6(f, kind, base, tex);
@@ -1381,7 +1430,6 @@ static void face(const Entry *e)
         int j[3] = { 0, k, k + 1 }, behind[3], nb = 0, i;
         const Point *p[3];
         Corner c[3];
-        uint16_t colour = (uint16_t)(f->colour & 0xffdf);
         for (i = 0; i < 3; i++) {
             p[i] = &g_pt[base + f->idx[j[i]]];
             c[i].sx = p[i]->sx, c[i].sy = p[i]->sy;

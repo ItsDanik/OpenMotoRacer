@@ -67,6 +67,12 @@ void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[
    bikes': no 1024 farther, and faces on a paletted page drawn through the palette skin) */
 int r3d_points(int nv, const float (*v)[3], const float n[3][3], const float t[3]);
 void r3d_faces(int base, int nf, const Face *f, int skin);
+/* 0x461f70's way: 0x49b7f0 with the detail 0x4dc098 forced for these faces */
+void r3d_faces_detail(int base, int nf, const Face *f, int detail);
+/* what 0x49b2c0's light does: dark = the points' word is below 0x3e000 (paletted faces then
+   halved); swap = 0x4221d0 (a wheel's kinds 0x10 -> 0x15, 0x26 -> 0x27). For the faces queued
+   from now on */
+void r3d_dark(int dark, int swap);
 /* 0x49bca0, the on-board cockpit's faces: the farthest corner's depth x 0.2 - near as the
    key, the kinds but 0 drawn as 0x10 (from 1 or 0x10) or 0x2c */
 void r3d_faces_cockpit(int base, int nf, const Face *f);

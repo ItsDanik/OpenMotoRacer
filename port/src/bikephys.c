@@ -14,7 +14,7 @@
 
 typedef double R;
 
-BikeWorld g_bikeworld = { 1.6f, 0, 1, 16.0f, 0, 0, 1, 0, 0, 0, { 0 }, 0, 0, 0 };
+BikeWorld g_bikeworld = { 1.6f, 0, 1, 16.0f, 0, 0, 1, 0, 0, 0, { 0 }, 0, 0, 0, 0, 0, 0 };
 #define W g_bikeworld
 
 #define PI_F 1.5707963705062866         /* 0x3fc90fdb: pi/2 as a float */
@@ -1461,11 +1461,15 @@ static void gearbox(BikePhys *b, unsigned keys)
 
 /* ------------------------------------------------------------------ crashes */
 
-/* 0x467c40: debris pieces (particles, not here); it draws the game's stream 1 3 + 5n
-   times, kept so that the stream stays the game's */
-static void debris(int n)
+/* 0x467c40: debris pieces (effects.c); it draws the game's stream 1 3 + 5n times, kept
+   without the pieces so that the stream stays the game's */
+static void debris(int n, const float pos[3], int base, int mask, const float *m)
 {
     int i;
+    if (W.debris) {
+        W.debris(n, pos, base, mask, m);
+        return;
+    }
     for (i = 0; i < 3 + 5 * n; i++)
         rand_next(1);
 }
@@ -1507,7 +1511,7 @@ static void crash(BikePhys *b, const float v[3])
     lay_flat(b);
     b->roll[0] = 0.0f;
     b->roll[1] = b->roll[2] = b->roll_side;
-    debris(6);
+    debris(6, b->pos, 15, 16, b->m);
 }
 
 /* 0x4681d0: the end of a crash; the bikes get up together when the followed one does */
@@ -1574,7 +1578,7 @@ static void tumble(BikePhys *b, float dt)
         if (b->tumble_speed < 0.0f)
             b->tumble_speed = 0.0f;
         if (b->tumble_dir[1] > 0.05) {
-            debris(4);
+            debris(4, b->tumble_pt, 7, 4, b->tumble);
             b->events |= 0x40;
         }
     } else {                            /* in the air */
@@ -2242,7 +2246,8 @@ void bikephys_step(BikePhys *b, unsigned keys, int joy_x, int joy_y, float dt, i
     dive(b);
     wheel_spin(b, keys);
     suspension(b);
-    /* 0x461aa0: the shadow points (drawing) */
+    if (W.shadow)                       /* 0x461aa0 */
+        W.shadow(b);
     frame_and_lean(b);
     tumble(b, dt);
     if (!b->crashed)                    /* [approx] the drawer 0x460dbe keeps its matrix */
@@ -2252,7 +2257,8 @@ void bikephys_step(BikePhys *b, unsigned keys, int joy_x, int joy_y, float dt, i
         W.pose(b);
     b->turbo_pressed1 = b->turbo_pressed;
     b->turbo_pressed = 0;
-    /* 0x466d70: dust, spray, skid marks (effects; they draw stream 1, see the header) */
+    if (W.effects)                      /* 0x466d70: they draw stream 1 */
+        W.effects(b, keys);
     dials(b);
     b->lane = lane(b);
     b->keys1 = (int)keys;
@@ -2623,6 +2629,8 @@ void bikephys_winner_give_back(BikePhys *b, float top)
     b->engine = engine_finding_gear(b, &b->wheel, b->engine);
 }
 
+void bp_rot(float *m, double a0, double a1, double a2) { rot(m, a0, a1, a2); }
+double bp_lateral(const BikePhys *b) { return lateral(b); }
 void bp_wheel_spin(BikePhys *b) { wheel_spin(b, (unsigned)b->keys1); }
 void bp_suspension(BikePhys *b) { suspension(b); }
 void bp_tumble(BikePhys *b, float dt) { tumble(b, dt); }
