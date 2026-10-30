@@ -35,6 +35,7 @@ struct Text {
     double fvx, fvy, px, py;    /* +0x18, +0x20, +0x28, +0x30: mode 1's flight, y up */
     int list;                   /* the port's: 1 = 0x53ba68 */
     int unseen;                 /* +0xa4 */
+    int is_box;                 /* the base object 0x415cd0: a place taken, nothing more */
     int nspr;                   /* type 2: +0xac the sprites found */
     const Sprite *spr[8];       /* +0xb4 */
     int sdx[8], sdy[8];         /* +0xf4: the step before each */
@@ -76,7 +77,7 @@ static void align(int w, int h, int *x, int *y, int flags)
 /* 0x4169b0 */
 static int alive(const Text *t, int force)
 {
-    if (!t || !t->id || (!t->text && !t->nspr))      /* 0x4169b0, 0x416a60 */
+    if (!t || !t->id || (!t->text && !t->nspr && !t->is_box))   /* 0x4169b0, 0x416a60, 0x416920 */
         return 0;
     if (!force && t->lifetime && g_clock - t->start > (unsigned)t->lifetime)
         return 0;
@@ -135,7 +136,7 @@ Text *text_new(const TextArgs *a)
         if (!f)
             return 0;
         font_measure(f, a->text, &w, &h, 0);
-        if (!a->bare)
+        if (!a->bare && !a->no_gap)
             h += f->line;
     }
     if (a->motion != 1)
@@ -198,6 +199,77 @@ void text_free(Text *t)
     }
 }
 
+/* 0x417ac0: is the place taken in this list? Its edges as the game tests them: the new box's
+   top left corner or bottom right one must be inside the other's span, on both axes, so a
+   smaller object wholly inside the new box is not seen. */
+static int place_taken(int list, int x, int y, int w, int h)
+{
+    int i;
+    for (i = 0; i < TEXTS; i++) {
+        const Text *o = g_texts[i];
+        int ox, oy;
+        if (!o || o->list != list || !alive(o, 0))
+            continue;
+        ox = o->motion == 1 ? o->tx : o->x;
+        oy = o->motion == 1 ? o->ty : o->y;
+        if (((oy <= y && y < oy + o->h) || (oy <= y + h && y < oy + o->h))
+            && ((ox <= x && x < ox + o->w) || (ox <= x + w && x < ox + o->w)))
+            return 1;
+    }
+    return 0;
+}
+
+/* one way from (*x, *y), step by step, until the place is free. As the game's loop, the step
+   after the free place is taken too: the object lands one step beyond it. */
+static int walk(int list, int *x, int *y, int w, int h, int dx, int dy, int limit)
+{
+    for (;;) {
+        int at = dy ? *y : *x, free_here;
+        if (dx + dy > 0 ? limit <= at : at < 1)
+            return 0;
+        free_here = !place_taken(list, *x, *y, w, h);
+        *x += dx;
+        *y += dy;
+        if (free_here)
+            return 1;
+    }
+}
+
+/* 0x417d20 asm 0x417e00..0x417f9b and 0x418160 alike: down, up, left, right; if none is free,
+   the middle of the screen if asked for, else where it was going. */
+static void dodge(const TextArgs *a, Text *t)
+{
+    int w = t->w, h = t->h, x = t->x, y = t->y, ok = 0;
+    if (a->parts)               /* placed by its parts' sums, not the object's own box */
+        sprite_parts(0, a, &w, &h);
+    if (!place_taken(t->list, x, y, w, h))
+        return;
+    if (a->dodge_y > 0) {
+        ok = walk(t->list, &x, &y, w, h, 0, a->dodge_y, SCREEN_H - h);
+        if (!ok) {
+            x = t->x, y = t->y;
+            ok = walk(t->list, &x, &y, w, h, 0, -a->dodge_y, 0);
+        }
+    }
+    if (!ok && a->dodge_x > 0) {
+        x = t->x, y = t->y;
+        ok = walk(t->list, &x, &y, w, h, -a->dodge_x, 0, 0);
+        if (!ok) {
+            x = t->x, y = t->y;
+            ok = walk(t->list, &x, &y, w, h, a->dodge_x, 0, SCREEN_W - w);
+        }
+    }
+    if (!ok && a->centre_if_full) {
+        x = a->x, y = a->y;
+        align(w, h, &x, &y, 0x42);
+    } else if (!ok)
+        return;
+    t->x = x;
+    t->y = y;
+    t->px = x;
+    t->py = SCREEN_H - y;
+}
+
 int text_add(const TextArgs *a)
 {
     Text *t;
@@ -207,10 +279,10 @@ int text_add(const TextArgs *a)
             break;
     if (i == TEXTS)
         return 0;
-    if (a->dodge_x || a->dodge_y || a->centre_if_full)
-        fprintf(stderr, "openmotoracer: text dodging (0x417ac0) is not written yet\n");
     if (!(t = text_new(a)))
         return 0;
+    if (a->motion != 1 && (a->dodge_x || a->dodge_y || a->centre_if_full))
+        dodge(a, t);
     delete_text(i);
     g_texts[i] = t;
     return 1;
@@ -427,6 +499,8 @@ void text_draw_one(Text *t)
     Font *f = font_get(t->font);
     unsigned elapsed = g_clock - t->start;
     int visible = 1, level = 0;
+    if (t->is_box)
+        return;
     move(t);
     if (t->nspr) {
         draw_sprites(t);
@@ -475,13 +549,18 @@ void text_draw_one(Text *t)
         font_draw(f, t->text, t->x, t->y, 0x21, level);
 }
 
+void text_draw_list(int list)
+{
+    int i;
+    for (i = 0; i < TEXTS; i++)
+        if (alive(g_texts[i], 0) && g_texts[i]->list == list)
+            text_draw_one(g_texts[i]);
+}
+
 void text_draw(void)
 {
-    int i, list;
-    for (list = 1; list >= 0; list--)
-        for (i = 0; i < TEXTS; i++)
-            if (alive(g_texts[i], 0) && g_texts[i]->list == list)
-                text_draw_one(g_texts[i]);
+    text_draw_list(1);
+    text_draw_list(0);
 }
 
 void text_clear(void)
@@ -489,4 +568,36 @@ void text_clear(void)
     int i;
     for (i = 0; i < TEXTS; i++)
         delete_text(i);
+}
+
+void text_clear_list(int list)
+{
+    int i;
+    for (i = 0; i < TEXTS; i++)
+        if (g_texts[i] && g_texts[i]->list == list)
+            delete_text(i);
+}
+
+void text_reserve(int list, int x, int y, int w, int h, int lifetime, int *id_out)
+{
+    Text *t;
+    int i;
+    for (i = 0; i < TEXTS; i++)
+        if (!g_texts[i] || !alive(g_texts[i], 0))
+            break;
+    if (i == TEXTS || !(t = calloc(1, sizeof *t)))
+        return;
+    t->is_box = 1;
+    t->list = list;
+    t->x = x;
+    t->y = y;
+    t->w = w;
+    t->h = h;
+    t->start = g_clock;
+    t->lifetime = lifetime;
+    t->id = ++g_next_id;
+    if (id_out)
+        *id_out = t->id;
+    delete_text(i);
+    g_texts[i] = t;
 }

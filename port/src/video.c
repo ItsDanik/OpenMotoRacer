@@ -10,6 +10,7 @@ static uint16_t g_pixels[SCREEN_MAX_W * SCREEN_MAX_H];
 static SDL_Window *g_win;
 static SDL_Renderer *g_ren;
 static SDL_Texture *g_tex;
+static int g_fullscreen;
 
 int video_init(int headless, char *err, int errsize)
 {
@@ -49,6 +50,18 @@ int video_shot(const char *file)
     int ok = s && SDL_SaveBMP(s, file) == 0;
     SDL_FreeSurface(s);
     return ok;
+}
+
+void video_toggle_fullscreen(void)
+{
+    g_fullscreen ^= 1;
+    if (g_win)
+        SDL_SetWindowFullscreen(g_win, g_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+}
+
+int video_fullscreen(void)
+{
+    return g_fullscreen;
 }
 
 void video_quit(void)

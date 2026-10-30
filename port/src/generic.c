@@ -1,4 +1,5 @@
 #include "generic.h"
+#include "bitmap.h"
 #include "clock.h"
 #include "dialog.h"
 #include "exe.h"
@@ -321,8 +322,9 @@ static int parse_block(Script *sc, Block *b, char *s)
     return ok;
 }
 
-/* 0x48a000 and 0x489cf0: the lines put together and on the screen */
-static void layout(Block *b)
+/* 0x48a000 and 0x489cf0: the lines put together and on the screen, from y0; next: where the
+   block after it would begin */
+static void layout(Block *b, int y0, int *next)
 {
     int i, j, y = 0, dy = 0;
     for (i = 0; i < b->nlines; i++) {
@@ -346,7 +348,7 @@ static void layout(Block *b)
             dx = g_scr_w - sum;
         for (j = 0; j < l->n; j++) {
             l->p[j].x += dx;
-            l->p[j].y = y;
+            l->p[j].y = y0 + y;
         }
         y += h;
     }
@@ -354,6 +356,8 @@ static void layout(Block *b)
         dy = (g_scr_h - y) / 2;
     else if (b->flags & 0x80)
         dy = g_scr_h - y;
+    if (next)
+        *next = y0 + y + dy;
     for (i = 0; i < b->nlines; i++) {
         Line *l = b->line[i];
         for (j = 0; j < l->n; j++) {
@@ -425,7 +429,7 @@ static Script *script_load(const char *path)
     }
     free(t);
     for (i = 0; i < sc->nlist; i++)
-        layout(sc->list[i]);
+        layout(sc->list[i], 0, 0);
     return sc;
 }
 
@@ -448,8 +452,10 @@ static void block_begin(Block *b)
     g_last = g_now;
 }
 
-/* 0x48a150: the darkened box, then the lines still alive, moving (0x489de0) */
-static void block_draw(Block *b)
+/* 0x48a150: the darkened box, then the lines still alive, moving (0x489de0); a played script's
+   piece is marked once it has been on the screen, the help's never are, so that they stay
+   alive off it */
+static void block_draw(Block *b, int played)
 {
     unsigned dt = g_now - g_last;
     double dx = 0.0, dy = 0.0;
@@ -487,7 +493,8 @@ static void block_draw(Block *b)
             l->p[j].y += dy;
             text_place(l->p[j].t, (int)l->p[j].x, (int)l->p[j].y);
             text_draw_one(l->p[j].t);
-            text_seen(l->p[j].t);
+            if (played)
+                text_seen(l->p[j].t);
         }
     }
 }
@@ -505,7 +512,7 @@ static int script_play(Script *sc)
             block_begin(sc->list[sc->cur]);
     if (sc->cur >= sc->nlist)
         return 0;
-    block_draw(sc->list[sc->cur]);
+    block_draw(sc->list[sc->cur], 1);
     g_last = g_now;
     return 1;
 }
@@ -513,6 +520,8 @@ static int script_play(Script *sc)
 /* ------------------------------------------------------------------ the sequence */
 
 static Script *g_seq;           /* 0x4f15f0 */
+static Script *g_help;          /* 0x4f15f8 */
+static int g_help_at;           /* its +0x20 */
 static int g_running;           /* 0x4f15f4 */
 static int g_brief;             /* 0x4f1634 */
 static int g_index;             /* 0x4f1638 */
@@ -549,7 +558,7 @@ static int next_script(void)
 
 void credits_frame(void)
 {
-    if (!g_running)
+    if (!g_running || g_help)   /* (0x47ff90: 0x4f15f8) */
         return;
     if (g_index > 10) {
         g_running = 0;
@@ -571,4 +580,71 @@ void credits_stop(void)
     script_free(g_seq);
     g_seq = 0;
     g_running = 0;
+}
+
+/* ------------------------------------------------------------------ the help */
+
+static void help_stack(void)
+{
+    int i, y = 0;
+    for (i = 0; i < g_help->nlist; i++)
+        layout(g_help->list[i], y, &y);
+}
+
+int help_open(void)
+{
+    char path[64];
+    help_close();
+    snprintf(path, sizeof path, "%sHelp.gen", exe_str(exe_u32(exe_addr(X_LANG_FOLDERS)
+                                                              + 4u * (unsigned)g_lang)));
+    if (!(g_help = script_load(path)))
+        return 0;
+    help_stack();
+    g_help_at = 0;
+    return 1;
+}
+
+void help_close(void)
+{
+    script_free(g_help);
+    g_help = 0;
+}
+
+int help_pages(void)
+{
+    return g_help ? g_help->nlist : 0;
+}
+
+int help_at(void)
+{
+    return g_help_at;
+}
+
+void help_page(int page)
+{
+    Piece *first;
+    int i, j, k, y;
+    if (!g_help || page < 0 || page >= g_help->nlist)
+        return;
+    help_stack();
+    if (g_help->list[page]->nlines < 1)
+        return;
+    first = &g_help->list[page]->line[0]->p[0];
+    y = (int)first->y;
+    for (i = 0; i < g_help->nlist; i++)
+        for (j = 0; j < g_help->list[i]->nlines; j++) {
+            Line *l = g_help->list[i]->line[j];
+            for (k = 0; k < l->n; k++) {
+                l->p[k].y -= y;
+                text_place(l->p[k].t, (int)l->p[k].x, (int)l->p[k].y);
+            }
+        }
+    g_help_at = page;
+}
+
+void help_draw(void)
+{
+    int i;
+    for (i = 0; g_help && i < g_help->nlist; i++)
+        block_draw(g_help->list[i], 0);
 }

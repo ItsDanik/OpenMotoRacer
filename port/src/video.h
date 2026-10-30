@@ -15,4 +15,7 @@ void video_present(void);
 int video_shot(const char *file);   /* the screen as a BMP */
 void video_quit(void);
 
+void video_toggle_fullscreen(void);     /* the display menu's FS (0x43a3a0) */
+int video_fullscreen(void);             /* 0x4dbff0 */
+
 #endif

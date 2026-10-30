@@ -18,6 +18,16 @@ void race_sound_step(BikePhys *const *all, int followed, const float cam[3],
                      const float look[3], float dt);
 int race_sound_player(void);
 
+/* the race's switches, with their messages (F11; Ctrl+S, V, A) */
+void race_sound_toggle_engine(void);    /* 0x408900 */
+void race_sound_toggle_ambience(void);  /* 0x408800 */
+void race_sound_toggle_effects(void);   /* 0x408b30 */
+void race_sound_toggle_voices(void);    /* 0x408f30 */
+void race_sound_toggle_music(void);     /* 0x409410 */
+int race_sound_engine_on(void);         /* 0x4db65c */
+int race_sound_ambience_on(void);       /* 0x4db660 */
+int race_sound_music_on(void);          /* 0x4db66c */
+
 void podium_sound_start(void);
 void podium_sound_frame(void);
 void podium_sound_stop(void);

@@ -3,8 +3,8 @@
    fonts, the default); the countdown and the messages are text objects; the dials (§3b)
    are a model of the track's and two needles put into the 3D's depth lists. Not yet: the
    gear-change hint of the digits-only dashboard, the split against the leader (0x412e50), the riders' labels (Link and
-   time attack) and the CD data's picture messages (0x4dc180 = 0). GAME OVER is a sprite
-   object (0x482120, §3.5). */
+   time attack). GAME OVER, and the messages on the CD's data (0x4dc180 = 0), are sprite
+   objects (0x482120, 0x482030, §3.5). */
 #include "hud.h"
 #include "bikephys.h"
 #include "bikes.h"
@@ -131,7 +131,9 @@ static void say(int *id, const char *s, int life, int align, int x, int y, int e
     a.fore = named_colour(COL_RED);
     a.back = named_colour(COL_BLACK);
     a.list = 1;         /* 0x53ba68 */
-    text_add(&a);       /* (its steps 5, 5 out of other texts' way: not written) */
+    a.dodge_x = a.dodge_y = 5;
+    a.centre_if_full = 1;
+    text_add(&a);
 }
 
 /* 0x481af0, 0x481c50, 0x481db0, 0x481f10: a picture character of font 11 blinking in the
@@ -162,29 +164,13 @@ static void message(int *id, int c, int life, int blink, int fore)
     text_add(&a);
 }
 
-void hud_message(int which)
-{
-    switch (which) {
-    case HUD_TIME_OUT:
-        message(&id_timeout, 'c', 2000, 2, COL_RED);
-        break;
-    case HUD_FINAL_LAP:
-        text_remove(id_check);
-        message(&id_final, 'a', 1000, 4, COL_YELLOW);
-        break;
-    case HUD_WRONG_WAY:
-        message(&id_wrong, '`', 4000, 4, COL_RED);
-        break;
-    case HUD_WRONG_WAY_GONE:
-        text_remove(id_wrong);
-        break;
-    }
-}
-
-/* 0x480930's sprites for GAME OVER (§3.5): the pictures of banks 0x5d3cb2, 0x5d3b69 and
-   0x5d3dfb, loaded once */
+/* 0x480930's sprites (§3.5): the pictures of banks 0x5d3cb2, 0x5d3b69 and 0x5d3dfb, loaded
+   once. The messages' only on the CD's data: on GOG's, those are font 11's characters. */
 static SpritePic pic_hires, pic_lowres, pic_gameover;
 static Sprite spr_over1, spr_over2, spr_over_lr;        /* 0x4eaa94, 0x4eaa98, 0x4eaac4 */
+enum { MSG_TIME_OUT, MSG_FINAL_LAP, MSG_WRONG_WAY, MSG_CHECK, MSGS };
+static Sprite spr_msg_lo[MSGS], spr_msg_hi[MSGS];
+static int g_msg_pictures;      /* 0x4dc180 == 0 */
 
 static void load_sprites(void)
 {
@@ -192,7 +178,17 @@ static void load_sprites(void)
     static const Sprite over1 = { &pic_gameover, 0, 89, 255, 255, 0, 0, 1 },
         over2 = { &pic_hires, 0, 98, 113, 247, 0, 9, 1 },
         over_v2 = { &pic_lowres, 0, 15, 255, 127, 0, 0, 1 },
-        over_cd = { &pic_lowres, 0, 143, 255, 255, 0, 0, 1 };
+        over_cd = { &pic_lowres, 0, 143, 255, 255, 0, 0, 1 },
+        /* 0x4eaacc, 0x4eaac8, 0x4eaadc, 0x4eaae0 */
+        lo[MSGS] = { { &pic_lowres, 91, 40, 176, 47, 0, 0, 1 },
+                     { &pic_lowres, 0, 24, 98, 31, 0, 0, 1 },
+                     { &pic_lowres, 0, 8, 103, 15, 0, 0, 1 },
+                     { &pic_lowres, 0, 32, 124, 39, 0, 0, 1 } },
+        /* 0x4eaaa4, 0x4eaa9c, 0x4eaab4, 0x4eaab8 */
+        hi[MSGS] = { { &pic_hires, 85, 28, 237, 41, 0, 0, 1 },
+                     { &pic_hires, 0, 56, 168, 69, 0, 0, 1 },
+                     { &pic_hires, 0, 14, 187, 27, 0, 0, 1 },
+                     { &pic_hires, 0, 70, 224, 83, 0, 0, 1 } };
     if (done)
         return;
     done = 1;
@@ -202,7 +198,69 @@ static void load_sprites(void)
     spr_over1 = over1;
     spr_over2 = over2;
     /* 0x4dc180 (0x472c40): GOG's LowRes.RAW is 128 high and holds only "Game over" */
-    spr_over_lr = pic_lowres.h == 128 ? over_v2 : over_cd;
+    g_msg_pictures = pic_lowres.h != 128;
+    spr_over_lr = g_msg_pictures ? over_cd : over_v2;
+    memcpy(spr_msg_lo, lo, sizeof lo);
+    memcpy(spr_msg_hi, hi, sizeof hi);
+    /* The CD's three pictures are 24-bit with a green ground, and its own MOTO.EXE keys them
+       green (0x4e77ac). GOG's program left this form's key at black: it never meets these. */
+    if (g_msg_pictures) {
+        int i;
+        spr_over1.key = spr_over2.key = spr_over_lr.key = SPRITE_KEY_GREEN;
+        for (i = 0; i < MSGS; i++)
+            spr_msg_lo[i].key = spr_msg_hi[i].key = SPRITE_KEY_GREEN;
+    }
+}
+
+/* 0x481af0, 0x481c50, 0x481db0, 0x482030 on the CD's data: a picture in the middle, blinking,
+   going where it stands. */
+static void picture_message(int *id, int which, int life, int blink)
+{
+    TextArgs a;
+    if (text_find(*id))
+        return;
+    memset(&a, 0, sizeof a);
+    a.lifetime = life;
+    a.align = 0x42;
+    a.effect = FX_BLINK;
+    a.blink = blink;
+    a.id_out = id;
+    a.list = 1;         /* 0x53ba68 */
+    a.dodge_x = a.dodge_y = 5;
+    a.centre_if_full = 1;
+    a.parts = 1;
+    a.lo[0] = &spr_msg_lo[which];
+    a.hi[0] = &spr_msg_hi[which];
+    text_add(&a);
+}
+
+/* the blink differs between the two forms for TIME OUT only: 1 against 2 */
+static void show(int *id, int which, int c, int life, int blink, int picture_blink, int fore)
+{
+    load_sprites();
+    if (g_msg_pictures)
+        picture_message(id, which, life, picture_blink);
+    else
+        message(id, c, life, blink, fore);
+}
+
+void hud_message(int which)
+{
+    switch (which) {
+    case HUD_TIME_OUT:
+        show(&id_timeout, MSG_TIME_OUT, 'c', 2000, 2, 1, COL_RED);
+        break;
+    case HUD_FINAL_LAP:
+        text_remove(id_check);
+        show(&id_final, MSG_FINAL_LAP, 'a', 1000, 4, 4, COL_YELLOW);
+        break;
+    case HUD_WRONG_WAY:
+        show(&id_wrong, MSG_WRONG_WAY, '`', 4000, 4, 4, COL_RED);
+        break;
+    case HUD_WRONG_WAY_GONE:
+        text_remove(id_wrong);
+        break;
+    }
 }
 
 /* 0x482120(0): GAME OVER in the middle for 3 s, then drifting off to the right. It
@@ -217,8 +275,8 @@ void hud_game_over(void)
     a.align = 0x42;
     a.motion = 4;
     a.id_out = &id_gameover;
-    /* (steps 5, 5 and re-centring out of other objects' way in 0x53b8e8: nothing else
-       is there in a race but the screen-mode text, not written) */
+    a.dodge_x = a.dodge_y = 5;
+    a.centre_if_full = 1;
     a.vx = 2;
     a.s = 2.0;
     a.k = 5.0;
@@ -255,6 +313,8 @@ static void laps_text(int m)
         a.lifetime = 4000;
     }
     a.id_out = &id_laps;
+    a.dodge_x = a.dodge_y = 5;
+    a.centre_if_full = 1;
     a.vy = 1;
     a.k = 0.2;
     a.own_colours = 1;
@@ -492,6 +552,8 @@ static void finish_place(void)
     a.y = 5;
     a.align = 0xc2;
     a.id_out = &id_finish;
+    a.dodge_x = a.dodge_y = 5;
+    a.centre_if_full = 1;
     a.list = 1;         /* 0x53ba68 */
     text_add(&a);
 }
@@ -791,7 +853,7 @@ static void racing(void)
         g_last_cp = r->cp;
         sound_queue_voice(6, 500);
         if (g_mode == MODE_PRACTICE && !g_time_attack)
-            message(&id_check, 'b', 1000, 2, COL_YELLOW);       /* 0x481f10 */
+            show(&id_check, MSG_CHECK, 'b', 1000, 2, 2, COL_YELLOW);    /* 0x481f10 */
         else {
             text_remove(id_check);
             sound_queue_voice(0x34, 500);
@@ -821,6 +883,15 @@ static void racing(void)
 
 /* the controller's name after Ctrl+J / Ctrl+K (0x431922, 0x431a0c), 3 s at the top;
    slot 0 the joystick's (0x4e98d8), 1 the keyboard's (0x4e98dc) */
+void hud_sound_notice(const char *s, int trouble)
+{
+    static int id;
+    if (trouble)                /* 0x4dbb20 with texts 134 and 135, blinking lower down */
+        say(&id, s, 2000, 0x22, 0, 0x1e, FX_BLINK, 0x20, 4);
+    else
+        say(&id, s, 2000, 0x22, 0, 0x14, FX_FADE_OUT, F_MESSAGES, 4);
+}
+
 void hud_notice(int slot, const char *s)
 {
     static int id[2];
@@ -836,11 +907,12 @@ void hud_restart(void)
     g_dash.built = 0;
 }
 
-void hud_draw(void)
+void hud_draw(int dials)
 {
     int k;
     g_frames += g_ticks;
-    dials_digits();
+    if (dials)                  /* 0x47ff90's flags & 8 */
+        dials_digits();
     for (g_loaded = 0, k = 1; k < g_riders; k++)        /* 0x4817a0 */
         g_loaded += g_racer[k].loaded;
     if (!g_race_over) {

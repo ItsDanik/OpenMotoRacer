@@ -29,6 +29,7 @@ static int g_build = -1;
 
 static unsigned char *g_image;
 static unsigned g_size;
+static unsigned g_rsrc;         /* the resources' place in the image (the PE's directory 2) */
 
 static unsigned u32(const unsigned char *p)
 {
@@ -62,6 +63,7 @@ static int place(const unsigned char *d, unsigned long len)
     if (u32(d + opt + 0x1c) != BASE)
         return 0;
     g_size = u32(d + opt + 0x38);
+    g_rsrc = u32(d + opt + 0x70);
     g_image = calloc(1, g_size);
     if (!g_image)
         return 0;
@@ -130,6 +132,35 @@ const char *exe_str(unsigned va)
     if (!p || !memchr(p, 0, g_size - (va - BASE)))
         return "";
     return (const char *)p;
+}
+
+/* one step down the resources' tree: the entry named by this number, or the first */
+static unsigned rsrc_entry(unsigned dir, int id)
+{
+    const unsigned char *d = exe_at(BASE + g_rsrc + dir, 16), *e;
+    unsigned n, i;
+    if (!d)
+        return 0;
+    n = u16(d + 12) + u16(d + 14);
+    if (!(e = exe_at(BASE + g_rsrc + dir + 16, 8 * n)))
+        return 0;
+    for (i = 0; i < n; i++, e += 8)
+        if (id < 0 || u32(e) == (unsigned)id)
+            return u32(e + 4);
+    return 0;
+}
+
+const unsigned char *exe_resource(int type, int id, unsigned *len)
+{
+    unsigned a;
+    const unsigned char *e;
+    if (!g_rsrc || !(a = rsrc_entry(0, type)) || !(a & 0x80000000u)
+        || !(a = rsrc_entry(a & 0x7fffffffu, id)) || !(a & 0x80000000u)
+        || !(a = rsrc_entry(a & 0x7fffffffu, -1)) || (a & 0x80000000u)
+        || !(e = exe_at(BASE + g_rsrc + a, 16)))
+        return 0;
+    *len = u32(e + 4);
+    return exe_at(BASE + u32(e), *len);
 }
 
 const char *exe_text(int id)

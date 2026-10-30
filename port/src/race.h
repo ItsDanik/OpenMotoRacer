@@ -36,6 +36,7 @@ void race_event(unsigned bits);
 int race_label_place(int k, int *sx, int *sy);  /* what 0x483670 asks of the camera */
 int race_player(void);                  /* 0x508834: the rider the screen shows */
 int race_local(void);                   /* 0x4ea4c0: the local player's record */
+extern int g_ctrl_held, g_shift_held;   /* 0x4dc108, 0x4dc10c: the race's and the dialogs' */
 extern int g_race_kind;                 /* 0x4e9834: 0 a race, 1 its replay, 2 a demo */
 extern int g_playback;                  /* 0x4e9830: the demos run */
 extern int g_winner_lap;                /* 0x504ea0: the computer rides the winner's bike on */

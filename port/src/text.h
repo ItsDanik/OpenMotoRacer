@@ -31,6 +31,7 @@ typedef struct {                /* 0x417d20's arguments */
     /* 0x416300 without the layout of slot 6 (no line's gap), alive off the screen until
        first seen there (+0xa4): a .GEN script's piece */
     int bare;
+    int no_gap;                 /* 0x416300 alone, the race's dialogs' items: no line's gap */
     /* a sprite object instead of a text (0x418160, item type 2; text and font unused):
        up to 8 parts, each a low-res and a hi-res sprite and a step before it */
     int parts;
@@ -62,7 +63,11 @@ int text_find(int id);                  /* 0x4179f0: alive in the list */
 void text_remove(int id);               /* 0x4177e0 */
 void text_update(void);                 /* 0x418790 */
 int text_empty(void);                   /* 0x417840 */
-void text_draw(void);                   /* 0x418860 */
+void text_draw(void);                   /* 0x418860: both lists */
+void text_draw_list(int list);          /* one (1 = 0x53ba68) */
 void text_clear(void);                  /* 0x417750 */
+void text_clear_list(int list);         /* one (1 = 0x53ba68) */
+/* 0x417b90: an empty box in a list, drawn by nobody, that new objects keep out of */
+void text_reserve(int list, int x, int y, int w, int h, int lifetime, int *id_out);
 
 #endif

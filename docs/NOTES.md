@@ -1156,8 +1156,49 @@ updated and drawn before the pointer, cleared on a page change. **Checked**: "FU
 VERSION" (`OMR_TEXT="31,0,60,0x22,3,-500,5,1,FULL D3D VERSION"`) covers the same 2171
 pixels as in the original's title capture (orig_p14_title_fulld3d.png against
 orig_p14_title.png), every one equal in 5-6-5; shown 0-499 ms, hidden 500-999 ms.
-Not written yet: motion 1 (0x416b40's fly-to-target) and the dodging (0x417ac0), each
-prints a message when a page asks for it.
+Motion 1 (0x416b40's fly-to-target) came with the race's dialogs (`dialog.c`, §4.19); the dodging
+with the race's messages (below).
+
+##### 4.8.3.8 Keeping out of each other's way: 0x417d20's arguments 11..13 (written 2026-10-30) [asm 0x417e00..0x417f9b, 0x418160 the same]
+The list 0x53ba68's objects, and GAME OVER's in 0x53b8e8, are placed with **steps 5, 5 and
+re-centre 1**: 0x4188b0 (every say: GET READY, the countdown, the switches' messages), 0x481970
+(the final place), 0x482220 ("3 LAPS"), 0x482120, and the CD form's pictures. The other callers of
+either routine with non-zero steps are 0x483e90 and 0x484380 (steps 5, 5, no re-centre: font 6 in
+0x53b8e8, not in the port) and 0x4121e0 (the stub's list 0x53b9a8, never). The font form's four
+messages have none, so they stay in the middle.
+
+After 0x417900's aligning, the place is **tested against every live object of that list only**
+(0x417ac0: the target for a motion 1 object, else its present position). Its test is not a full
+box test: the new box's left or right edge must be in the other's span and its top or bottom in the
+other's, so a smaller object wholly inside it is missed; right and bottom edges counted one past.
+If taken:
+1. y step > 0: y += step until free or y >= screen height − h; failing that, from the start, y −=
+   step until free or y < 1.
+2. Failing that, x step > 0: the same left (x < 1) then right (x >= screen width − w).
+3. Failing that, re-centre: the original arguments x, y through 0x417900 with 0x42. Without
+   re-centre the object goes where it first stood.
+
+**The loops move once more after the free test**: the object lands one step beyond the free place,
+so a dodge always leaves at least a five-pixel gap more than needed.
+
+0x418160's sprite form tests at the place plus the first sprite's offset (+0xc − +4, +0x10 − +8)
+and takes it off after, with the parts' summed width and height. Every first part the port has
+is offset 0, so `dodge` leaves that out.
+
+Motion 1 sets all three to 0 (no aligning, no dodge).
+
+0x417b90 → 0x417bd0: the **base object** (0x415cd0, vtable 0x4d0540, 0xac bytes): no text, no draw,
+an id, a lifetime, a box. Alive by 0x416920 (the screen test as usual). Two callers: **0x434ae0**,
+a dialog's first draw with +0x1c: the list cleared, the box (+0x68, as wide as x2 − x1 + 1) put
+there with lifetime 0, its id in +0x2c, removed by 0x4354e0; and **0x482f00**, the in-race table,
+200 ms (not in the port). Port: `text.c` `place_taken`, `walk`, `dodge`, `text_reserve`.
+
+What it changes on GOG's data as far as seen: nothing in the race's ordinary pictures (the test
+pictures keep their sums, the countdown and GET READY and "3 LAPS" are clear of each other). It
+shows when two messages come together: Ctrl+S then Ctrl+K in a race, "SOUND OFF" stays at y 24..36
+and "KEYBOARD" lands at y 54..66, **the same rows and columns in the port and in the original**
+(a run under wine, 2026-10-30, measured on the red pixels). The tracker's "flying texts" was this
+line of the notes: motion 1 had already come with the dialogs.
 
 
 #### 4.8.4 Where the words come from
@@ -2061,8 +2102,27 @@ SND_FILENAME|SND_LOOP|SND_NODEFAULT|SND_ASYNC)**; MCI_STOP (and similar) → Pla
 0, 1). MCI_STATUS: number of tracks → 13; track type → audio (0x440) for 2..13, other
 (0x441) for the rest; mode → playing/stopped/paused/not ready from its own flags; length
 items go to the real winmm. So under GOG **every music loops forever** and the timer never
-sees "stopped"; the music volume is the wave volume; MCI pause stops the sound (resume
-restarts the file? not checked).
+sees "stopped"; the music volume is the wave volume.
+
+**MCI_PAUSE does not reach the music under GOG** [asm of the DLL's jump table 0x10001511/0x10001531:
+0x809 goes to 0x100014f2, the real winmm; PlaySound is not told; measured]. The game asks for it in
+four places: the Pause key and Ctrl+P (0x431250, Solo only), F1 open and shut (0x43cf90, 0x43e040),
+the file dialog 0x457bf0, and on losing the window's focus 0x409670. The pause menu 0x436420 does
+not ask (0x424090 only).
+
+Measured (a run under wine, 2026-10-30, track 04 of Speed Bay, effects and voices off with Ctrl+S
+and Ctrl+V, the sound recorded from the null sink and each 1.5 s found in 04.wav by correlation,
+score 0.999..1.000): **the music runs straight through Pause, through F1 and through the pause
+menu**, the file's position minus the time the same to a millisecond over 45 s, in two sessions.
+The game did stand: two pictures 3 s apart under Pause are equal in the upper 200 rows, and again
+under F1. So on GOG's copy the music never stops. The same asm in the 1997 CD's MOTO.EXE (`push 0x809`, 0x4a81f0) would pause a real
+disc: read, not run.
+
+**Port's choice, to be judged by Danik:** `music_pause` (0x4096e0) holds the music and goes on from
+the same place, on the Pause key, Ctrl+P and F1: what the game's code asks and the CD did, **not
+what GOG's copy does**. To sound as GOG's: an empty `music_pause`. Not written: the focus (0x409670):
+the port has no focus handling. Checked in the port by a recording: Pause and F1 silence the music
+(RMS 0 once the last voices end), and it comes back where it was.
 
 ##### 4.10.5.4 Track use (both the CD and the GOG files: 02..13.wav, 44.1 kHz stereo 16-bit)
 
@@ -9180,8 +9240,8 @@ recordings in build/phys/ can check each piece step for step.
 shaded box and the closing slide; the pause menu (arg 1) with RESTART, QUIT RACE, CONTINUE.
 Its picture after Escape matches build/ref/orig_race_escmenu.png on every button pixel
 (SmallFonts 1: font 33, halved places). The race's restart and quit go through events done
-at the next frame, as 0x4dc0c4's. Not yet: the results and continue dialogs, the mouse, F1 /
-F11 / F12, the sound pause 0x424090, the championship's 0x4580f0 after QUIT RACE.
+at the next frame, as 0x4dc0c4's. The mouse: §2.6a. Not yet: the championship's 0x4580f0 after
+QUIT RACE.
 
 Scratch notes for NOTES §4.17 part B §3–§4 (helper, 2026-10-26). Read in build/mr.asm unless
 marked. Tags: [asm] read in the machine code, [decomp] Ghidra's text only, [guess],
@@ -9410,6 +9470,33 @@ dissolve set of the current shape (circle set if the current is 0x4dbf90): t ≥
 vanishes 3.63 s after the mouse stops. (The menu's own drawn pointer, NOTES §4.4.6.7, is
 not used in the race.) Port: draw these cursor bitmaps at the mouse position.
 
+##### 2.6a The mouse and the pointer in the port (written 2026-10-30)
+
+`dialog.c` `dialog_mouse_move/button` are 0x433ec0's 0x200, 0x201, 0x202, 0x204/5 as in §2.2, the
+hit test `row_at` is 0x435430 (the shown item's box **where it is now**, so a row still flying
+in is hit where it flies). The held flags 0x4e897c/0x4e8980 are cleared only by the handler, as
+in the game: a dialog closed by a key while the button is down leaves the flag set until the
+next button-up reaches a dialog. A button-up with a row chosen presses that row even if the
+button went down before the dialog existed.
+
+`pointer.c` is 0x45a190 with the timer 0x4dbfb4. The cursors are read from game.EXE's own
+resources (`exe_resource`: RT_GROUP_CURSOR 12 gives the RT_CURSOR number; 4 bytes hot spot,
+BITMAPINFOHEADER, 2 palette entries, XOR rows, AND rows, bottom up; all 32x32, 1 bit) and put
+**into the picture** as Windows would: `(screen & AND) ^ XOR`. The game uses SetCursor; drawing it
+makes it scale with the window like the menus' pointer and works on a screen without a hardware
+cursor (the MiSTer), and the pictures show it. While the Pause key holds the race the picture
+is not redrawn: `pointer_undraw` puts back what it covered so the pointer still moves.
+Deviation: the timer starts at 3000 as in the image (0x4dbfb4), but no pointer is shown until
+a first mouse message arrived (the port's `g_seen`): the tests run without a mouse, and a
+player who never touched it has nothing to see for 3.6 s. The timer runs in race frames only
+(0x4120e0) and every mouse message anywhere resets it, so a mouse moved in the last menu shows
+the arrow for the race's first 3.6 s, as in the game.
+Not read: 0x4dbfb0 (WM_NCMOUSEMOVE over the window frame: the arrow, no dissolving), the band
+0x624b18 − 0x68b008 (the port's picture is always the full 640x480).
+Compared: the original's pause menu answers `xdotool` the same way (hover, click on CONTINUE RACE
+goes on); its Windows cursor does not show in an X capture of the window, so the pointer's shape
+is from the code and the resources alone.
+
 ##### 2.7 Joystick
 
 0x411a10 (NOTES part C §6): while a dialog holds the race and the control type is a
@@ -9584,6 +9671,43 @@ delete 0x4f15f8 (0x48a440 + free, = 0), 0x4096e0(0) + 0x409700(0) resume CD and 
 free, cursor arrow. **Not mapped**: the Help.gen page layout and the elements' slide
 (0x48b190 / 0x48a000 / 0x48a150 / 0x489de0) — the .GEN engine.
 
+##### F1 in the port (written 2026-10-30; `dialog.c` `dialog_help`, `generic.c` `help_*`)
+
+The page layout the first read left open: Help.gen is a script of 29 one-line blocks (`[L0]` no
+life, `[W50]` the key's width, `[FKeyboardHelp]`, `[FHelp]`, the text in `\(...\)`). 0x48b120 sets
++0x1c = 1, and with it 0x48a4a0 and 0x48b190 lay the blocks **one under the other**: 0x48a000(block,
+y, &next) puts the lines from y, next = y + the lines' heights (+ the [V] offset, none here).
+0x48b190(page) stacks them again from 0 and then takes the first line's y of the block asked for
+off every piece, so that block is at the top of the screen and the others follow it: it is one
+long list that scrolls by whole blocks, not pages. A block without lines: nothing moves (returns
+0, +0x20 kept). 0x43deb0 draws every block each frame through 0x48a150(1): with 1 no piece is ever
+marked seen (0x417350), so +0xa4 stays 1 and pieces off the screen stay alive. No block has [D],
+[MX], [MY].
+
+The rows are as in §5a; the rows 3 and 4 (Home, End) have item 6, a bare object that is never
+drawn or hit, and +0x58 = 0: the hotkey search of 0x433ec0 has no test of +0x58 at all, so
+any row's hotkeys answer. All the help's actions return 1 (asm), so a key they take never reaches
+the race. No row is chosen at first, so the pointer is the "no" circle until it is on a key.
+
+`race_frame` now takes 0x47ff90's flags from the dialog that holds the race (`dialog_flags`): bit 3
+the dials (and their digits), bit 6 the dashboard and all texts, else bit 5 the list 0x53ba68 only.
+Normal −2, the race's dialogs −10, the help −0x4a. So the pause menu has no dials, which the
+original's capture always showed (the port drew them until now).
+
+Two things found while comparing, both also true of the pause menu:
+- +0x1c: a dialog's first draw empties the message list 0x53ba68, so "GET READY" goes with it
+  (`text_clear_list(1)`; the box object 0x417b90 put in the list for new messages to dodge is not
+  written, as the dodging itself is not).
+- A dialog's items are 0x416170 + 0x416300, then 0x433a30 and slot 6: **no line's gap in their
+  height**, unlike 0x417d20's text objects (`TextArgs.no_gap`). Seen as the key caps aligned to
+  their bottom edge one pixel too high, and the pause menu's box one row too tall.
+
+Compared with the original (F1, PgDn, Down, End, a run under wine, 2026-10-30): the list to the
+pixel on all four (x < 210; 4..183 pixels of sky and sea differ with the race's moment), the five
+key caps to the pixel, the pause menu's box and rows to the pixel. Closing puts the dashboard back
+and the race goes on. Not compared: the blinking cap under the pointer (the capture shows both
+states of a blink, and the pointer not at all).
+
 ##### Message box 0x43c570 (slot 0x4e8910)
 `0x43c570(title, header, horiz, modal, box, kind, deflt, count, btn[])`, btn = 9-byte
 records (char *text, u8 char, i32 value); 0x43c4e0 = the same with the buttons on the
@@ -9683,10 +9807,39 @@ Value with high word set, index < count, 16 bpp and **both** w ≠ W **and** h �
 0x4dc0cc = pixel count, 0x4dc0c8 = mode, 0x4dc0d0 = index, 0x4e9ce4 = 1 (quirk: a mode
 sharing the width or the height with the current one is refused).
 
-##### Port
-Resolution rows and the mode list: no-ops or window scale (Danik's call); sound rows →
-the port's sound flags. Unresolved: row+0x24's purpose, 0x4dbff0's meaning (full screen
-or windowed: the FS tick looks inverted if it means windowed), 0x408f30, the '^' glyph.
+##### In the port (written 2026-10-30; `dialog.c` `dialog_side`, `race_sound.c` `race_sound_toggle_*`)
+The rows are as in the two tables. What the table's actions do in the race:
+- **0x408b30** (SND, Ctrl+S): no server → text 134 ("no sound") with 0x4dbb20, 2 s, y 30, effect
+  3, font 0x20. Else 0x4db664 ^= 1, and **0x4db65c and 0x4db660 take the same value** (so the MOTO
+  and AMB ticks follow it, seen); switching on starts the engines and the ambience afresh and
+  forgets the last voice and effect. Message text 120 on / 121 off in slot 0x4e98ec (2 s, align
+  0x22, y 20, FadeOut, font 12), which replaces the one before.
+- **0x408f30** (VOICE, Ctrl+V): 0x4db668 ^= 1, texts 122 / 123. **0x409410** (CD, Ctrl+A): the
+  music, no CD → text 135 as for 134; texts 124 / 125. **0x408900** (MOTO): 0x4db65c ^= 1, no
+  message, engines stopped or started afresh. **0x408800** (AMB): 0x4db660 ^= 1, the objects
+  stopped or armed again, no message.
+- These switches are written to CONFIG.BPT at the end as the options' are (so a test that presses
+  one must start from a scratch home).
+- The two columns in the three orders: keys and mouse side, help, race (0x4329a5); each frame's
+  hotkeys help, race, side (0x4126a0); drawn side, race, help (0x47ff90). The column change
+  (0x4e8918's bits, 0x4587e0) waits for the next frame in `dialog_frame`, as the close's slide
+  does not: the old column is freed at once when the key F11 or F12 does it, and on `done` when a
+  row did.
+
+What the port leaves: **L, M, H do nothing**, the screen being the game's 640x480 always (the
+original starts a re-init through 0x4e9ce4); **B does nothing** (no 16:9 band in the port's
+picture) and its tick stays off; **FS** is SDL's desktop full screen, its tick now from the port's
+state: off at the start, as a window under wine shows it. **Shift+F12** (the list of Windows'
+modes) is not written. The original keeps a column open across races; the port's goes with the
+race (`dialog_free`).
+
+Compared with the original (F11, F12, the pointer on MOTO, on MEDIUM; a run under wine,
+2026-10-30, again after merging the roadside objects): **the tags and long texts to the pixel**:
+what differs in the left column is the boat and birds that move with the race (54 and 12 pixels)
+and, in the hover pictures, the port's pointer alone (about 175 pixels in a 15x25 box, the capture
+never shows it). Under the Continue dialog neither the original nor the port opens a column. Clicked in the port only: SND takes MOTO's and AMB's ticks with it and
+says SOUND OFF; DISP changes column; HIDE closes; the same key closes; the other key changes
+column. Not compared: the messages' moment and the pointer itself (a capture never shows it).
 
 ### 4.20 The race view: cameras, dashboard, drawing order (mapped 2026-10-26)
 
@@ -10295,7 +10448,16 @@ Format: font (hi-res), x, y in 640-pixel units, flags (8 = from the right edge; 
   | 0x481f10 | CHECK POINT | `b` | 1000 | 2 | yellow | 0x4e9870 | 3.3, practice only |
 
   0x481f10 also calls 0x482030, the sprite form with id 0x4e987c [decomp; arguments lost by Ghidra].
-- Sprite form (CD data): sprite pairs TIME OUT 0x4eaaa4/0x4eaacc, FINAL LAP 0x4eaa9c/0x4eaac8, WRONG WAY 0x4eaab4/0x4eaadc, CHECK POINT 0x4eaab8/0x4eaae0. Same lifetimes; effect 0; blinking only through motion/blink arguments [decomp].
+- Sprite form (the data's 0x4dc180 = 0) [asm 0x481b05.., 0x481f1c.., 0x480fc0..0x481480]: 0x418160 into 0x53ba68, x, y 0, align 0x42, **effect 3 Blink** (not 0, the earlier read took the wrong argument), motion 0, the five dodge arguments as GAME OVER's, one part { low-res, hi-res, 0, 0 }. CHECK POINT goes through 0x482030, the same call with four parts' handles as two groups of four (lows, then highs): the others are 0 and add nothing. So they stand in the middle and blink, they do not drift as the font's do.
+
+  | Message | Life | Blink | Low-res 0x5d3b69 | High-res 0x5d3cb2 |
+  |---|---|---|---|---|
+  | TIME OUT | 2000 | **1** | 0x4eaacc (91, 40)-(176, 47) | 0x4eaaa4 (85, 28)-(237, 41) |
+  | FINAL LAP | 1000 | 4 | 0x4eaac8 (0, 24)-(98, 31) | 0x4eaa9c (0, 56)-(168, 69) |
+  | WRONG WAY | 4000 | 4 | 0x4eaadc (0, 8)-(103, 15) | 0x4eaab4 (0, 14)-(187, 27) |
+  | CHECK POINT | 1000 | 2 | 0x4eaae0 (0, 32)-(124, 39) | 0x4eaab8 (0, 70)-(224, 83) |
+
+  (Rectangles inclusive, offsets 0. **The key**: GOG's program says black in this form too, but the CD's TEXTS\\LOWRES.RAW, HIRES.RAW and GAMEOVER.RAW are 24-bit (palette count 0) on a pure green ground: the CD's own MOTO.EXE has the same rectangles and keys them **green** (its 0x4e77ac = 00 ff 00, asm 0x4a35d2), so GOG's form with the CD's data would show green boxes. The port on the CD's data does as MOTO.EXE. 0x482120 with n != 0 also comes to 0x482030: 0x20, and only from 0x4806e0's Link branch, so not in the port.) **Port**: `hud.c` `picture_message`, `show`, GOG's game.EXE on the CD's data folder (the CD's own MOTO.EXE is not read). TIME OUT, FINAL LAP, WRONG WAY and GAME OVER seen on the CD's data in the port, blinking in the middle as these arguments say; CHECK POINT not reached in a test. Not compared with an original: GOG's program on the CD's data is not what anyone played (the green), and the CD's MOTO.EXE was not run.
 - **GAME OVER, 0x482120(0)**: a sprite object in **0x53b8e8**, id 0x4e987c (the arguments read from the push order at 0x482193..0x482203 [asm]; Ghidra's "effect 4" is the motion).
   - First removes 0x4e9858 and 0x4e986c (TIME OUT, WRONG WAY) from 0x53b8e8 [asm 0x482173..0x48218e].
   - Trigger: 0x47dae0 when the clock goes below −500 ms: sets 0x52c238, plays sound 0x39, sets player state 3. Also from the Link branch of 0x4806e0. (0x482120(n != 0) goes to 0x482030 instead.)
@@ -10339,7 +10501,7 @@ Format: font (hi-res), x, y in 640-pixel units, flags (8 = from the right edge; 
   - **Draw 0x417080** (slot 2) [asm 0x417080..0x417205]: the motion step 0x416b40 as for texts; **effects 3 and 4 only blink** (period or frame mask, as Blink), every other effect draws plainly (no see-through level). Then x = +0x70, and for each sprite: x += dx, y = +0x74 + dy, **0x477400**(sprite, x, y, +0x174, frame, &rect, 1.0f); the next x is **the drawn rectangle's right edge** (inclusive, [esp+0x28] = rect[2]), so parts sit side by side overlapping by one column (GameOver2 starts on GameOver1's last column; its +0x10 = 9 lines it up with GameOver1's rows 89 → 98). If a part is not drawn the next x is stale [asm].
   - **0x477400** [decomp]: source rect (x1, y1, x2, y2) (+ frame × (+0x14, +0x18) for frame 0 < f < count), x2/y2 kept inside the picture, x1/y1 ≥ 0, nothing unless y1 < y2 and x1 < x2; drawn at (x + (+0xc − +4), y + (+0x10 − +8)); flags 0 → the sprite's +0x4a (**1**, set by its constructor 0x4772f0). **0x4788b0** makes the screen rectangle (inclusive) at scale 1.0 (0x3f800000). **0x478990** [decomp]: flags & 1 or & 4 → clip to the screen rectangle (0x624374, 0x6d1040, 0x62e448, 0x625784), moving the source edges with it; nothing unless the clipped top < bottom and left < right; the rectangle written to the out pointer; then a DirectDraw Blt (software surfaces: 0x45ab60) with **DDBLT_KEYSRCOVERRIDE (0x10000)** when +0x3a is set: the key low/high are +0x34/+0x37 turned into the pixel format, black/black here, so **pixel 0 is see-through** (the RAW loader keeps index 0 at 0 and lifts near-black palette entries to red 8).
   - **What the player sees** (GOG data, 640x480, SmallFonts 1): "Game over" 256x113 at (192, 183), still for 3 s, then off to the right in about eight pictures. TIME OUT (2000 ms from clock 0, in 0x53ba68) is still alive under it for its last 1.5 s: GAME OVER's removals miss it, and 0x53b8e8 is drawn after 0x53ba68.
-  - **Port** (2026-10-26): `sprite.c` (0x477b30 load, 0x477400/0x478990 keyed clipped blit), the sprite objects in `text.c` (`TextArgs.parts`; `list` keeps 0x53ba68's objects drawn first), `hud_game_over()` in `hud.c` called by `rules.c` at the time over; GAME OVER removed when a Solo player has finished. Not written: the dodge (only the screen-mode text can be in 0x53b8e8 then), the CD form's sprite messages (0x482030). Not compared with a capture of the original (none of a time over yet).
+  - **Port** (2026-10-26): `sprite.c` (0x477b30 load, 0x477400/0x478990 keyed clipped blit), the sprite objects in `text.c` (`TextArgs.parts`; `list` keeps 0x53ba68's objects drawn first), `hud_game_over()` in `hud.c` called by `rules.c` at the time over; GAME OVER removed when a Solo player has finished. Not written: the dodge (only the screen-mode text can be in 0x53b8e8 then). Not compared with a capture of the original (none of a time over yet).
 - **Loaded but never shown in this build** [asm: no reference besides the load]: sprites EXTENDED + TIME (0x4eaaa0, 0x4eaaa8), MISSED (0x4eaabc), R (0x4eaac0). Ids 0x4e9874/78/5c/60 are only ever removed. The `_` EXTENDED TIME character is unused.
 - **DEMO, 0x486660** [decomp]:
   - While demo id 0x4e9898 is not alive: if 0x4e9830, "DEMO" in font 12, align 0x22, y 10, BlinkTransp with a 500 ms period, lifetime 2000.
@@ -10370,7 +10532,7 @@ Format: font (hi-res), x, y in 640-pixel units, flags (8 = from the right edge; 
 
 ##### 3.9 Open points (HUD)
 1. **The hi-res layout (small fonts off) is unchecked.** Every capture uses small fonts. One 640x480 race capture with small fonts off would check fonts 4/6/7/11/20 at full size and the doubled widths.
-2. **The sprite objects** (0x418160, item type 2): the arguments, the part records and GAME OVER's sprites are mapped (3.5). The object, its draw and the keyed blit too. Still open: 0x482030's arguments (the CD form's TIME OUT / FINAL LAP / WRONG WAY / CHECK POINT through 0x418160) and a capture of the original's GAME OVER to compare.
+2. **The sprite objects** (0x418160, item type 2): the arguments, the part records and GAME OVER's sprites are mapped (3.5). The object, its draw and the keyed blit too. Still open: a capture of the original's GAME OVER to compare. (0x482030's arguments: §3.5.)
 3. **Split reference rider** (0x412e50: 0x516ab8, 0x50dbdc+0x400, 0x457050): who it is exactly, and when 0x5dbc70 is cleared.
 4. **What sets 0x519fec** (the checkpoint display timer, ≥4000 → yellow TIME) and its starting value. (Partly answered: Game_Frame subtracts the frame's ms from it each frame, §1.1 step 8.) Also where the countdown's starting clock (0x4dc0a8, probably 6000) is set.
 5. **The DEMO text** being removed by its own second call needs a demo capture to confirm.
@@ -10856,7 +11018,7 @@ file. The block's fields are the tags' values at its end: L and H/V hold for eve
 right by 0x4f1610; 0x48a000 the lines' heights added up, and centred or at the bottom.
 0x48a9e0: a block starts when the one before has nothing alive; 0x48a150 draws it, moved by
 MX·(W·dt/MH), MY·(H·dt/MV), on a darkened box ([D], 0x49a5a0) in the software renderer. The help
-(F1, 0x48b120, 0x48b180) is the same parser with a page's blocks: not ported yet.
+(F1, 0x48b120, 0x48b180) is the same parser with its blocks stacked: §4.19 §5a.
 
 ### 4.21c The time attack's ghost (mapped and written 2026-10-30)
 

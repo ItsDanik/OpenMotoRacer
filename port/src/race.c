@@ -4,6 +4,7 @@
    the dashboard, the race's rules, the pause menu (Escape), the computer riders
    (cpu.c). */
 #include "race.h"
+#include "pointer.h"
 #include "bikephys.h"
 #include "bikes.h"
 #include "camera.h"
@@ -63,8 +64,8 @@ static int g_paused;            /* 0x4dc038: Pause, App_OnIdle leaves the race a
 static unsigned g_joy_keys;     /* +0x31ed: the bits from the joystick */
 static int g_joy_y = 0x8000, g_joy_x = 0x8000;  /* +0x31f1, +0x31f5 */
 static int g_joy_turbo;         /* +0x31fd: a turbo binding held */
-static int g_ctrl_held;         /* 0x4dc108: Ctrl is down */
-static int g_shift_held;        /* 0x4dc10c: Shift is down */
+int g_ctrl_held;                /* 0x4dc108: Ctrl is down */
+int g_shift_held;               /* 0x4dc10c: Shift is down */
 static int g_onboard;           /* 0x4dc00c: F6, the view from the rider's eyes */
 
 /* Ctrl+J (0x431922): the joystick or joypad chosen in the options, if one answers, else
@@ -97,14 +98,7 @@ void race_key(int vk, int down)
     int a;
     if (!g_racing)
         return;
-    if (vk == 0x13 && down && g_solo) {         /* Pause (0x4314f7): the race stands */
-        g_paused ^= 1;
-        sound_pause_all(g_paused);              /* 0x424090 (and the CD's MCI pause) */
-        return;
-    }
-    if (g_paused)
-        return;
-    if (dialog_key(vk, down))
+    if (dialog_key(vk, down))   /* (every dialog in turn, before the race) */
         return;
     if (vk == VK_CONTROL) {     /* 0x4dc108 */
         g_ctrl_held = down;
@@ -114,8 +108,27 @@ void race_key(int vk, int down)
         g_shift_held = down;
         return;
     }
+    /* Pause, Ctrl+P (0x4314f7): the race stands. (The pause menu leaves the music going.) */
+    if ((vk == 0x13 || (vk == 'P' && g_ctrl_held)) && down && g_solo) {
+        g_paused ^= 1;
+        music_pause(g_paused);                  /* 0x4096e0 */
+        sound_pause_all(g_paused);              /* 0x409700 -> 0x424090 */
+        return;
+    }
+    if (g_paused)
+        return;
     if (g_ctrl_held && down && (vk == 'J' || vk == 'K')) {
         controller(vk == 'J');
+        return;
+    }
+    if (g_ctrl_held && down && (vk == 'S' || vk == 'V' || vk == 'A')) {
+        /* 0x431250 0x53, 0x56, 0x41: the switches of the F11 column, with their messages */
+        if (vk == 'S')
+            race_sound_toggle_effects();
+        else if (vk == 'V')
+            race_sound_toggle_voices();
+        else
+            race_sound_toggle_music();
         return;
     }
     if (vk == VK_ESCAPE && down) {
@@ -126,6 +139,17 @@ void race_key(int vk, int down)
             return;
         }
         dialog_pause(1);
+        return;
+    }
+    if (vk == 0x70) {                           /* F1 (0x431cf2): the help, in Solo */
+        if (down && !g_ctrl_held && !g_shift_held && g_solo && !g_playback)
+            dialog_help();
+        return;
+    }
+    if (vk == 0x7a || vk == 0x7b) {             /* F11 and F12 (0x432200): the columns */
+        /* (Shift+F12's list of Windows' screen modes: not in the port) */
+        if (down && !g_ctrl_held && !g_shift_held)
+            dialog_side(vk == 0x7a ? 3 : 1);
         return;
     }
     if (vk == VK_TAB) {                         /* the look back */
@@ -1034,16 +1058,20 @@ void race_frame(void)
     const BikePhys *b = &g_phys[g_follow];
     float eye[3], c[3][3], a, focal;
     static const float zero[3];
-    int i, k, y, sec;
+    int i, k, y, sec, flags;
     if (g_paused) {             /* the last picture stays; no time passes */
         g_step_at += g_now - g_last_now;
         g_last_now = g_now;
+        pointer_undraw();
+        pointer_draw();
         return;
     }
     if (g_events && !events())
         return;
     text_clock(g_now);
+    pointer_step((int)(g_now - g_last_now));    /* 0x4120e0 */
     dialog_frame();
+    flags = dialog_flags();
     if (dialog_holds()) {       /* (the time since the last step kept) */
         g_step_at += g_now - g_last_now;
         if (g_input_device == 2 || g_input_device == 4)
@@ -1091,18 +1119,23 @@ void race_frame(void)
         } else if (g_racer[i].loaded)
             bike3d_draw_rider(&g_shown[i], g_shown[i].lod);   /* +0x638: the step's, 0x45f160 */
     hud_bike(b);
-    hud_dials_3d();
-    if (!dialog_holds()) {      /* the dialogs' drawing flags -10: bit 3 off */
+    if (flags & RACE_DRAW_DIALS) {      /* the drawing flags' bit 3: off under a dialog */
+        hud_dials_3d();
         signs_draw();
         figure_draw();
     }
     r3d_render();
-    if (!g_winner_sequence) {   /* race+0xc: none of it under the credits */
-        hud_draw();
+    if (!(flags & RACE_DRAW_HUD)) {
+        text_update();
+        if (flags & RACE_DRAW_LIST1)
+            text_draw_list(1);
+    } else if (!g_winner_sequence) {    /* race+0xc: none of it under the credits */
+        hud_draw(flags & RACE_DRAW_DIALS);
         text_update();
         text_draw();            /* the race's messages */
     }
     dialog_draw();
     credits_frame();
+    pointer_draw();
     sound_update();             /* 0x405f30: the voice queue */
 }

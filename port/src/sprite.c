@@ -55,6 +55,7 @@ int sprite_draw(const Sprite *s, int x, int y, int r[4])
 {
     const SpritePic *p = s->pic;
     int sl, st, sr, sb, L, T, R, B, xx, yy;
+    uint16_t key;
     if (!p || !p->pix)
         return 0;
     /* 0x477400: the source rectangle kept inside the picture */
@@ -80,6 +81,7 @@ int sprite_draw(const Sprite *s, int x, int y, int r[4])
         return 0;
     if (r)
         r[0] = L, r[1] = T, r[2] = R, r[3] = B;
+    key = s->key == SPRITE_KEY_GREEN ? 0x07e0 : 0;
     for (yy = T; yy <= B; yy++) {
         const uint16_t *src = p->pix + (st + yy - T) * p->w + sl;
         uint16_t *dst = g_screen + yy * g_pitch + L;
@@ -87,7 +89,7 @@ int sprite_draw(const Sprite *s, int x, int y, int r[4])
             memcpy(dst, src, sizeof(uint16_t) * (size_t)(R - L + 1));
         else
             for (xx = 0; xx <= R - L; xx++)
-                if (src[xx])            /* the key: black, low = high (0x4f0dd8) */
+                if (src[xx] != key)     /* low = high (0x4f0dd8; MOTO.EXE's 0x4e77ac) */
                     dst[xx] = src[xx];
     }
     return 1;

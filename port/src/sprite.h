@@ -5,6 +5,8 @@
 /* The game's 2D sprites: rectangles of a .RAW picture held by one of the banks at
    0x5d3a20 (NOTES §4.13.3.2), drawn by 0x477400 with a colour key. */
 
+enum { SPRITE_KEY_GREEN = 2 };
+
 typedef struct {                /* a bank's picture (its surface), RGB565 */
     uint16_t *pix;
     int w, h;
@@ -14,7 +16,8 @@ typedef struct {                /* the sprite record (0x4e bytes, 0x477790) */
     const SpritePic *pic;       /* +0x30: the bank */
     int x1, y1, x2, y2;         /* +0x1c..+0x28, inclusive */
     int ox, oy;                 /* +0xc - +4, +0x10 - +8: where it is drawn from x, y */
-    int key;                    /* +0x3a: black (0x4f0dd8) is see-through */
+    int key;                    /* +0x3a: 1 black (0x4f0dd8) is see-through, SPRITE_KEY_GREEN
+                                   the 1997 CD's pictures' green */
 } Sprite;
 
 /* 0x477b30: a .RAW picture as the game reads it (dsi_load), 0 if missing */
