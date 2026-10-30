@@ -122,8 +122,15 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
 - The time attack's ghost (`ghost.c`, NOTES §4.21c): the movement exact on a recording of the original,
   files pass both ways. Not tested: a person beating a ghost on the original (its file came from a
   computer-ridden lap with pokes), Pocket and reverse files in the original, a crash inside a recording.
+- The race's small things: the dialogs' mouse and the pointer, F1, F11/F12 with Ctrl+S/V/A, the CD's sprite
+  messages, texts keeping apart, the music's pause. Compared with the original: F1's list and key caps, the
+  columns, the pause menu's box, two messages together. Not compared: the CD's messages (the port only; CHECK
+  POINT never reached), the pointer. Not written: F12 L/M/H and B (fixed 640x480), Shift+F12, the music's pause
+  on losing focus, Ctrl+U and the numpad volumes, the column staying open across races.
 
 ## Waiting for Danik
+- The music under Pause: the port holds it, as the game's code asks; GOG's copy lets it run on (its winmm.dll
+  ignores the request, recorded under wine). A one-line change in `sound.c` (`music_pause` empty) if he prefers GOG's.
 - The CD's MOTO.EXE (NOTES §1): its text code differs from GOG's; run GOG's logic on the
   CD's data, or ask for the official 3.22 patch?
 - Music: loop for ever (GOG, now) or the CD's "play a repeating track twice"?
@@ -131,8 +138,6 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   the original, or a user folder? (For now a user folder, the game's read as a fallback.)
 
 ## Next, in order
-3. The CD sprite messages (0x482030), the mouse in the race's dialogs, F1 (the help: the same
-   .GEN parser, `generic.c`) / F11 / F12, the music's pause.
 4. The bikes' shadows and lighting; the glass capture's page 2 against the level's pages 2..19.
 6. The CD's `MOTO.EXE`: line it up with GOG's `game.EXE` (which tables the port reads).
 7. Then speed on the MiSTer's ARM, releases, the MiSTer core (the skill's steps 8-10).

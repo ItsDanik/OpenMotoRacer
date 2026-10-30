@@ -125,6 +125,9 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   `cpu.c` the computer riders (§4.21, bit-exact on recordings, `tools/cpucheck.sh`).
   Smooth pictures between the 62.5 Hz steps (F10, the port's own settings file).
   SmallFonts (CONFIG, default 1) picks the race's small menu font.
+  The race's keys: F1 the help (`generic.c`, §5a), F11/F12 the columns and Ctrl+S/V/A (`race_sound.c`, §5b),
+  the dialogs' mouse and the game's own pointer (`pointer.c`, §4.19 §2.6a), the CD's sprite messages on the
+  CD's data (§4.20 §3.5), texts keeping out of each other's way (`text.c`, §4.8.3.8), the music's pause (§4.10.5.3).
 - Replays, demos, the TV, the winner's lap (NOTES §4.21b): `replay.c` the recording, played back
   to the bit (`tools/replaycheck.sh`), the demos after 30 s on the title, `camera.c`'s director,
   the record split line in `rules.c`; `generic.c` the .GEN scripts and the victory credits.
