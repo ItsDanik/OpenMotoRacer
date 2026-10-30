@@ -28,6 +28,7 @@
 #include "replay.h"
 #include "rules.h"
 #include "scores.h"
+#include "signs.h"
 #include "sound.h"
 #include "text.h"
 #include "video.h"
@@ -158,6 +159,11 @@ void race_key(int vk, int down)
     if (vk == 0x76) {                           /* F7: the dials */
         if (down && g_hotkeys)
             hud_key(vk);
+        return;
+    }
+    if (vk == 0x77) {                           /* F8: the turn signs */
+        if (down && g_hotkeys)
+            signs_key();
         return;
     }
     for (a = 0; a < ACTIONS; a++)
@@ -339,6 +345,7 @@ static void step(int ms)
     bikephys_collide(all, g_riders, (float)(ms * 0.1));
     for (k = 1; k < g_riders; k++)
         to_rider(&g_rider[k], &g_phys[k]);
+    land_anim_step((float)(ms * 0.1));          /* 0x48b7a0 */
     rules_laps();
     for (k = 1; k < g_riders; k++)      /* 0x47e3d0 walks each bike's own +0x31c1 */
         g_phys[k].sec = g_rider[k].sec;
@@ -355,6 +362,10 @@ static void step(int ms)
     }
     if (cockpit_shown())        /* 0x462110's shake, once a picture of the original */
         bike3d_cockpit_step(bikephys_frame_pitch(&g_phys[g_follow]));
+    signs_step((float)(ms * 0.1), g_race_kind); /* 0x486310, 0x47b7a0: drawn once a step */
+    figure_step((float)(ms * 0.1),
+                g_mode != MODE_PRACTICE && g_racer[g_follow].state == RS_FINISHED
+                ? g_racer[g_follow].place : -1, g_winner_sequence);
     race_sound_step(all, g_follow, camera_eye(), camera_target(), (float)(ms * 0.1));
     race_log();
 }
@@ -581,6 +592,8 @@ static void start(void)
     g_bikeworld.frame_ms = STEP_MS;
     g_bikeworld.pose = pose_step;
     pose_restart();
+    signs_start();
+    figure_start();
     memset(g_phys, 0, sizeof g_phys);
     grid();
     /* 0x47bf70: srand(timeGetTime()), kept for the race's replay; the computer riders'
@@ -636,6 +649,7 @@ int race_load(char *err, int errsize)
         land_free();
         return 0;
     }
+    figure_load(g_tracks[g_track].folder);      /* 0x47b600 */
     /* 0x47b420: practice 1, else 23 opponents, or 11 with "OPPONENTS: 12"; 0x410a50 */
     opponents = g_mode == 0 ? 1 : g_opponents && !g_playback ? 11 : 23;
     g_riders = 2 + opponents;
@@ -859,6 +873,7 @@ void race_unload(void)
     sound_race_free();
     music_stop();
     bike3d_free();
+    figure_free();
     land_free();
     r3d_race(-1);
     r3d_focal(1911.0f);
@@ -995,6 +1010,8 @@ void race_frame(void)
             bike3d_draw_rider(&g_shown[i], detail_of(&g_shown[i], eye));
     hud_bike(b);
     hud_dials_3d();
+    signs_draw();
+    figure_draw();
     r3d_render();
     if (!g_winner_sequence) {   /* race+0xc: none of it under the credits */
         hud_draw();
