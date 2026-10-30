@@ -4620,9 +4620,10 @@ They turned out to be three different things, and none of them is what `land.c` 
   0x40dd05, with ebx = 0). The other writers of that offset are the model's constructor
   0x41f7ae and a model copy at 0x48bfbe. No writer of 1 was found.
 - `decor +0x30` is set to 0 by 0x4022a0 and by the loader, and nothing else writes it.
-- So neither branch runs in the race, and the port leaves them out. [Not yet confirmed in the
-  running game's memory, because the comparison below was not possible when this was written:
-  read 0x4dc0d8 (library, stride 0x79) +0x5c and each decor's +0x30.]
+- So neither branch runs in the race, and the port leaves them out. Read from the running
+  game at Speed Bay [test]: +0x5c is 0 in all 49 entries of each of the three library arrays
+  (0x4dc0d8, dc, e0; stride 0x79), and +0x30 is 0 in all 112 decor objects (found by their
+  vtable: they are not evenly spaced from 0x4dc0e4, gaps 0x70 to 0x540).
 - The draw method always takes the **near** model (+0x4c), as the port already did.
 
 ##### 4.13.5.2 The turn signs are on the screen, not in the world [asm, test]
@@ -4717,7 +4718,39 @@ before a wreath.
   `config.c`: DisplaySignal.
 - The signs' time and the figure are stepped with the fixed steps, not each picture as in the
   original (the same speed; the blink can differ by one step).
+- Under a dialog (its drawing flags −10, bit 3 off) neither is drawn or moved, in both: seen in
+  the original, the figure's z stays at 16000 under the Continue dialog with state 2 poked.
 - Not handled: the 16:9 screen's different viewport for the signs' position.
+
+##### 4.13.5.6 Compared with the running original (Speed Bay, 640x480, 2026-10-30) [test]
+
+Method: the game frozen with SIGSTOP for its pictures and for reading its memory (reading a
+stopped process works; **`memtool poke` on a stopped process hangs**, so poke it running). A
+sign armed by poking +0xc and a large time; the finish forced by poking state 0x587206 = 2 and
+place 0x5873a6 (rider 1). The port was forced to the same sign, or to the z and turn read from
+the game's memory, with test code that is not in the source. Pixels are compared inside what
+the object changes in the port's own picture, counted as different above 8 of 255 per colour.
+The backgrounds differ, as the two scenes were not at the same moment.
+
+- **Signs:** all six, 0 pixels different inside the diamond out of about 13000.
+- **Which sign:** the first section with an event in a real ride armed slot 5 (`g_chica`, the
+  red S-bend), at lap time 2.34 s, and the port's first event on this track is the same
+  sign. The later order was not checked against the original.
+- **Figure:** "1" at z 9120, 4880 and 2500 (turn 1.35 to 6.35): 3 or 4 pixels of up to 34869.
+  "2" and "3" with the wobble at turn 76.0 and 78.3: 4 of 35147 and 3 of 42091.
+- **Not exact:** four captures of "2" and "3", each taken 0.2 s after the game was let go
+  from a stop, differ in 6224 to 8735 pixels at the turn read from memory. Trying earlier
+  turns on one of them brings it down to 761 of 39611, not to 0, so these look like pictures
+  older than the memory but that is not proven. The captures above at the same large turns
+  were taken longer after a stop and agree, so it is not the size of the turn.
+- **The moves:** `z` and `turn` read from memory move at the mapped rates (53 units between
+  captures: z −4240, turn +0.8325).
+- **AnimDecor:** 42 records (25 of type 2, 11 of type 3, 6 of type 7). The angle of each type 2
+  and 3 object in memory equals the formula from its record's t at two moments, within
+  2.2e-7. Types 1, 4 and 8 do not occur on this track, and type 7 was not checked in memory;
+  those rest on the reading of the code.
+- **F8:** the original shows "Signals OFF" and "Signals ON" at the top, in red. The port's text
+  was not compared to the pixel.
 
 ### 4.14 The Options pages: 11 OPTIONS, 12 SETTINGS (controls), 13 DIAGNOSTIC, 23 DATA DISK (mapped 2026-10-26)
 

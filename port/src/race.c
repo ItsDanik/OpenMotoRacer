@@ -1010,8 +1010,10 @@ void race_frame(void)
             bike3d_draw_rider(&g_shown[i], detail_of(&g_shown[i], eye));
     hud_bike(b);
     hud_dials_3d();
-    signs_draw();
-    figure_draw();
+    if (!dialog_holds()) {      /* the dialogs' drawing flags -10: bit 3 off */
+        signs_draw();
+        figure_draw();
+    }
     r3d_render();
     if (!g_winner_sequence) {   /* race+0xc: none of it under the credits */
         hud_draw();
