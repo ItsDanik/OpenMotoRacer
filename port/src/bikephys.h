@@ -27,6 +27,8 @@
    sounds). The game rewrites the front point +0x1b4 after the step by the last bit (most
    likely its drawing); the physics never reads it before 0x469c60 makes it again. */
 
+#include "pose.h"
+
 enum {
     BK_ACCEL = 1, BK_BRAKE = 2, BK_LEFT = 4, BK_RIGHT = 8, BK_GEAR_UP = 16, BK_GEAR_DOWN = 32
 };
@@ -125,6 +127,22 @@ typedef struct BikePhys {
     int turbo_held;             /* +0x31f9: action 6 held */
     int turbo_pressed;          /* +0x3201: pressed since the pose last looked */
     int turbo_pressed1;         /* +0x3205 */
+
+    /* the rider's body (pose.c) */
+    Pose pose;                  /* the bones' angles (+0x648 + slot x 100 of a detail) */
+    float dist;                 /* +0x634: the distance over the zoom */
+    int lod;                    /* +0x638 */
+    int pose_prev;              /* +0x304d: the pose a stop mixes from */
+    float stand;                /* +0x3051: standing up (+) or sitting back (-) */
+    unsigned stunt_at;          /* +0x3055 */
+    int stunt_on;               /* +0x305d */
+    int stunt_next;             /* +0x3061: the next one in the list */
+    int stunt_k;                /* +0x3065: this one's pose */
+    int look;                   /* +0x3069: the pose looked over the shoulder with */
+    int rival;                  /* +0x306d: the nearest rider last step */
+    float look_dot;             /* +0x3071 */
+    unsigned look_at;           /* +0x3075 */
+    float look_len;             /* +0x3079: ms */
 } BikePhys;
 
 /* The globals the step reads (the game's addresses) */
@@ -141,6 +159,8 @@ typedef struct {
     unsigned crt;               /* the C library's rand() state (msvcrt, 0x4b3600) */
     BikePhys *rider[25];        /* the records by number, for 0x4681d0 and 0x47ecd0 */
     int nriders;                /* 0x509bac */
+    unsigned clock;             /* 0x50bbc8: ms */
+    void (*pose)(BikePhys *);   /* 0x467b30, where the step calls it (none in the checks) */
 } BikeWorld;
 
 extern BikeWorld g_bikeworld;

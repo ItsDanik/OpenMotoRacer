@@ -17,6 +17,12 @@ typedef struct {                /* 0x509278 + i * 0x124, filled by 0x42a580 */
 enum { FM_REAR, FM_FRONT, FM_MEDIUM, FM_LOW, FM_VERYLOW, FM_HANDLEBAR, FM_COCKPIT, FM_COUNT };
 #define FAMILY_ROTS 48
 
+typedef struct {                /* a stunt starting at a PilotRot */
+    int frames;                 /* 0x580d10 + k x 16: the poses it goes through */
+    int ms;                     /* 0x580d14 + k x 16: its time */
+    int hand;                   /* 0x580d08 + k x 16: drawn with the hand skeleton */
+} FamilyStunt;
+
 typedef struct {                /* the family script's names (0x429e20) */
     char bank[2][64];           /* FileBnk0, FileBnk1 (0x518b20, 0x518b60) */
     char skl[2][64];            /* FileSkl, FileSklHand (0x518ba0, 0x518be0) */
@@ -24,6 +30,9 @@ typedef struct {                /* the family script's names (0x429e20) */
                                    three details, the handlebar and the cockpit */
     char rot[FAMILY_ROTS][64];  /* PilotRot (0x5191e4 + k x 0x40) */
     int nrot;                   /* 0x5191e0 */
+    FamilyStunt stunt[FAMILY_ROTS];
+    int stunt_list[FAMILY_ROTS];/* 0x580d0c + j x 16: the stunts' places in rot */
+    int nstunts;                /* 0x5cf4fc */
 } Family;
 
 extern Bike g_bikes[BIKES];

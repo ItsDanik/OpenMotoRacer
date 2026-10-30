@@ -1,5 +1,6 @@
 #ifndef BIKE3D_H
 #define BIKE3D_H
+#include "pose.h"
 
 /* The bike and its rider in 3D (NOTES §4.15): the family named by g_fam (bikes_load) */
 typedef struct {                /* a rider's bike, the fields the drawer reads (0x584421 + k x 0x3209) */
@@ -19,6 +20,8 @@ typedef struct {                /* a rider's bike, the fields the drawer reads (
     float roll_side;            /* +0x30dd: the lean while crashed */
     float body[3][3], body_pt[3];   /* +0x3085, +0x30b5: the rider's frame and place; the
                                    drawer writes them while not crashed, the crash moves them */
+    Pose pose;                  /* the body's angles; none: the still pose (.ROT 4) */
+    int hand;                   /* +0x319d: the hand skeleton, whatever the distance */
 } Rider;
 
 /* the banks (pages 0, 1), the skeleton, the pose, wheels; rgb1: page 1 read in RGB */

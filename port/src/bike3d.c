@@ -27,13 +27,16 @@ typedef struct {                /* 100 bytes at obj +0x63c + slot x 100 */
     Face *f;                    /* +0x60 */
 } Bone;
 
-static struct {
+typedef struct {
     int n;                      /* +0x2d4c: the bones */
     int slot[BONES];            /* +0x2d74: file bone -> slot */
     int nv;
     V *v;
     Bone b[BONES];              /* slot n holds the extra faces (the rider's joints) */
-} g_skl;
+} Skeleton;
+static Skeleton g_skls[2];      /* detail 0, and detail 1 (FileSklHand): the raised hand */
+static Skeleton *g_cur = &g_skls[0];
+#define g_skl (*g_cur)
 static Model g_wheel[2];        /* rear 0x52c240, front 0x51ac58 */
 static Model g_lod[3];          /* medium, low, very low: 0x53a788, 0x53a7f8, 0x53a868 */
 static Model g_bar, g_pit;      /* the on-board view's handlebar 0x504ed8, cockpit 0x51bf60 */
@@ -226,32 +229,6 @@ bad:
     return 0;
 }
 
-/* 0x45b340 + 0x45b480: "ROT", three numbers passed over, then 3 angles a bone slot */
-static int rot_load(const char *path)
-{
-    long len;
-    unsigned char *d = dsi_load(path, &len);
-    int i, k, count;
-    for (i = 0; i < BONES; i++)
-        memset(g_skl.b[i].ang, 0, sizeof g_skl.b[i].ang);
-    if (!d || len < 10 || memcmp(d, "ROT", 3)) {
-        fprintf(stderr, "openmotoracer: the pose %s could not be read\n", path);
-        free(d);
-        return 0;
-    }
-    count = (int)((len - 10) / 6);
-    if (count > 20)
-        count = 20;
-    for (i = 0; i < count && i < g_skl.n; i++)
-        for (k = 0; k < 3; k++) {
-            const unsigned char *p = d + 10 + 6 * i + 2 * k;
-            g_skl.b[i].ang[k] = (float)((int16_t)(p[0] | p[1] << 8)
-                                        * 0.0015339807878856412);       /* 0x4d0e68 */
-        }
-    free(d);
-    return 1;
-}
-
 /* 0x413450's wheels: 0x420a50, then centred (0x420250) */
 static int wheel_load(Model *m, int which, int dirt)
 {
@@ -264,7 +241,12 @@ static int wheel_load(Model *m, int which, int dirt)
 void bike3d_free(void)
 {
     int i;
-    skl_free();
+    for (i = 0; i < 2; i++) {
+        g_cur = &g_skls[i];
+        skl_free();
+    }
+    g_cur = &g_skls[0];
+    pose_free();
     model_free(&g_wheel[0]);
     model_free(&g_wheel[1]);
     for (i = 0; i < 3; i++)
@@ -284,11 +266,17 @@ int bike3d_load(int rgb1)
        10: the dirt bikes; the race: Level.Spt's bank 1); a road family's bank 1 (24 bits,
        256x256) with the flag 0 is not read */
     if (!r3d_load_page_pal(0, g_fam.bank[0]) || (rgb1 && !r3d_load_page(1, g_fam.bank[1]))
-        || !skl_load(g_fam.skl[0]) || g_fam.nrot < 5 || !rot_load(g_fam.rot[4])
+        || !skl_load(g_fam.skl[0]) || !pose_load()
         || !wheel_load(&g_wheel[0], FM_REAR, dirt) || !wheel_load(&g_wheel[1], FM_FRONT, dirt)) {
         bike3d_free();
         return 0;
     }
+    g_cur = &g_skls[1];
+    if (!skl_load(g_fam.skl[1])) {
+        bike3d_free();
+        return 0;
+    }
+    g_cur = &g_skls[0];
     /* 0x413450: the handlebar and the cockpit x 8 (the flag 0), then the three far models,
        x 0.95 (0x4204b0) */
     if (!model_load_bike(&g_bar, g_fam.model[FM_HANDLEBAR][0], g_fam.model[FM_HANDLEBAR][1], 0)
@@ -588,7 +576,7 @@ static void rider(Rider *rd, int lod, int draw)
     M B, L298, Mframe, Mfront, Mrear, Msteer, Rphi, swing, Pinv, r;
     V rear, front0, front, mid, dir, v, Pbody, head, grip, fdir, axle_f, axle_r, piv15s, d, w;
     V p3, k, nn, a, Pinvt, t, Pref;
-    const Bone *b = g_skl.b;
+    const Bone *b;
     float c38, c3c, c40, c58, c6c, y1, h, ln, reach, q, phi, fade, st, tl;
     double cr[3], ka, th3;
     int i, base = -2, bike = rd->bike, skin = rd->skin;
@@ -597,6 +585,14 @@ static void rider(Rider *rd, int lod, int draw)
     if (draw && lod >= 2 && lod <= 4) {
         draw_far(rd, lod);
         return;
+    }
+    /* the bones of this detail take the body's angles (0x45d810's end) */
+    g_cur = &g_skls[lod == 1];
+    b = g_skl.b;
+    {
+        const Pose *p = rd->pose.n ? &rd->pose : pose_rot(4);
+        for (i = 0; i < g_skl.n && i < p->n; i++)
+            memcpy(g_skl.b[i].ang, p->a[i], sizeof g_skl.b[i].ang);
     }
     c38 = carac(bike, 0x38), c3c = carac(bike, 0x3c), c40 = carac(bike, 0x40);
     c58 = carac(bike, 0x58), c6c = carac(bike, 0x6c);

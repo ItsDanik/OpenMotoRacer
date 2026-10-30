@@ -34,8 +34,9 @@ static int level_load(int track)
 }
 
 /* the family: two texture banks, two skeletons, seven models (a .3df and its .map each),
-   then the rider's animations until a name without a dot ("MotoCarac"); a name "_<digit>"
-   takes two numbers after it. Then the eight bikes. */
+   then the rider's animations until a name without a dot ("MotoCarac"); a name "_<digit>_"
+   begins a stunt of that many poses, two numbers after it (its time, the hand skeleton), and
+   any name beginning with "_" loses its first three letters. Then the eight bikes. */
 static int family_load(const char *path, char carac[BIKES][64])
 {
     Script s;
@@ -54,11 +55,16 @@ static int family_load(const char *path, char carac[BIKES][64])
         script_str(&s, name, sizeof name);
         if (s.bad || !strchr(name, '.'))
             break;
+        if (g_fam.nrot >= FAMILY_ROTS)
+            continue;
         if (name[0] == '_' && name[1] >= '0' && name[1] <= '9') {
-            script_int(&s);
-            script_int(&s);
-        } else if (g_fam.nrot < FAMILY_ROTS)
-            memcpy(g_fam.rot[g_fam.nrot++], name, sizeof name);
+            FamilyStunt *t = &g_fam.stunt[g_fam.nrot];
+            t->frames = name[1] - '0';
+            g_fam.stunt_list[g_fam.nstunts++] = g_fam.nrot;
+            t->ms = script_int(&s);
+            t->hand = script_int(&s);
+        }
+        memcpy(g_fam.rot[g_fam.nrot++], name[0] == '_' ? name + 3 : name, sizeof name - 3);
     }
     for (i = 0; i < BIKES; i++)
         script_str(&s, carac[i], 64);

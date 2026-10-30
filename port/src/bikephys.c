@@ -14,7 +14,7 @@
 
 typedef double R;
 
-BikeWorld g_bikeworld = { 1.6f, 0, 1, 16.0f, 0, 0, 1, 0, 0, 0, { 0 }, 0 };
+BikeWorld g_bikeworld = { 1.6f, 0, 1, 16.0f, 0, 0, 1, 0, 0, 0, { 0 }, 0, 0, 0 };
 #define W g_bikeworld
 
 #define PI_F 1.5707963705062866         /* 0x3fc90fdb: pi/2 as a float */
@@ -2248,6 +2248,8 @@ void bikephys_step(BikePhys *b, unsigned keys, int joy_x, int joy_y, float dt, i
     if (!b->crashed)                    /* [approx] the drawer 0x460dbe keeps its matrix */
         memcpy(b->tumble, b->m, sizeof b->m);
     /* 0x467b30 / 0x45d810: the rider's pose (drawing); its end moves the turbo latch */
+    if (W.pose)
+        W.pose(b);
     b->turbo_pressed1 = b->turbo_pressed;
     b->turbo_pressed = 0;
     /* 0x466d70: dust, spray, skid marks (effects; they draw stream 1, see the header) */

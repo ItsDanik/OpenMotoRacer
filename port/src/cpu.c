@@ -564,6 +564,8 @@ void cpu_step(BikePhys *b, float dt, int countdown)
     if (!b->crashed)                    /* as bikephys_step: the drawer keeps its matrix */
         memcpy(b->tumble, b->m, sizeof b->m);
     /* 0x467b30(1) / 0x45d810: the rider's pose (drawing); the turbo latch moves */
+    if (W.pose)
+        W.pose(b);
     b->turbo_pressed1 = b->turbo_pressed;
     b->turbo_pressed = 0;
     bp_dials(b);

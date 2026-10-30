@@ -111,6 +111,8 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
 - The TV director (`camera.c`), the record split line on the dashboard (`rules.c`).
 - The winner's lap with the credits (`generic.c`, the .GEN scripts): compared with a capture of
   the original (`build/ref/winner_*_orig.png`; how to force it in the original: NOTES §4.21b).
+- The riders' bodies (`pose.c`, NOTES §4.18 8.16a): every pose by speed, lean, jump, stunt, rival,
+  place, the salute and the fall, with the hand skeleton. Same as the original's captures by eye.
 
 ## Waiting for Danik
 - The CD's MOTO.EXE (NOTES §1): its text code differs from GOG's; run GOG's logic on the
@@ -122,9 +124,6 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
 ## Next, in order
 1. The championship's pages 16/17/18 and the podium (page 24, `0x47b600`): race.c sends them
    to TOP 5 for now.
-2. The riders' poses in the race (0x45d810, the pose blend 0x45b4e0, tables 0x51d2a8, 0x51d584,
-   0x51da48, 0x51df0c): `bike3d.c` draws one still pose (.ROT 4). The crouch with speed, the
-   winner's salute (0x5dabd0), looking back.
 3. The CD sprite messages (0x482030), the mouse in the race's dialogs, F1 (the help: the same
    .GEN parser, `generic.c`) / F11 / F12, the music's pause.
 4. The track's billboards (+0x5c) and AnimDecor (land.c, "not read yet"); the bikes'

@@ -447,6 +447,11 @@ void camera_key(int vk, int down)
         g_cam.dist = (g_cam.dist + 1) & 3;
 }
 
+int camera_cut(void)
+{
+    return g_cam.jumped;
+}
+
 void camera_keep(void)
 {
     memcpy(g_cam.c0, g_cam.c, sizeof g_cam.c0);

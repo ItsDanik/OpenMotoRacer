@@ -116,6 +116,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   messages and the dials (equal to the captures to the pixel), GAME OVER a sprite object
   (`sprite.c`: the Texts .RAW sprites, keyed blit; §4.20 §3.5); `dialog.c` (§4.19) the
   in-race dialogs (pause, results, continue); the end of the race and bestscor.dat.
+  `pose.c` the rider's body each step (NOTES §4.18 8.16a): speed, lean, jumps, stunts, looks, salute, fall.
   `bikephys.c` the player's bike (bit-exact on recorded steps, `tools/physcheck.sh`),
   `camera.c` the chase camera 0x46f840 (F5 distance, Tab looks back) and the on-board view
   (F6, mode 6 0x4700e0) with the cockpit (`bike3d_cockpit`, page 7, §4.20 mode 6).

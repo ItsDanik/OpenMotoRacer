@@ -21,6 +21,7 @@
 #include "joy.h"
 #include "land.h"
 #include "menu.h"
+#include "pose.h"
 #include "r3d.h"
 #include "race_sound.h"
 #include "replay.h"
@@ -190,6 +191,7 @@ static void to_rider(Rider *r, const BikePhys *b)
     r->dive = b->dive, r->susp = b->susp;
     r->spin_rear = b->spin_rear, r->spin_front = b->spin_front;
     r->crashed = b->crashed, r->roll_side = b->roll_side;
+    r->pose = b->pose, r->hand = b->detail;
     if (b->crashed) {
         memcpy(r->body, b->tumble, sizeof r->body);
         memcpy(r->body_pt, b->tumble_pt, sizeof r->body_pt);
@@ -321,6 +323,7 @@ static void step(int ms)
     g_bikeworld.frame_ms = (float)((ms - (double)g_bikeworld.frame_ms) * 0.125
                                    + g_bikeworld.frame_ms);
     g_bikeworld.countdown = g_counting;
+    g_bikeworld.clock = g_step_at;
     for (k = 0; k < RIDERS; k++)
         all[k] = &g_phys[k];
     for (k = 1; k < g_riders; k++)      /* 0x47df40: dt = ms x 0.1; 0x45d540 */
@@ -344,6 +347,11 @@ static void step(int ms)
     camera_step(&g_phys[g_follow], (float)(ms * 0.1), g_counting,
                 g_racer[g_follow].state == RS_FINISHED,
                 g_playback || g_race_kind == 1 || g_winner_lap);
+    for (k = 1; k < g_riders; k++) {
+        if (camera_cut() && g_racer[k].loaded)  /* 0x47d660: the bodies again, from the new eye */
+            pose_step(&g_phys[k]);
+        g_rider[k].pose = g_phys[k].pose, g_rider[k].hand = g_phys[k].detail;
+    }
     if (cockpit_shown())        /* 0x462110's shake, once a picture of the original */
         bike3d_cockpit_step(bikephys_frame_pitch(&g_phys[g_follow]));
     race_sound_step(all, g_follow, camera_eye(), camera_target(), (float)(ms * 0.1));
@@ -538,6 +546,8 @@ static void grid(void)
         bikephys_init(&g_phys[k], r->bike, (const float (*)[3])r->m, p, s,
                       k == g_player && g_race_kind != 2, k == g_player ? g_gearbox : 1);
         g_phys[k].number = k;
+        pose_start(&g_phys[k]);
+        r->pose.n = 0;
         if (k != g_player || g_race_kind == 2 || getenv("OMR_AUTOPILOT"))
             g_phys[k].driven = 0;               /* a computer rider (cpu.c) */
         rules_progress(k);
@@ -568,6 +578,8 @@ static void start(void)
     g_bikeworld.countdown = 1;
     g_bikeworld.dt = 1.6f;
     g_bikeworld.frame_ms = STEP_MS;
+    g_bikeworld.pose = pose_step;
+    pose_restart();
     memset(g_phys, 0, sizeof g_phys);
     grid();
     /* 0x47bf70: srand(timeGetTime()), kept for the race's replay; the computer riders'
@@ -884,6 +896,7 @@ static float mix_angle(float a, float b, float t)       /* the short way round *
 static void blend(Rider *o, const Rider *a, const Rider *b, float t)
 {
     double dx = b->pos[0] - a->pos[0], dy = b->pos[1] - a->pos[1], dz = b->pos[2] - a->pos[2];
+    int i, k;
     *o = *b;
     if (t >= 1.0f || a->crashed != b->crashed || a->bike != b->bike
         || dx * dx + dy * dy + dz * dz > 1000.0 * 1000.0)
@@ -905,13 +918,20 @@ static void blend(Rider *o, const Rider *a, const Rider *b, float t)
     o->spin_front = mix_angle(a->spin_front, b->spin_front, t);
     mixv(&o->body[0][0], &a->body[0][0], &b->body[0][0], 9, t);
     mixv(o->body_pt, a->body_pt, b->body_pt, 3, t);
+    if (a->pose.n == b->pose.n)
+        for (i = 0; i < b->pose.n; i++)
+            for (k = 0; k < 3; k++)
+                o->pose.a[i][k] = mix_angle(a->pose.a[i][k], b->pose.a[i][k], t);
 }
 
-/* 0x45f160: the detail by the distance over the zoom (0x6d1f74) */
+/* 0x467b30: a fallen rider, or one with a raised hand, the hand skeleton; else 0x45f160: the
+   detail by the distance over the zoom (0x6d1f74) */
 static int detail_of(const Rider *r, const float cam[3])
 {
     double dx = r->pos[0] - cam[0], dy = r->pos[1] - cam[1], dz = r->pos[2] - cam[2];
     double d = sqrt(dx * dx + dy * dy + dz * dz);
+    if (r->crashed || r->hand)
+        return 1;
     d /= camera_zoom();
     return d >= 3000.0 ? 4 : d >= 2500.0 ? 3 : d < 1000.0 ? 0 : 2;
 }

@@ -8798,6 +8798,43 @@ tumble point from the tumble matrix (F 32, F -2, F 2.0), on the road + 2. Drawin
 - obj+0x3205 = obj+0x3201, obj+0x3201 = 0 at the end of 0x45d810 (so the "pressed" latch lasts
   until the next pose update with r != 0... [asm: only when 0x45d810 runs, i.e. r != 0 and LOD < 2]).
 
+##### 8.16a The body in full, as `port/src/pose.c` has it (2026-10-30) [decomp f_45d810, f_45b4e0]
+Poses by their place in the family's list: 0 static (full crouch), 1/2 left/right, 3 staticHaut
+(sitting up), 4 staticPied (the foot down), 5/6 lean low, 7 standing on a jump, 8 the win, 9 sitting
+back on a drop, 10..14 the gestures past the line (2nd, 3rd, next to last, last, others), 15, 16 the
+fall, 29/30 the look over the shoulder, 31/32 the dirt start. A name "_N_x" begins a stunt of N
+poses (then two numbers: its ms, whether it needs the hand skeleton); any name beginning "_" loses
+3 letters (0x429e20: the port used to skip these, so every pose after them was out of place).
+- 0x45b4e0(o, a, b, t): n = the smaller count. t bits <= 0: a; t >= 1: b; each angle the short way
+  (b -= 2pi if a + pi < b; b += 2pi if b < a - pi), then brought into 0..2pi.
+- speed >= 5.5556 m/s (20 km/h): `+0x304d` = pose 4. Normal: **blend(rot3, rot0, (speed - 5.5556) /
+  (top * 0.27778 - 5.5556))**, top 120 km/h (road) or 60 (dirt): up at 20 km/h, flat at the top
+  (read the decomp with care: the routine's `a` is the local piVar7, `b` piVar10).
+- The winner's lap, place 0, finished: 0x5dabd0 from 200, less dt a step (2 s): T > 175 rot8 -> rot3,
+  25 < T <= 175 rot8, 0 < T <= 25 rot0 -> rot8, each with the hand skeleton; then normal.
+- A driven bike finished: blend(rot3, gesture of the place, (speed - 5) * 0.1), hand skeleton.
+- speed < 5.5556: blend(`+0x304d`, rot3, speed * 0.18). From pose 31 in two halves (31 -> 32 -> 3).
+- Dirt, no wheelie: x = (front.y - rear.y) / (wheelbase * 48) * 4, -1..1; s = +0x3051 += (x - s) / 4;
+  blend to rot7 by s (or rot9 by -s).
+- 40 km/h and up, the look: the nearest loaded rider, 2 steps running, within 512 units, 20 km/h
+  faster, on the ground: dot of the two directions on the ground. If it rises and |dot| < 0.7: rot29
+  or rot30 by the side's sign for 400 ms, weight sin(t / 400 * pi).
+- The lean: positive rot6 -> rot2, negative rot5 -> rot1. Road: inner blend (speed - 8.3333) * 0.12,
+  weight lean * 4.3478 under 16.67 m/s, * 2.1739 above. Dirt: f = lean * 2, blend(high, low, (f - 0.46)
+  * 1.08696), weight f * 2.1739.
+- The end: not crashed, 900 < d < 1000: towards rot0 by (d - 900) * 0.01. Crashed and timer < 400:
+  rot15 by (400 - timer) * 0.02; once the tumble's speed is under 3/4 of its start, rot16 by sin of the
+  rest; hand skeleton.
+- Detail 1 (`FileSklHand`) takes over from the distance while crashed or +0x319d, which each step
+  clears at its start. Road: the same file; dirt: `mHand\\corps.skl`. Both details' wheels are the same
+  files. 0x4ea4e0 (the far model between 1000 and 2500 regardless) has no writer: always 0.
+- Game_Frame runs 0x467b30 again for all riders when the camera has cut (0x4dc138).
+- Port's differences: the clock is the step's (16 ms each); Rand_Next(5) is not drawn (nothing else
+  uses that stream); the detail is worked out again from the drawn place in a picture.
+- Compared with the original: `build/ref/orig_salute*.png`, `orig_fall_a.png` against the port's
+  frames: the foot down, sitting up, crouching, the lean, the fall, the salute look the same. Stunts seen
+  in the port (Great Wall's jump, Space in the air); not captured from the original.
+
 ##### Fields (this part) — read (R) / written (W)
 | field | meaning | by |
 |---|---|---|

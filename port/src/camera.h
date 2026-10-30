@@ -18,6 +18,7 @@ void camera_apply(float a);
 /* 0x4583e0: the on-board view (F6 0x4dc00c and the bike not crashed) or the chase */
 void camera_onboard(int on);
 int camera_preset(void);                        /* +0x21c: 1 while Tab looks back */
+int camera_cut(void);                           /* the eye has jumped this step (0x4dc138) */
 void camera_keep(void);                         /* before a step: the state to blend from */
 const float *camera_eye(void);                  /* +0x98 */
 const float *camera_target(void);               /* +0xa4: the point looked at */

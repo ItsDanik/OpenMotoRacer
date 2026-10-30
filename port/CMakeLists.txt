@@ -30,7 +30,7 @@ set(OMR_SOURCES
   src/rand.c
   src/sound.c
   src/obj3d.c
-  src/config.c src/choices.c src/page_mode.c src/page_track.c src/page_bike.c src/bike3d.c src/race.c src/race_sound.c src/bikephys.c src/cpu.c src/camera.c src/replay.c src/generic.c src/rules.c src/dialog.c src/hud.c src/input.c src/joy.c src/page_top5.c src/page_load.c src/page_champ.c src/page_options.c src/saves.c src/scores.c src/bikes.c src/land.c src/horizon.c src/sprite.c
+  src/config.c src/choices.c src/page_mode.c src/page_track.c src/page_bike.c src/bike3d.c src/pose.c src/race.c src/race_sound.c src/bikephys.c src/cpu.c src/camera.c src/replay.c src/generic.c src/rules.c src/dialog.c src/hud.c src/input.c src/joy.c src/page_top5.c src/page_load.c src/page_champ.c src/page_options.c src/saves.c src/scores.c src/bikes.c src/land.c src/horizon.c src/sprite.c
   src/page_name.c
   src/script.c
   src/font.c
