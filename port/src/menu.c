@@ -48,9 +48,13 @@ static const struct {
     [13] = { page_diag_frame, page_diag_start, 0, "diagnostic" },
     [14] = { page_title_frame, page_title_start, page_title_end, "title" },
     [15] = { page_name_frame, page_name_start, page_name_end, "name entry" },
+    [16] = { page_reverse_frame, page_unlock_start, page_unlock_end, "Reverse unlocked" },
+    [17] = { page_pocket_frame, page_unlock_start, page_unlock_end, "Pocket unlocked" },
+    [18] = { page_won_frame, page_unlock_start, page_unlock_end, "championship won" },
     [20] = { page_load_champ_frame, page_load_champ_start, 0, "championship load" },
     [21] = { page_save_champ_frame, page_save_champ_start, 0, "championship save" },
     [23] = { page_datadisk_frame, page_datadisk_start, page_datadisk_end, "data disk" },
+    [24] = { page_podium_frame, page_podium_start, page_podium_end, "podium" },
     [25] = { page_logo_frame, page_logo_start, page_logo_end, "Delphine logo" },
     [26] = { page_mode_frame, page_mode_start, 0, "select mode (26)" },
 };

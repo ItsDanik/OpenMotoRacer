@@ -12,6 +12,7 @@
 #include "choices.h"
 #include "clock.h"
 #include "config.h"
+#include "exe.h"
 #include "land.h"
 #include "r3d.h"
 #include "rand.h"
@@ -1232,4 +1233,39 @@ void race_sound_step(BikePhys *const *all, int followed, const float cam[3],
         ambience(cam, look);
     /* the track's +0x20 is the drawing's: the next step hears from this picture's */
     g_cam_sec = land_section(cam, g_cam_sec);
+}
+
+/* ------------------------------------------------------------------ the podium */
+
+/* its four objects (0x540080..0x540140, NOTES §4.10.6.2): podium1 and, 7 s on, podium2, each
+   twice for a chorus, with the same state machine, nowhere in particular */
+static SoundDesc g_pod_desc[4];
+static AmbObj g_pod[4];
+
+void podium_sound_start(void)
+{
+    int i, k;
+    for (i = 0; i < 4; i++) {
+        for (k = 0; k < (int)(sizeof g_pod_desc[0] / 4); k++)
+            ((uint32_t *)&g_pod_desc[i])[k] = exe_u32(exe_addr(X_PODIUM_SOUNDS) + 0x50 * i + 4 * k);
+        memset(&g_pod[i], 0, sizeof g_pod[i]);
+        g_pod[i].d = &g_pod_desc[i];
+        rearm(&g_pod[i]);
+    }
+}
+
+void podium_sound_frame(void)
+{
+    static const float zero[3];
+    int i;
+    for (i = 0; i < 4; i++)
+        amb_object(&g_pod[i], 1, 0.0f, 0.0f, 0.0f, zero, zero);
+}
+
+void podium_sound_stop(void)    /* 0x405000 */
+{
+    int i;
+    for (i = 0; i < 4; i++)
+        if (!g_pod[i].stopped)
+            amb_stop(&g_pod[i]);
 }

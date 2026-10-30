@@ -420,6 +420,30 @@ void sound_race_load(int ktm)
 }
 
 /* the race's end: its set freed; the menu loads its own as it comes back */
+void sound_podium_load(void)
+{
+    if (!g_ok)
+        return;
+    lock();
+    if (g_handle[4] < 0)
+        load_table(X_SFX_PODIUM, 2, "Menu\\");
+    unlock();
+}
+
+void sound_podium_free(void)
+{
+    int i;
+    if (!g_ok)
+        return;
+    lock();
+    for (i = 4; i <= 5; i++)
+        if (g_handle[i] >= 0) {
+            free_chain(g_handle[i]);
+            g_handle[i] = -1;
+        }
+    unlock();
+}
+
 void sound_race_free(void)
 {
     if (!g_ok)

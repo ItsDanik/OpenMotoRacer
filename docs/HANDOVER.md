@@ -111,6 +111,8 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
 - The TV director (`camera.c`), the record split line on the dashboard (`rules.c`).
 - The winner's lap with the credits (`generic.c`, the .GEN scripts): compared with a capture of
   the original (`build/ref/winner_*_orig.png`; how to force it in the original: NOTES §4.21b).
+- The championship's end: pages 16, 17, 18 and the podium (`page_podium.c`, NOTES §4.12.14): the
+  stand the same as the original's capture to the pixel. The player's 4th place not captured.
 - The riders' bodies (`pose.c`, NOTES §4.18 8.16a): every pose by speed, lean, jump, stunt, rival,
   place, the salute and the fall, with the hand skeleton. Same as the original's captures by eye.
 
@@ -122,8 +124,6 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   the original, or a user folder? (For now a user folder, the game's read as a fallback.)
 
 ## Next, in order
-1. The championship's pages 16/17/18 and the podium (page 24, `0x47b600`): race.c sends them
-   to TOP 5 for now.
 3. The CD sprite messages (0x482030), the mouse in the race's dialogs, F1 (the help: the same
    .GEN parser, `generic.c`) / F11 / F12, the music's pause.
 4. The track's billboards (+0x5c) and AnimDecor (land.c, "not read yet"); the bikes'

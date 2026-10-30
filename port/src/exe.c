@@ -23,7 +23,7 @@ static const struct {
                                                                 0x4db7d8, 0x4db780, 0x4db770,
                                                                 0x4f1250, 0x4f1248, 0x4e2920,
                                                                 0x4db810, 0x4db8a0, 0x4db920,
-                                                                0x4db680, 0x4f1640, 0x4f16a0 } },
+                                                                0x4db680, 0x4e9128, 0x4f1640, 0x4f16a0 } },
 };
 static int g_build = -1;
 

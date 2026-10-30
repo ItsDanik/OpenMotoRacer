@@ -25,6 +25,16 @@ void page_bike_start(void);     /* 10: CHOOSE BIKE, 0x44e480 */
 void page_bike_frame(void);     /* 0x44ed30 */
 void page_bike_end(void);       /* 0x44ecf0 */
 
+void page_unlock_start(void);   /* 16, 17, 18: 0x44ffd0, 0x450290, 0x450550 */
+void page_unlock_end(void);     /* 0x450050 */
+void page_reverse_frame(void);  /* 16: the Reverse tracks unlocked, 0x44fdb0 */
+void page_pocket_frame(void);   /* 17: the Pocket bikes, 0x450080 */
+void page_won_frame(void);      /* 18: the championship won, 0x450340 */
+void page_podium_start(void);   /* 24: the podium, 0x452240 */
+void page_podium_frame(void);   /* 0x452f80 */
+void page_podium_end(void);     /* 0x452eb0 */
+void podium_data(void);         /* 0x452090, when the race ends */
+
 void page_load_champ_start(void);   /* 20: championship Load, 0x450600 */
 void page_load_champ_frame(void);   /* 0x450800 */
 void page_save_champ_start(void);   /* 21: championship Save, 0x450d20 */

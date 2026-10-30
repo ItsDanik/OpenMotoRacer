@@ -40,6 +40,7 @@ static void usage(void)
          "                     (OMR_SHOT=\"FILE N\")\n"
          "test switches (environment):\n"
          "  OMR_PAGE=N         start on the menu page N (the game's numbers; 25 the logo)\n"
+         "  OMR_PODIUM=N       page 24: the player's place, 1..4\n"
          "  OMR_INPUT=\"F:WHAT ...\"  at frame F: a key (return, escape, space, tab,\n"
          "                     backspace, left, right, up, down, shift, ctrl, minus, plus,\n"
          "                     a letter),\n"

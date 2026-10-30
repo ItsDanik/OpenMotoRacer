@@ -3934,6 +3934,34 @@ build/orig and the prefix, own Weston socket) avoided it.
   tile picture (paralax1/2, CHFOND...).
 
 
+#### 4.12.14 The championship's end: pages 16, 17, 18 and the podium, 24 (2026-10-30)
+Pages 16 (Modrever.lez, id 199), 17 (Modpock.lez, 198), 18 (podium.lez, 200): the picture, Continue
+(id 0x4d) at (496, 442), Return; then page 24. No glass (no 0x40c4a0 in their frames).
+Page 24 (0x452240, 0x452f80, 0x452eb0; `page_podium.c`); its data from 0x452090 when the race ends:
+- Up to 3 riders by place: name ("Computer", text 183, unless driven), time, livery; what nobody wore is
+  rand() & 7. 0x4e911c = the local place + 1, 4 at most; if it is above the count, the count is it.
+- 0x40a4d0 again (the family), then each rider's record with `+0x30c1` crashed = 1 so the drawer draws the
+  rider at `+0x30b5` by `+0x3085` and the bike (placed at z = 10000) behind the camera: (0, B+50, 0),
+  (100, B+11, 0), (-100, B-2, 0), and the 4th (-50, G, 300), turned 135 degrees (B 0 / 30, G -258 / -178 for
+  road / dirt). Detail 1 forced.
+- The stand: `data\podium\podium` x 0.04, its pages + 2 (banks Bnk00_01/02 in pages 3 and 4), angle (0, pi/2,
+  0) at (0, 72, -80). 0x401160 is thiscall: ECX is the page object, which Ghidra's text hides.
+- The camera, 7 s: (+-1800, 500, 200) to (0, -50, 1500) (place 4: (0, -50, 2120)), looking at (0, 120, 0)
+  (place 4: y 100); rand() & 1 picks the side.
+- Each rider's arms: t = i x 0.2, +-6 per second, bouncing 0..1, between two poses by 0x45e390 (place 1 or 4:
+  17/18, 19/20, 21/22, 23/24; place 2: 27/28, 17/18, 21/22; place 3: 25/26, 19/20, 17/18).
+- The 2D (bestRace.lez, lines, numbers, names and times in font 12 from t >= 0.6, one row more at 0.7 and 0.8;
+  Solo: the player's row alone; Continue at (496, 429), Escape; then page 9) is drawn **before** the 3D is
+  rendered, so in the software renderer the wall covers all of it. The original's capture shows none of it either.
+- Sound: ids 4, 5 (0x404310), the four objects 0x4e9128 (§4.10.6.2) a frame; the player among the three:
+  music 12, else music 11 and voice 0x5b.
+- Compared: `build/ref/orig_p24_podium*.png`, taken by forcing a finish (poke place 0x5873a6, state 0x587206,
+  0x509ba0 = 1 in a championship race; `n` at the replay question). Settled, the stand differs from the port's in no
+  pixel; only the riders (the moment of their arm movement, their liveries) and the pointer differ.
+  **Not captured: the player out of the three (the 4th rider)**: the menus would not take the keys in the runs tried.
+  From the code alone; `OMR_PODIUM=4` shows it.
+- 0x4dc078 (saved, 0, restored) is the Reverse switch: nothing the port's family load reads.
+
 ### 4.13 The race's track: files, the .trk, how the race draws it (mapped 2026-10-26)
 
 Marks: **[asm]** read instruction by instruction, **[decomp]** from Ghidra's C, **[test]**

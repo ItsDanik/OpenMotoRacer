@@ -21,6 +21,7 @@ enum {
     X_SFX_KTM,          /* the dirt bikes' engines, */
     X_SFX_NINJA,        /* the road bikes' engines, */
     X_SFX_VOICES,       /* the race's voices */
+    X_PODIUM_SOUNDS,    /* the podium's four sound objects (0x4e9128, 0x50 bytes each) */
     X_GEN_SHORT,        /* the victory sequence's scripts: the short list (0x4f1640), */
     X_GEN_LONG,         /* the long one (0x4f16a0) */
     X_COUNT

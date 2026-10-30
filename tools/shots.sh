@@ -96,3 +96,9 @@ OMR_TILE=59,59 run demo_tv 14 2600
 OMR_AUTOPILOT=win OMR_CHOICES="1,0,1,0,0" run winner_lap 1 7000
 OMR_AUTOPILOT=win OMR_CHOICES="1,0,1,0,0" run winner_credits 1 8200
 OMR_AUTOPILOT=win OMR_CHOICES="1,0,1,0,0" run winner_replay 1 11600 "10450:return"
+# the championship's end (build/ref/orig_p24_podium*: the stand the same to the pixel)
+OMR_CHOICES=2,0,4 run champ_reverse 16 30
+OMR_CHOICES=2,0,4 run champ_pocket 17 30
+OMR_CHOICES=2,0,4 run champ_won 18 30
+OMR_PODIUM=1 OMR_CHOICES=2,0,4 run podium_first 24 500
+OMR_PODIUM=4 OMR_CHOICES=2,0,4 run podium_fourth 24 500

@@ -18,4 +18,8 @@ void race_sound_step(BikePhys *const *all, int followed, const float cam[3],
                      const float look[3], float dt);
 int race_sound_player(void);
 
+void podium_sound_start(void);
+void podium_sound_frame(void);
+void podium_sound_stop(void);
+
 #endif

@@ -21,6 +21,7 @@
 #include "joy.h"
 #include "land.h"
 #include "menu.h"
+#include "pages.h"
 #include "pose.h"
 #include "r3d.h"
 #include "race_sound.h"
@@ -738,11 +739,6 @@ static int events(void)
     }
     if (e & EV_PAGE6)
         page = 6;
-    if (page == 16 || page == 17 || page == 18 || page == 24) {
-        fprintf(stderr, "openmotoracer: page %d (the championship's unlocks, end and podium) "
-                "is not written yet: TOP 5 instead\n", page);
-        page = 9;
-    }
     if (e & EV_TITLE)
         page = 14;
     if (e & EV_DEMO_LOAD) {
@@ -823,7 +819,7 @@ static void race_end(int ms)
                 g_finish_timer = 0;
             }
         } else {
-            /* (0x452090, the podium's data: with page 24) */
+            podium_data();
             if (g_mode != MODE_PRACTICE)
                 dialog_results();
             else {
