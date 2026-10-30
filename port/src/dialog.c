@@ -449,6 +449,7 @@ static void act_help_close(void)        /* 0x43e040: the race goes on */
 {
     g_dlg->done = 1;
     help_close();
+    music_pause(0);             /* 0x4096e0(0) */
     sound_pause_all(0);         /* 0x409700(0) */
     race_release_keys();
 }
@@ -497,6 +498,7 @@ int dialog_help(void)
     help_key_only(VK_END, act_help_last);
     help_key('5', 28, 0x68, act_help_down_five, VK_NEXT, 0, 0);
     help_key('4', 28, 0xc8, act_help_up_five, VK_PRIOR, 0, 0);
+    music_pause(1);             /* 0x4096e0(1) */
     sound_pause_all(1);         /* 0x409700(1) */
     return 1;
 }

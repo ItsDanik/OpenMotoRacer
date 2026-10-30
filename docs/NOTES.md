@@ -2102,8 +2102,26 @@ SND_FILENAME|SND_LOOP|SND_NODEFAULT|SND_ASYNC)**; MCI_STOP (and similar) → Pla
 0, 1). MCI_STATUS: number of tracks → 13; track type → audio (0x440) for 2..13, other
 (0x441) for the rest; mode → playing/stopped/paused/not ready from its own flags; length
 items go to the real winmm. So under GOG **every music loops forever** and the timer never
-sees "stopped"; the music volume is the wave volume; MCI pause stops the sound (resume
-restarts the file? not checked).
+sees "stopped"; the music volume is the wave volume.
+
+**MCI_PAUSE does not reach the music under GOG** [asm of the DLL's jump table 0x10001511/0x10001531:
+0x809 goes to 0x100014f2, the real winmm; PlaySound is not told; measured]. The game asks for it in
+four places: the Pause key and Ctrl+P (0x431250, Solo only), F1 open and shut (0x43cf90, 0x43e040),
+the file dialog 0x457bf0, and on losing the window's focus 0x409670. The pause menu 0x436420 does
+not ask (0x424090 only).
+
+Measured (a run under wine, 2026-10-30, track 04 of Speed Bay, effects and voices off with Ctrl+S
+and Ctrl+V, the sound recorded from the null sink and each 1.5 s found in 04.wav by correlation,
+score 0.999..1.000): **the music runs straight through Pause, through F1 and through the pause
+menu**, the file's position minus the time the same to a millisecond over 45 s. So on GOG's copy the
+music never stops. The same asm in the 1997 CD's MOTO.EXE (`push 0x809`, 0x4a81f0) would pause a real
+disc: read, not run.
+
+**Port's choice, to be judged by Danik:** `music_pause` (0x4096e0) holds the music and goes on from
+the same place, on the Pause key, Ctrl+P and F1: what the game's code asks and the CD did, **not
+what GOG's copy does**. To sound as GOG's: an empty `music_pause`. Not written: the focus (0x409670):
+the port has no focus handling. Checked in the port by a recording: Pause and F1 silence the music
+(RMS 0 once the last voices end), and it comes back where it was.
 
 ##### 4.10.5.4 Track use (both the CD and the GOG files: 02..13.wav, 44.1 kHz stereo 16-bit)
 

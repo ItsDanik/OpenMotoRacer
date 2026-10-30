@@ -54,6 +54,7 @@ void sound_get_switches(int *effects, int *voices, int *music);
 void sound_toggle_effects(void);        /* 0x408b30 */
 void sound_toggle_voices(void);         /* 0x408f30 */
 void music_toggle(void);                /* 0x409410 */
+void music_pause(int on);               /* 0x4096e0: the Pause key and the help */
 void sound_set_volumes(const int v[3]); /* master, CD, wave: 0..32 */
 
 #endif

@@ -106,9 +106,11 @@ void race_key(int vk, int down)
         g_shift_held = down;
         return;
     }
-    if (vk == 0x13 && down && g_solo) {         /* Pause (0x4314f7): the race stands */
+    /* Pause, Ctrl+P (0x4314f7): the race stands. (The pause menu leaves the music going.) */
+    if ((vk == 0x13 || (vk == 'P' && g_ctrl_held)) && down && g_solo) {
         g_paused ^= 1;
-        sound_pause_all(g_paused);              /* 0x424090 (and the CD's MCI pause) */
+        music_pause(g_paused);                  /* 0x4096e0 */
+        sound_pause_all(g_paused);              /* 0x409700 -> 0x424090 */
         return;
     }
     if (g_paused)

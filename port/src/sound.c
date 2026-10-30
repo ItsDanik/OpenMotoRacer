@@ -60,6 +60,7 @@ static long g_mus_data, g_mus_len, g_mus_pos;        /* bytes: where the samples
 static int g_mus_track = -1, g_mus_playing;
 static int16_t g_ring[MUSIC_RING][2];
 static unsigned g_ring_r, g_ring_w;                 /* frames, read and written */
+static int g_mus_paused;                            /* the music holds its place (0x4b1660) */
 
 static void lock(void)
 {
@@ -107,7 +108,7 @@ static void mix(int16_t *out, int frames)
         }
         l *= g_fx_gain;
         r *= g_fx_gain;
-        if (g_ring_r != g_ring_w) {
+        if (!g_mus_paused && g_ring_r != g_ring_w) {
             l += g_ring[g_ring_r % MUSIC_RING][0] * g_mus_gain;
             r += g_ring[g_ring_r % MUSIC_RING][1] * g_mus_gain;
             g_ring_r++;
@@ -844,6 +845,7 @@ void music_play(int track, int mode)
         return;
     lock();
     g_ring_r = g_ring_w = 0;
+    g_mus_paused = 0;
     unlock();
     g_mus_track = track;
     g_mus_playing = music_open(track);
@@ -858,6 +860,17 @@ void music_stop(void)
     g_mus_playing = 0;
     lock();
     g_ring_r = g_ring_w = 0;
+    g_mus_paused = 0;
+    unlock();
+}
+
+/* 0x4096e0 -> 0x4b1660: the music holds, and goes on from there */
+void music_pause(int on)
+{
+    if (!g_cd_on)
+        return;
+    lock();
+    g_mus_paused = on;
     unlock();
 }
 
