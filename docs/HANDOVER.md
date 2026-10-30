@@ -115,6 +115,10 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   stand the same as the original's capture to the pixel. The player's 4th place not captured.
 - The riders' bodies (`pose.c`, NOTES §4.18 8.16a): every pose by speed, lean, jump, stunt, rival,
   place, the salute and the fall, with the hand skeleton. Same as the original's captures by eye.
+- The roadside objects (`signs.c`, `land.c`, NOTES §4.13.5): the turn signs (0 pixels different inside
+  the diamond in all six) and the place's figure, compared at Speed Bay; boats and gulls move. Not
+  checked: later signs of a ride, AnimDecor types 1, 4, 8, 7, other tracks' moving objects, the signs
+  on a 16:9 view; four figure captures differ, probably older pictures than the memory read.
 
 ## Waiting for Danik
 - The CD's MOTO.EXE (NOTES §1): its text code differs from GOG's; run GOG's logic on the
@@ -126,8 +130,7 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
 ## Next, in order
 3. The CD sprite messages (0x482030), the mouse in the race's dialogs, F1 (the help: the same
    .GEN parser, `generic.c`) / F11 / F12, the music's pause.
-4. The track's billboards (+0x5c) and AnimDecor (land.c, "not read yet"); the bikes'
-   shadows and lighting; the glass capture's page 2 against the level's pages 2..19.
+4. The bikes' shadows and lighting; the glass capture's page 2 against the level's pages 2..19.
 6. The CD's `MOTO.EXE`: line it up with GOG's `game.EXE` (which tables the port reads).
 7. Then speed on the MiSTer's ARM, releases, the MiSTer core (the skill's steps 8-10).
 8. **Last: the split screen** for two players on one PC (the original has none). Danik,
