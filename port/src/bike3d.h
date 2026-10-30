@@ -22,6 +22,7 @@ typedef struct {                /* a rider's bike, the fields the drawer reads (
                                    drawer writes them while not crashed, the crash moves them */
     Pose pose;                  /* the body's angles; none: the still pose (.ROT 4) */
     int hand;                   /* +0x319d: the hand skeleton, whatever the distance */
+    int lod;                    /* +0x638: the detail the step chose, 0x45f160 */
 } Rider;
 
 /* the banks (pages 0, 1), the skeleton, the pose, wheels; rgb1: page 1 read in RGB */

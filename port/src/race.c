@@ -199,7 +199,7 @@ static void to_rider(Rider *r, const BikePhys *b)
     r->dive = b->dive, r->susp = b->susp;
     r->spin_rear = b->spin_rear, r->spin_front = b->spin_front;
     r->crashed = b->crashed, r->roll_side = b->roll_side;
-    r->pose = b->pose, r->hand = b->detail;
+    r->pose = b->pose, r->hand = b->detail, r->lod = b->lod;
     if (b->crashed) {
         memcpy(r->body, b->tumble, sizeof r->body);
         memcpy(r->body_pt, b->tumble_pt, sizeof r->body_pt);
@@ -385,7 +385,7 @@ static void step(int ms)
     for (k = 1; k < g_riders; k++) {
         if (camera_cut() && g_racer[k].loaded)  /* 0x47d660: the bodies again, from the new eye */
             pose_step(&g_phys[k]);
-        g_rider[k].pose = g_phys[k].pose, g_rider[k].hand = g_phys[k].detail;
+        g_rider[k].pose = g_phys[k].pose, g_rider[k].hand = g_phys[k].detail, g_rider[k].lod = g_phys[k].lod;
     }
     if (cockpit_shown())        /* 0x462110's shake, once a picture of the original */
         bike3d_cockpit_step(bikephys_frame_pitch(&g_phys[g_follow]));
@@ -980,16 +980,6 @@ static void blend(Rider *o, const Rider *a, const Rider *b, float t)
    detail by the distance over the zoom (0x6d1f74) */
 static int g_eye_sec;           /* the section the camera is in, this picture */
 
-static int detail_of(const Rider *r, const float cam[3])
-{
-    double dx = r->pos[0] - cam[0], dy = r->pos[1] - cam[1], dz = r->pos[2] - cam[2];
-    double d = sqrt(dx * dx + dy * dy + dz * dz);
-    if (r->crashed || r->hand)
-        return 1;
-    d /= camera_zoom();
-    return d >= 3000.0 ? 4 : d >= 2500.0 ? 3 : d < 1000.0 ? 0 : 2;
-}
-
 /* 0x46e8b0, with the planes of 0x46e320 (0.6 x the zoom each side of straight ahead) and
    a margin of 2048: is the point near enough the view? */
 static int near_the_view(const float c[3][3], const float eye[3], const float p[3])
@@ -1099,7 +1089,7 @@ void race_frame(void)
             if (cockpit_shown())
                 bike3d_cockpit(&g_shown[i], g_shown[g_follow].lean);
         } else if (g_racer[i].loaded)
-            bike3d_draw_rider(&g_shown[i], detail_of(&g_shown[i], eye));
+            bike3d_draw_rider(&g_shown[i], g_shown[i].lod);   /* +0x638: the step's, 0x45f160 */
     hud_bike(b);
     hud_dials_3d();
     if (!dialog_holds()) {      /* the dialogs' drawing flags -10: bit 3 off */
