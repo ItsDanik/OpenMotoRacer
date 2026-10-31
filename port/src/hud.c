@@ -85,10 +85,8 @@ static void clock_text(char *b, int n, int ms, const char *fmt)    /* 0x481730's
     snprintf(b, (size_t)n, fmt, s / 60 % 60, s % 60, ms % 1000 / 10);
 }
 
-static int seconds(void)        /* 0x4f0d8c: the clock's seconds, 0 .. 59 */
-{
-    return g_time_left / 1000 % 60;
-}
+static int g_seconds;           /* 0x4f0d8c: the seconds of the last clock split: the time left
+                                   (0x481730), then the lap times of the panel (0x483af9) */
 
 static int id_replay;           /* 0x4e9898 */
 
@@ -428,6 +426,7 @@ static void lap_panel(void)
         unsigned char fore[3];
         int green = g_laps > 1 && finished && i == fastest;
         clock_text(s, sizeof s, r->lap[i], "%02d:%02d;%02d");
+        g_seconds = r->lap[i] / 1000 % 60;
         if (green && f) {
             memcpy(fore, f->fore, 3);
             font_set_colors(f, named_colour(COL_GREEN), 0);
@@ -805,7 +804,7 @@ static void dials_digits(void)
 static void countdown(void)
 {
     static char s[8];
-    int sec = seconds(), c;
+    int sec = g_seconds, c;
     g_go = 500;
     laps_text(sec < 2 ? 2 : sec < 4 ? 1 : 0);
     if (g_solo)
@@ -868,8 +867,8 @@ static void racing(void)
     best_panel(0);
     lap_panel();
     if (g_go > 0) {
-        if (seconds() / 2 != g_last_count) {
-            g_last_count = seconds() / 2;
+        if (g_seconds / 2 != g_last_count) {    /* the lap's: 0 on the first picture */
+            g_last_count = g_seconds / 2;
             say(&id_ready, "GO", g_go, 0x42, 0, 0xf, FX_FADE_OUT, F_GAMEMSG, 4);
             count_voice(0);
         }
@@ -918,6 +917,7 @@ void hud_draw(int dials)
 {
     int k;
     g_frames += g_ticks;
+    g_seconds = g_time_left / 1000 % 60;        /* 0x4804e6 */
     if (dials)                  /* 0x47ff90's flags & 8 */
         dials_digits();
     for (g_loaded = 0, k = 1; k < g_riders; k++)        /* 0x4817a0 */

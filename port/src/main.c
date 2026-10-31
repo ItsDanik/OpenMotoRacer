@@ -80,6 +80,7 @@ static void usage(void)
          "  OMR_WATCH_AT=N     the race's replay is asked for at step N\n"
          "  OMR_SHOT_STEP=N    with --shot: the picture when the race has run N steps\n"
          "  OMR_SCREEN=MODE[,WIDE]  the race's screen: 0 320x240, 1 512x384, 2 640x480; WIDE 1: 16:9\n"
+         "  OMR_DIFFICULTY=N   0 easy, 1 medium, 2 hard (and saved so, as the Options page does)\n"
          "  OMR_PERF=1         every 5 seconds: pictures a second, the time to make one, the slowest";
 #ifdef _WIN32
     /* (a windowed program has no terminal to print on) */
@@ -380,6 +381,8 @@ int main(int argc, char **argv)
     if (!exe_load(err, sizeof err))
         fail(err, shot != 0);
     config_load();
+    if ((env = getenv("OMR_DIFFICULTY")))
+        g_difficulty = atoi(env) % 3;
     if ((env = getenv("OMR_SCREEN"))) {
         int m = 2, wide = 0;
         sscanf(env, "%d,%d", &m, &wide);

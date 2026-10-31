@@ -164,6 +164,10 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   NOTES §4.24: 510 + 72 runs clean, 4 real bugs fixed, among them writes past the screen in ordinary races).
 - The 4th place on the podium compared. Demos are live races, not recordings: they can't be compared picture for picture.
 
+Danik then found West Way on easy never said GO and kept GET READY blinking: the port tested the time left where the game's
+variable holds the lap panel's clock by then (NOTES, "s here is not the time left"). Fixed, compared with the original on that
+track and difficulty; `race_go`, `race_after_go` in the pictures. The tests had never run on easy: `OMR_DIFFICULTY` now.
+
 ## Next, in order
 1. Speed on a real MiSTer: Danik runs the command in NOTES §4.23 (the program: `build/arm/openmotoracer`; not reachable
    from here without the MiSTer's address). If it is too slow, make the painters faster with the pictures' check (span6, row).

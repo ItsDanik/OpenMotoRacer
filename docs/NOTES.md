@@ -6822,6 +6822,16 @@ already past the line (section in [0, N/2) forward) get state 1).
 - After it (0x413180, 0x4dc0b4 = 0) the first picture with 0x4dbe44 > 0: when s/2 ≠
   0x542854, "GO" (0x4dbf14) for 500 ms (the 0x4dbe44 value) id 0x4e98e8 and **0x4082f0(0)
   = BIP2 + voice GO (0x33)**; then 0x4dbe44 = 0.
+  **s here is not the time left.** 0x4f0d8c is "the last clock split's seconds": the drawing
+  splits the time left (0x4804e6, 0x4806f6), then the lap panel 0x483860, called just before
+  this test, splits each lap time it shows into the same variable (0x483af9). So on the first
+  picture s is the lap's clock, 0, and 0 ≠ the countdown's last 1: GO always comes. Testing the
+  time left instead loses GO when the limit's seconds % 60 are 2 or 3, and GET READY (life 0,
+  same text id) then blinks for the whole race. Of all the limits only West Way on easy does
+  that (63 s, either way round); the port did until 2026-10-31, Danik found it. The original
+  on West Way, easy (0x4dc060 = 0, TIME 63): GO on the screen, GET READY gone, and memtool
+  after it 0x542854 = 0, 0x4f0d8c = 2 with 60.7 s left (so the lap's clock, not the time left).
+  Tests had never run on easy: `tools/shots.sh` race_go, race_after_go (`OMR_DIFFICULTY`).
 - Because these run in the drawing, the countdown's texts and voices follow pictures, not
   steps (a 1-picture lag at most) [consequence].
 
@@ -10642,7 +10652,7 @@ tools/hud_dials.py, `r3d_screen_points/faces`). The port's single race has 24 bi
   - Always own colours: **red (255,0,0) on black.**
   - [px] The font colour calls just before it (0x490a30/0x490a60 on 0x4f0d78: (245,255,12)/(200,200,0) for the number, (0,200,0)/(0,180,0) for GO) are overridden by these own colours. "03" is exact in red in q14, so they have no effect.
 - **GO**, in 0x413180 once the countdown has ended (0x47dd5d clears 0x4dc0b4 when the clock goes below 0):
-  - while *(0x4dbe44) > 0 (the countdown set it to 500), and only when 0x4f0d8c/2 changes: "GO" through 0x4188b0(0x4e98e8, lifetime 500, align 0x42, y 15, effect 2, font 14, blink 4); voice 0x4082f0(0); then *(0x4dbe44) = 0.
+  - while *(0x4dbe44) > 0 (the countdown set it to 500), and only when 0x4f0d8c/2 changes: "GO" through 0x4188b0(0x4e98e8, lifetime 500, align 0x42, y 15, effect 2, font 14, blink 4); voice 0x4082f0(0); then *(0x4dbe44) = 0. (0x4f0d8c is the lap panel's by then: §4.17's start, "s here is not the time left".)
   - Result: red GO, centred, 15 below the centre line, for 500 ms.
 
 ##### 3.3 Racing (0x413180) [decomp + asm]

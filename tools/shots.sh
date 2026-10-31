@@ -116,6 +116,10 @@ OMR_CHOICES=0,0,3,0,0 fresh key_map0 1 500 "400:f9"
 OMR_CHOICES=0,0,3,0,0 fresh key_map3 1 500 "400:f9 402:f9 404:f9 406:f9"
 OMR_CHOICES=1,0,4,0,0 fresh key_map_riders 1 150 "60:f9"
 OMR_CHOICES=0,0,3,0,0 fresh key_detail2 1 500 "400:minus 402:minus"
+# West Way on easy: its 63 s of time, whose seconds / 2 once hid the GO (NOTES §4.17): GO, and
+# later neither GO nor GET READY
+OMR_DIFFICULTY=0 OMR_SHOT_STEP=384 OMR_CHOICES=1,4,3,0,0 fresh race_go 1 800
+OMR_DIFFICULTY=0 OMR_SHOT_STEP=500 OMR_CHOICES=1,4,3,0,0 fresh race_after_go 1 800
 OMR_CHOICES=0,0,3,0,0 fresh key_detail0 1 500 "400:minus 402:minus 404:minus 406:minus"
 OMR_CHOICES=0,0,3,0,0 fresh key_info 1 500 "490:hold:shift 491:f1 492:release:shift"
 OMR_CHOICES=0,0,3,0,0 fresh key_bigfont 1 500 "490:hold:ctrl 491:f 492:release:ctrl"
