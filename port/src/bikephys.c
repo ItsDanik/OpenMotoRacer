@@ -1236,7 +1236,7 @@ static void steering(BikePhys *b, unsigned keys, int joy_x, float dt)
         g = g < 1.0 ? 1.0 : g < 1.6 ? g : 1.6;
         m = (float)g;
     }
-    if ((keys & 2) && (keys & 0xc) && (b->sliding || !g_phys_cd))
+    if ((keys & 2) && (keys & 0xc) && b->sliding)      /* 0x46661a, 0x4872a9: in the slide's part only */
         m = 1.6f;
     yaw = (float)(((R)m * T2) * s);
     rot(rot_, 0.0, yaw, 0.0);
