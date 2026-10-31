@@ -234,7 +234,7 @@ static void scripted_input(const char *script, int frame)
         { "right", VK_RIGHT }, { "up", VK_UP }, { "down", VK_DOWN }, { "shift", VK_SHIFT },
         { "ctrl", VK_CONTROL },
         { "minus", VK_SUBTRACT }, { "plus", VK_ADD }, { "f5", 0x74 }, { "f6", 0x75 },
-        { "f7", 0x76 }, { "f10", 0x79 }, { "pause", 0x13 }, { "f1", 0x70 }, { "f11", 0x7a },
+        { "f7", 0x76 }, { "f8", 0x77 }, { "f10", 0x79 }, { "pause", 0x13 }, { "f1", 0x70 }, { "f11", 0x7a },
         { "f12", 0x7b }, { "pgup", VK_PRIOR }, { "pgdn", VK_NEXT }, { "home", VK_HOME },
         { "end", VK_END },
     };

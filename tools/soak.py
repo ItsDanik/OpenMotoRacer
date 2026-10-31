@@ -2,12 +2,14 @@
 """The crash soak: the port built with the address and undefined-behaviour sanitizers, run
 without a window over every track, mode, page and the CD, each in its own home folder.
 
-    python3 tools/soak.py [--jobs N] [--only WORD] [--short] [--out DIR] [--bin FILE]
+    python3 tools/soak.py [--jobs N] [--only WORD] [--short] [--out DIR] [--bin FILE] [--msan]
 
 Builds build/asan/openmotoracer unless --bin is given. One log a run in DIR (default
 build/soak/logs); at the end every distinct complaint with how often it came and its first
 run. A run that ends otherwise than 0 counts too. Exit status 1 when there is a complaint.
---only WORD runs the runs whose name holds WORD; --short a tenth of the frames.
+--only WORD runs the runs whose name holds WORD; --short a tenth of the frames. --msan: clang's
+MemorySanitizer for uninitialised values, with tools/sdlstub.c in place of SDL, whose memory it
+cannot follow (logs in build/soak/msan).
 """
 import argparse
 import os
@@ -104,6 +106,48 @@ def runs():
         out.append((f"monkey_{seed}", {"OMR_INPUT": monkey(seed, 15000, 45, keys=GOOD + GOOD + tuple(KEYS))}, 15000))
     # the demos, one after the other
     out.append(("demos", {"OMR_PAGE": "14"}, 40000))
+    # what the above did not reach (a coverage build tells: gcov): the dialogs' other answers,
+    # a record typed in, the demos left, the joystick, the race's Ctrl keys, the still camera
+    for i, keys in enumerate(("right return", "left return", "down return", "up return", "n", "y", "escape")):
+        ans = " ".join(f"{f}:{k}" for f in range(3000, 14000, 300) for k in [keys.split()[0]]) + " " + \
+              " ".join(f"{f + 10}:return" for f in range(3000, 14000, 300))
+        race(f"extra_answer_{i}", None, 0, 7, 1, (0, 0), "win", 14000, {"OMR_INPUT": ans})
+        race(f"extra_answer_practice_{i}", None, 0, 1, 0, (0, 0), "win", 14000, {"OMR_INPUT": ans})
+    # no replay after the results (Escape), in each mode; then the menus onward
+    after = " ".join(f"{f}:return" for f in range(10900, 14000, 500))
+    for mode in (0, 1, 2):
+        race(f"extra_noreplay_M{mode}", None, 0, 0, mode, (0, 0), "win", 14000,
+             {"OMR_INPUT": " ".join(f"{f}:escape" for f in range(9000, 10900, 100)) + " " + after})
+    # the pause menu's rows, in a demo and in a championship's replay
+    for i, keys in enumerate(("return", "down return", "up return", "right return", "left return")):
+        k = keys.split()
+        seq = " ".join(f"{2500 + 40 * j}:{w}" for j, w in enumerate(k))
+        out.append((f"extra_demopause_{i}", {"OMR_PAGE": "14", "OMR_INPUT": f"2400:escape {seq}"}, 3500))
+        race(f"extra_replaypause_{i}", None, 0, 0, 2, (0, 0), "1", 3500,
+             {"OMR_WATCH_AT": "1500", "OMR_INPUT": "2300:escape " + seq})
+    for h in range(150, 340, 15):
+        click = f"{{}}:move:320,{h} {{}}:down {{}}:up"
+        out.append((f"extra_demoquit_{h}", {"OMR_PAGE": "14", "OMR_INPUT": "2400:escape " + click.format(2600, 2605, 2610)}, 3500))
+        race(f"extra_replayquit_{h}", None, 0, 0, 2, (0, 0), "1", 3500,
+             {"OMR_WATCH_AT": "1500", "OMR_INPUT": "2300:escape " + click.format(2500, 2505, 2510)})
+    typed = " ".join(f"{f}:{'abcdefgh'[(f // 30) % 8]}" for f in range(3000, 14000, 30)) + " " + \
+            " ".join(f"{f}:return" for f in range(3015, 14000, 600))
+    race("extra_record", None, 0, 1, 1, (0, 0), "win", 14000, {"OMR_INPUT": typed})
+    race("extra_record_champ", None, 0, 0, 2, (0, 0), "win", 14000, {"OMR_INPUT": typed})
+    for i, k in enumerate(("escape", "return", "space", "q")):
+        out.append((f"extra_demo_{i}", {"OMR_PAGE": "14", "OMR_INPUT": " ".join(f"{f}:{k}" for f in range(2200, 12000, 700))}, 12000))
+        race(f"extra_watch_{i}", None, 0, 0, 1, (0, 0), "1", 5000,
+             {"OMR_WATCH_AT": "1500", "OMR_INPUT": " ".join(f"{f}:{k}" for f in range(1600, 5000, 300))})
+    ctrl = "100:hold:up 300:hold:ctrl " + " ".join(f"{300 + 40 * i}:{k}" for i, k in enumerate("svajkumb")) + \
+           " 700:release:ctrl 800:f8 900:f8 1000:f8 1100:f12 1200:f11 1300:f12 1400:shift 1500:hold:shift 1510:f12 1520:release:shift"
+    race("extra_ctrl", None, 0, 0, 1, (0, 0), None, 2500, {"OMR_INPUT": ctrl})
+    joy = " ".join(f"{f}:joy:{(f * 7919) % 65536},{(f * 104729) % 65536},{(f // 40) % 16}" for f in range(20, 4000, 37))
+    for dev in (2, 4):
+        race(f"extra_joy_{dev}", None, 0, 0, 1, (0, 0), None, 4000, {"OMR_DEVICE": str(dev), "OMR_INPUT": joy})
+        out.append((f"extra_joypage_{dev}", {"OMR_DEVICE": str(dev), "OMR_PAGE": "12", "OMR_INPUT": joy + " " + monkey(dev, 4000, 60)}, 4000))
+        out.append((f"extra_joymenu_{dev}", {"OMR_DEVICE": str(dev), "OMR_PAGE": "3", "OMR_INPUT": joy}, 4000))
+    out.append(("extra_view", {"OMR_PAGE": "3", "OMR_RACEVIEW": "4,394.0,56277.69,12255.37,51147.06,-0.5763,0.0487,0.8157,0.0,0.9982,-0.0596,-0.8172,-0.0343,-0.5753"}, 60))
+    out.append(("extra_text", {"OMR_PAGE": "3", "OMR_TEXT": "12,100,100,0,1,1,-1,-1,HELLO"}, 200))
     # the CD's files, its MOTO.EXE
     if CD.is_dir():
         for t in range(8):
@@ -144,6 +188,7 @@ def one(args, spec):
     full.update(env)
     full.update(SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy", OMR_HOME=str(work / "home"),
                 OMR_WAV=str(work / "o.wav"),
+                MSAN_OPTIONS="halt_on_error=0",
                 ASAN_OPTIONS="detect_leaks=0:strict_string_checks=1:color=never",
                 UBSAN_OPTIONS="print_stacktrace=1:color=never")
     log = args.out / f"{name}.log"
@@ -170,7 +215,18 @@ def main():
     ap.add_argument("--scratch", type=Path, default=None)
     ap.add_argument("--bin", type=Path, default=None)
     ap.add_argument("--timeout", type=int, default=1800)
+    ap.add_argument("--msan", action="store_true")
     args = ap.parse_args()
+    if args.msan:
+        cflags = subprocess.run(["pkg-config", "--cflags", "sdl2"], capture_output=True, text=True, check=True).stdout.split()
+        (ROOT / "build/msan").mkdir(parents=True, exist_ok=True)
+        args.bin = ROOT / "build/msan/omr_msan"
+        subprocess.run(["clang", "-std=c11", "-D_GNU_SOURCE", "-O1", "-g", "-fsanitize=memory", "-fsanitize-recover=memory",
+                        "-fsanitize-memory-track-origins=2", "-fno-omit-frame-pointer", "-fwrapv", "-ffp-contract=off",
+                        "-fsigned-char", "-Wno-everything", *cflags, *map(str, (ROOT / "port/src").glob("*.c")),
+                        str(ROOT / "tools/sdlstub.c"), "-lm", "-o", str(args.bin)], check=True)
+        if args.out == ROOT / "build/soak/logs":
+            args.out = ROOT / "build/soak/msan"
     if not args.bin:
         b = ROOT / "build/asan"
         subprocess.run(["cmake", "-S", ROOT / "port", "-B", b, "-DCMAKE_BUILD_TYPE=Debug",
