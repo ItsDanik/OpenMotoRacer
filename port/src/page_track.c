@@ -2,6 +2,7 @@
    track's map and photo, the arrows that change the track, the laps, Practice's laps -/+
    and its time-attack switch. The buttons are made again every frame, as the mode wants
    them. */
+#include "video.h"
 #include "choices.h"
 #include "menu.h"
 #include "r3d.h"
@@ -45,7 +46,7 @@ void page_track_start(void)
     g_tp = calloc((size_t)g_ntracks, sizeof *g_tp);
     g_unloaded = calloc((size_t)g_ntracks, sizeof *g_unloaded);
     if (!g_tp || !g_unloaded) {
-        fprintf(stderr, "openmotoracer: Aborting game\n");
+        video_error("Aborting game");
         exit(1);
     }
     for (i = 0; i < g_ntracks; i++)

@@ -2,6 +2,7 @@
    (start 0x450d20, frame 0x450f40): eight slots, Data\Champ<n>.sav, each starting with its
    title (30 bytes) followed by the championship's state. Load comes from SELECT RACE in a
    championship, Save from TOP 5 between two races. The files are kept where saves.h says. */
+#include "video.h"
 #include "choices.h"
 #include "config.h"
 #include "font.h"
@@ -148,7 +149,9 @@ static void save_slot(int i)
     put_u32(b + 4 * F_RIDERS, (unsigned)g_riders);
     slot_file(name, sizeof name, i);
     if (!(f = save_open(name, "wb"))) {
-        fprintf(stderr, "openmotoracer: %s/%s could not be written\n", saves_home(), name);
+        char msg[700];
+        snprintf(msg, sizeof msg, "%s/%s could not be written.", saves_home(), name);
+        video_error(msg);
         return;
     }
     fwrite(title, 1, TITLE_LEN, f);

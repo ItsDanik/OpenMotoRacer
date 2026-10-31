@@ -27,12 +27,15 @@
 
 static void usage(void)
 {
-    puts("openmotoracer [options]\n"
+    static const char text[] =
+         "openmotoracer [options]\n"
          "  -data DIR          the Moto Racer folder, with game.EXE and data/ (OMR_DATA;\n"
-         "                     default ./Moto Racer)\n"
+         "                     default ./Moto Racer, or beside the program, or the\n"
+         "                     program's own folder)\n"
          "  -home DIR          where the hi-scores and championship saves are written\n"
-         "                     (OMR_HOME; default ~/.config/openmotoracer; the game's\n"
-         "                     own data/ is read when a file is not there)\n"
+         "                     (OMR_HOME; default ~/.config/openmotoracer, on Windows\n"
+         "                     %APPDATA%\\OpenMotoRacer; the game's own data/ is read\n"
+         "                     when a file is not there)\n"
          "  -lang N            menus' language: 0 US, 1 French, 2 German, 3 Italian,\n"
          "                     4 Spanish, 5 Swedish (OMR_LANG)\n"
          "  -jN                the joystick's dead zone, 0..0xffff (the game's own switch;\n"
@@ -53,6 +56,7 @@ static void usage(void)
          "  OMR_CHOICES=MODE,TRACK,LAPS[,REVERSE,POCKET,MANUAL]  the race chosen (MODE 0\n"
          "                     practice, 1 single race, 2 championship; MANUAL 1: the\n"
          "                     manual gearbox), for OMR_PAGE=9 and on\n"
+         "  OMR_LIST=N         the track list: data\\list.bpt (0) or listNN.bpt, as page 23 chooses\n"
          "  OMR_TILE=SX,SY     the menu's chequered tile scrolled so far at the start\n"
          "  OMR_TURN=ANGLE     page 10's turntable held at this angle (radians)\n"
          "  OMR_TEXT=\"FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT\"  a text object on the\n"
@@ -67,7 +71,13 @@ static void usage(void)
          "                     crawl, with no time limit (to reach the winner's lap)\n"
          "  OMR_RACELOG=FILE   a sum of every rider's place and speed, a line a step\n"
          "  OMR_WATCH_AT=N     the race's replay is asked for at step N\n"
-         "  OMR_PERF=1         every 5 seconds: pictures a second, the time to make one, the slowest");
+         "  OMR_PERF=1         every 5 seconds: pictures a second, the time to make one, the slowest";
+#ifdef _WIN32
+    /* (a windowed program has no terminal to print on) */
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "OpenMotoRacer", text, 0);
+#else
+    puts(text);
+#endif
 }
 
 /* OMR_PERF: what the MiSTer's ARM has to be measured with (the picture's making, without
@@ -326,7 +336,7 @@ int main(int argc, char **argv)
     if (!shot)                          /* (tests read no real joystick) */
         SDL_InitSubSystem(SDL_INIT_JOYSTICK);
 
-    if (!files_init(data ? data : "Moto Racer")) {
+    if (!files_init(data)) {
         snprintf(err, sizeof err, "No data folder in %s.\nPoint -data (or OMR_DATA) at the "
                  "Moto Racer folder that holds game.EXE and data/.", files_data());
         fail(err, shot != 0);
@@ -338,6 +348,8 @@ int main(int argc, char **argv)
     if ((env = getenv("OMR_DEVICE")))
         g_input_device = atoi(env);
     joy_detect();                       /* 0x4189b0, at the start */
+    if ((env = getenv("OMR_LIST")))
+        g_list_number = atoi(env);
     /* the track list and the championship (0x472c40: the game stops without them) */
     if (!tracks_load() || !champ_load())
         fail("The track lists (data\\LIST.BPT, CHAMPA.BPT...) could not be read.", shot != 0);

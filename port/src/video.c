@@ -43,6 +43,14 @@ void video_present(void)
     SDL_RenderPresent(g_ren);
 }
 
+/* what a player must see: a program started from an icon has no stderr to read */
+void video_error(const char *msg)
+{
+    fprintf(stderr, "openmotoracer: %s\n", msg);
+    if (g_win)
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "OpenMotoRacer", msg, g_win);
+}
+
 int video_shot(const char *file)
 {
     SDL_Surface *s = SDL_CreateRGBSurfaceWithFormatFrom(g_screen, g_scr_w, g_scr_h, 16,

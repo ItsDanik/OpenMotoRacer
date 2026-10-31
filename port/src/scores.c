@@ -2,6 +2,7 @@
    finishers into the table), 0x464b70 (the table after page 9's names) and 0x4658b0 (a new
    best lap) do: the game rewrites its block in place; the port writes the whole file into
    the player's folder (saves.h), the same bytes. */
+#include "video.h"
 #include "scores.h"
 #include "choices.h"
 #include "saves.h"
@@ -186,10 +187,10 @@ static void close_block(unsigned char *d, long len)
         return;
     if ((f = save_open("bestscor.dat", "wb"))) {
         if (fwrite(d, 1, (size_t)len, f) != (size_t)len)
-            fprintf(stderr, "openmotoracer: bestscor.dat could not be written.\n");
+            video_error("bestscor.dat could not be written.");
         fclose(f);
     } else
-        fprintf(stderr, "openmotoracer: bestscor.dat could not be written.\n");
+        video_error("bestscor.dat could not be written.");
     free(d);
 }
 

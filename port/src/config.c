@@ -1,6 +1,7 @@
 /* The game's settings (NOTES §3.4, §4.14.5): Data\Config.Spt read in the order of
    0x42ae30, and written in the same order when the program ends, as 0x42c4c0 and the .BPT
    rewrite after it do. */
+#include "video.h"
 #include "config.h"
 #include "choices.h"
 #include "font.h"
@@ -172,9 +173,9 @@ void config_save(void)
         script_out_int(&o, g_cfg[i]);
     if (!o.bad && (f = save_open("CONFIG.BPT", "wb"))) {
         if (fwrite(o.d, 1, (size_t)o.len, f) != (size_t)o.len)
-            fprintf(stderr, "openmotoracer: Cannot save config file.\n");
+            video_error("Cannot save config file.");
         fclose(f);
     } else
-        fprintf(stderr, "openmotoracer: Cannot save config file.\n");
+        video_error("Cannot save config file.");
     script_out_free(&o);
 }

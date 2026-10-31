@@ -12,6 +12,7 @@ extern int g_pitch;            /* pixels a row (0x62ebec) */
 
 int video_init(int headless, char *err, int errsize);
 void video_present(void);
+void video_error(const char *msg);     /* a message window as well, when there is a window */
 int video_shot(const char *file);   /* the screen as a BMP */
 void video_quit(void);
 

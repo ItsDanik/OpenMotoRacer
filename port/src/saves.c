@@ -18,6 +18,10 @@ void saves_init(const char *home)
     const char *base;
     if (home && *home)
         snprintf(g_home, sizeof g_home, "%s", home);
+#ifdef _WIN32
+    else if ((base = getenv("APPDATA")) && *base)
+        snprintf(g_home, sizeof g_home, "%s/OpenMotoRacer", base);
+#endif
     else if ((base = getenv("XDG_CONFIG_HOME")) && *base)
         snprintf(g_home, sizeof g_home, "%s/openmotoracer", base);
     else if ((base = getenv("HOME")) && *base)
@@ -31,7 +35,8 @@ const char *saves_home(void)
     return g_home;
 }
 
-/* every folder on the way, as mkdir -p */
+/* every folder on the way, as mkdir -p; only the last one's answer counts (Windows answers
+   "access denied" for a drive, C:, that is there all the same) */
 static int make_dirs(const char *path)
 {
     char p[700];
@@ -41,8 +46,7 @@ static int make_dirs(const char *path)
         if (p[i] == '/' || p[i] == '\\') {
             char c = p[i];
             p[i] = 0;
-            if (mkdir_one(p) != 0 && errno != EEXIST)
-                return 0;
+            mkdir_one(p);
             p[i] = c;
         }
     return mkdir_one(p) == 0 || errno == EEXIST;
