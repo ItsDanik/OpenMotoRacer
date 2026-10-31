@@ -90,6 +90,11 @@ OMR_CHOICES="1,0,3,0,0" run race_timeover 1 9003
 OMR_CHOICES="0,0,3,0,0" run race_ride 1 800 "100:hold:up 700:hold:left 760:release:left"
 OMR_CHOICES="1,0,3,0,0" run race_gameover 1 2600
 OMR_CHOICES="1,0,3,0,0" run race_onboard 1 700 "100:hold:up 300:f6 600:hold:left 640:release:left"
+# the race at the game's other screen sizes: its picture, column and pause box
+OMR_SCREEN=1,0 OMR_CHOICES="1,0,3,0,0" run race_512 1 700 "600:f12"
+OMR_SCREEN=0,0 OMR_CHOICES="1,0,3,0,0" run race_320 1 700 "600:escape"
+OMR_SCREEN=2,1 OMR_CHOICES="1,0,3,0,0" run race_640w 1 700 "600:f12"
+OMR_SCREEN=0,1 OMR_CHOICES="1,0,3,0,0" run race_320w 1 700 "600:f11"
 # the demo from the title, under the TV's cameras; a race won by the computer: its lap, the
 # credits, the results, the replay
 OMR_TILE=59,59 run demo_tv 14 2600

@@ -12,10 +12,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define W 640
-#define H 480
-#define CX 320.0f               /* 0x60d3c4, 0x624f88: half the 640x480 view (0x499ba0) */
-#define CY 240.0f
+#define W g_scr_w
+#define H g_scr_h
+#define CX g_cx
+#define CY g_cy
 #define TO_INDEX 2607.594587618272      /* 0x4d1bf8, 0x4d0300: 16384 / 2pi as the game stores it */
 
 #define VERTS 16384             /* transformed points (0x6d20d8, 0x1c bytes each) */
@@ -42,7 +42,6 @@ typedef struct {                /* 0x49b2c0's output record */
 typedef struct {
     const Face *f;
     int base;                   /* its object's first point */
-    int kind;                   /* the kind drawn (0x49c590's remap) */
     int skin;                   /* 0x49ca70: the palette of a paletted page's face; -1 none */
     int dark;                   /* its points' light word (0x49b2c0) is below 0x3e000 */
     int next;
@@ -67,8 +66,9 @@ static int g_npt;
 static int g_head[BUCKETS];
 static Entry g_entry[ENTRIES];
 static int g_nentry;
-static int16_t g_free[H][2 * FREE_MAX];   /* 0x623bd8: [start, end) pieces a row */
-static int g_nfree[H];
+static int16_t g_free[SCREEN_MAX_H][2 * FREE_MAX];   /* 0x623bd8: [start, end) pieces a row */
+static int g_nfree[SCREEN_MAX_H];
+static float g_cx = 320.0f, g_cy = 240.0f;      /* 0x60d3c4, 0x624f88: half the view (0x499ba0) */
 static Span g_span[SPANS];
 static int g_nspan;
 static Batch g_batch[BATCHES + 1];
@@ -96,6 +96,12 @@ void r3d_dark(int dark, int swap)
 void r3d_focal(float f)
 {
     g_focal = f;
+}
+
+void r3d_screen(void)
+{
+    g_cx = (float)(g_scr_w >> 1);
+    g_cy = (float)(g_scr_h >> 1);
 }
 
 void r3d_init(void)
@@ -464,13 +470,15 @@ static int remap(int kind, float key, int flags)
 static void queue_kind(const Face *f, int base, float key, int skin, int kind)
 {
     int b = (int)(key * 0.25f);
-    if (b < 0 || g_nentry >= ENTRIES)
+    if (b < 0)
+        return;
+    ((Face *)f)->drawn = kind;
+    if (g_nentry >= ENTRIES)
         return;
     if (b > BUCKETS - 1)
         b = BUCKETS - 1;
     g_entry[g_nentry].f = f;
     g_entry[g_nentry].base = base;
-    g_entry[g_nentry].kind = kind;
     g_entry[g_nentry].skin = skin;
     g_entry[g_nentry].dark = g_dark;
     g_entry[g_nentry].next = g_head[b];
@@ -1375,7 +1383,7 @@ static void face(const Entry *e)
     const Face *f = e->f;
     const uint16_t *tex;
     uint16_t colour = (uint16_t)(f->colour & 0xffdf);
-    int k, kind = e->kind, base = e->base;
+    int k, kind = f->drawn, base = e->base;
     if (e->skin >= 0) {         /* 0x4aef20 by face +0x3a, with the face's palette */
         const uint16_t *pal = r3d_page_palette(f->page, e->skin);
         colour = f->colour < 256 ? pal[f->colour] : (uint16_t)f->colour;

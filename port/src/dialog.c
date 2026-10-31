@@ -25,8 +25,8 @@
 
 #define ROWS 8
 #define CURSOR_ROW 0xe4         /* the rows' pointer (0x433c20) */
-#define SCREEN_W 640
-#define SCREEN_H 480
+#define SCREEN_W g_scr_w
+#define SCREEN_H g_scr_h
 
 typedef struct {                /* 0x6c bytes */
     Text *normal, *high;        /* +4, +0xc */
@@ -62,9 +62,9 @@ typedef struct {                /* 0x78 bytes, 0x4338b0 */
 } Dialog;
 
 /* the slots, in the order the window procedure 0x4329a5 asks them: 0x4e8908 the F11 and F12
-   columns, 0x4e890c the help, 0x4e8904 the race's. (0x4e8910's message boxes are Direct3D's
-   warnings and the list of Windows' screen modes: not in the port.) */
-enum { SLOT_SIDE, SLOT_HELP, SLOT_RACE, SLOTS };
+   columns, 0x4e8910 the message box (the list of screen modes; Direct3D's warnings are not in
+   the port), 0x4e890c the help, 0x4e8904 the race's. */
+enum { SLOT_SIDE, SLOT_BOX, SLOT_HELP, SLOT_RACE, SLOTS };
 static Dialog *g_slot[SLOTS];
 static int g_next_side;         /* 0x4e8918's 0x200000, 0x400000: the other column next */
 static Dialog *g_dlg;           /* the one at work */
@@ -102,6 +102,28 @@ static void free_slot(int s)
     }
     free(g_slot[s]);
     g_slot[s] = 0;
+}
+
+static void layout(void);
+static void item_place(int font, int *x, int *y, int *tx, int *ty);
+
+/* 0x4592a0 -> 0x4348f0: every item placed afresh on a new screen, the box after them */
+void dialog_screen(void)
+{
+    int s, i, k;
+    Dialog *keep = g_dlg;
+    for (s = 0; s < SLOTS; s++) {
+        if (!(g_dlg = g_slot[s]))
+            continue;
+        for (i = 0; i < g_dlg->nrows; i++) {
+            Text *t[2] = { g_dlg->row[i].normal, g_dlg->row[i].high };
+            for (k = 0; k < 2; k++)
+                if (t[k])
+                    text_replace(t[k], item_place);
+        }
+        layout();
+    }
+    g_dlg = keep;
 }
 
 void dialog_free(void)
@@ -154,17 +176,28 @@ static Dialog *new_dialog(int slot, int kind)
     return g_dlg;
 }
 
-/* an item as 0x433a30's layout leaves it: a font with a low / high resolution partner
-   has its authored places halved (small fonts or not 640x480) */
+/* 0x4165c0: a font with a low / high resolution partner has its authored places halved
+   (small fonts or not 640x480); at 512x384 one with no partner has them scaled */
+static void item_place(int font, int *x, int *y, int *tx, int *ty)
+{
+    if (font_partnered(font) && (g_small_fonts || g_screen_mode != 2)) {
+        *x /= 2, *y /= 2, *tx /= 2, *ty /= 2;
+    } else if (g_screen_mode == 1) {
+        *x = ((*x << 8) / 640 << 9) >> 8, *y = ((*y << 8) / 480) * 384 >> 8;
+        *tx = ((*tx << 8) / 640 << 9) >> 8, *ty = ((*ty << 8) / 480) * 384 >> 8;
+    }
+}
+
+/* an item as 0x433a30's layout leaves it */
 static Text *item(const char *s, int font, int x, int y, int tx, int ty, int align,
                   int effect, int motion, int blink, int vx, int vy, double sp, double k,
                   const unsigned char *fore, const unsigned char *back)
 {
     TextArgs a;
+    int ax = x, ay = y, atx = tx, aty = ty;
+    Text *t;
     memset(&a, 0, sizeof a);
-    if (font_partnered(font) && (g_small_fonts || g_screen_mode != 2)) {
-        x /= 2, y /= 2, tx /= 2, ty /= 2;
-    }
+    item_place(font, &x, &y, &tx, &ty);
     a.no_gap = 1;
     a.text = s;
     a.font = font;
@@ -185,7 +218,10 @@ static Text *item(const char *s, int font, int x, int y, int tx, int ty, int ali
         a.fore = fore;
         a.back = back;
     }
-    return text_new(&a);
+    t = text_new(&a);
+    if (t)
+        text_keep_place(t, ax, ay, atx, aty);
+    return t;
 }
 
 static const unsigned char GREEN[3] = { 19, 188, 5 }, YELLOW[3] = { 255, 255, 0 };
@@ -405,6 +441,82 @@ void dialog_continue(void)
     enter(1);
 }
 
+/* ------------------------------------------------------------------ Shift+F12 */
+
+enum { BOX_MODES = 0xd };       /* +0x00 */
+
+static void act_box_close(void) /* 0x43cf60's button -1 */
+{
+    g_dlg->done = 1;
+}
+
+/* 0x43cf60 -> 0x47ec50: a mode sharing the width or the height with the present one is refused */
+static void act_mode(void)
+{
+    static const int w[3] = { 320, 512, 640 }, h[3] = { 240, 384, 480 };
+    int m = g_dlg->sel - 2;
+    g_dlg->done = 1;
+    if (m >= 0 && m < 3 && w[m] != g_scr_w && h[m] != g_scr_h)
+        race_ask_screen(m);
+}
+
+/* 0x43c2b0 through 0x43c570: the game's three sizes in place of Windows' list; each a letter
+   from A up that no control has taken */
+void dialog_modes(void)
+{
+    static const unsigned char TITLE_FORE[3] = { 255, 127, 10 }, TITLE_BACK[3] = { 200, 100, 0 };
+    static const int w[3] = { 320, 512, 640 }, h[3] = { 240, 384, 480 };
+    static char text[3][32];
+    int i, a, hh, ww, step, y = 0, letter = 'A';
+    Font *f = font_get(32);
+    if (g_slot[SLOT_BOX]) {
+        g_dlg = g_slot[SLOT_BOX];
+        close_dialog();
+        return;
+    }
+    if (!f || !new_dialog(SLOT_BOX, BOX_MODES))
+        return;
+    g_dlg->keyboard = g_dlg->hold = g_dlg->box = g_solo;
+    g_dlg->capitals = g_dlg->reserve = 0;
+    font_measure(f, "[ ]******[   X    Y  ]", &ww, &hh, 0);
+    step = g_small_fonts || g_screen_mode != 2 ? 2 * (hh + 10) : hh + 10;
+    {
+        Row *r = &g_dlg->row[g_dlg->nrows++];
+        r->normal = r->shown = item(exe_text(43), 12, 0, hh + 5, 0, hh + 5, 0xc2, FX_BLINK, 0,
+                                    -333, 0, 0, 0, 0, TITLE_FORE, TITLE_BACK);
+        r->is_static = 1;
+        r = &g_dlg->row[g_dlg->nrows++];
+        r->normal = r->shown = item("[ ]******[   X    Y  ]", 32, 0, 0, 0, 0, 0xc2, FX_NONE, 0, 0,
+                                    0, 0, 0, 0, 0, 0);
+        r->is_static = 1;
+    }
+    for (i = 0; i < 4; i++, y += step) {
+        Row *r = &g_dlg->row[g_dlg->nrows++];
+        const char *s = exe_text(103);  /* [CANCEL] */
+        if (i < 3) {
+            int taken;
+            do {
+                taken = 0;
+                for (a = 0; a < ACTIONS; a++)
+                    taken |= toupper(g_binding[a][0] & 0xff) == letter;
+                if (taken)
+                    letter++;
+            } while (taken);
+            snprintf(text[i], sizeof text[i], "[%c]******[%4d X %-4d]", letter < 'X' ? letter : ' ',
+                     w[i], h[i]);
+            letter++;
+            s = text[i];
+        } else
+            r->hot[1] = VK_ESCAPE;
+        r->normal = r->shown = item(s, 32, 0, y, 0, y, 0x62, FX_NONE, 0, 0, 0, 0, 0, 0, 0, 0);
+        r->high = item(s, 32, 0, y, 0, y, 0x62, FX_NONE, 0, 0, 0, 0, 0, 0, 0, 0);
+        r->action = r->up = i < 3 ? act_mode : act_box_close;
+        r->cursor = CURSOR_ROW;
+    }
+    g_dlg->sel = -1;
+    g_dlg = 0;
+}
+
 /* ------------------------------------------------------------------ the help (F1) */
 
 static void act_help_next(void) /* 0x43df70 */
@@ -524,10 +636,20 @@ static void act_side_display(void)      /* 0x43b6d0: 0x4e8918 = 0x200000 */
     g_next_side = SIDE_DISPLAY;
 }
 
-/* the screen's size (0x43a2d0, 0x43a300, 0x43a320) and the 16:9 band (0x43a370): the port's
-   picture is 640x480 and whole (NOTES §4.19 §5b) */
-static void act_side_none(void)
+/* the screen's size (0x43a2d0, 0x43a300, 0x43a320) and the 16:9 band (0x43a370) */
+static void act_side_low(void)
 {
+    race_ask_screen(0);
+}
+
+static void act_side_medium(void)
+{
+    race_ask_screen(1);
+}
+
+static void act_side_high(void)
+{
+    race_ask_screen(2);
 }
 
 /* a row of a column: the short tag flies in from the left edge, the long text shows while the
@@ -568,10 +690,10 @@ static void dialog_display_menu(void)
     side_begin(SIDE_DISPLAY);
     if (!g_dlg)
         return;
-    side_row(0, -20, 138, 141, act_side_none, 0);
-    side_row(1, -40, 137, 140, act_side_none, 0);
-    side_row(2, -60, 136, 139, act_side_none, 0);
-    side_row(3, 10, 142, 143, act_side_none, 0);
+    side_row(0, -20, 138, 141, act_side_low, 0);
+    side_row(1, -40, 137, 140, act_side_medium, 0);
+    side_row(2, -60, 136, 139, act_side_high, 0);
+    side_row(3, 10, 142, 143, race_ask_169, race_is_169);
     side_row(4, 50, 147, 148, video_toggle_fullscreen, video_fullscreen);
     side_row(6, 80, 149, 150, act_side_sound, 0);
     side_row(7, 100, 151, 152, act_side_hide, 0);
@@ -642,7 +764,7 @@ void dialog_frame(void)
 {
     unsigned char used[64];
     int n = 0, a, i, s;
-    static const int order[SLOTS] = { SLOT_HELP, SLOT_RACE, SLOT_SIDE };
+    static const int order[SLOTS] = { SLOT_BOX, SLOT_HELP, SLOT_RACE, SLOT_SIDE };
     if (g_next_side) {          /* 0x4126a0 -> 0x4587e0 */
         int kind = g_next_side;
         g_next_side = 0;
@@ -989,7 +1111,7 @@ static void draw_one(void)
 /* 0x47ff90 step 19 */
 void dialog_draw(void)
 {
-    static const int order[SLOTS] = { SLOT_SIDE, SLOT_RACE, SLOT_HELP };
+    static const int order[SLOTS] = { SLOT_SIDE, SLOT_RACE, SLOT_HELP, SLOT_BOX };
     int s;
     set_pointer();
     for (s = 0; s < SLOTS; s++)

@@ -1,7 +1,8 @@
 /* The horizon picture (build/notes/track_horizon.md): load 0x410350 / 0x477b30, the fill
-   colours 0x4782e0, the draw 0x402960. Only the 640x480 picture so far (ScreenMode 2). */
+   colours 0x4782e0, the draw 0x402960. A picture for each screen size (§4.13.3). */
 #include "horizon.h"
 #include "files.h"
+#include "font.h"
 #include "r3d.h"
 #include "video.h"
 #include <math.h>
@@ -15,14 +16,28 @@
 #define HALF_PI 1.5707963267948966      /* 0x4d00e8 */
 #define FAR 50000.0             /* 0x4d00f0: the ground point the picture's edge sits on */
 
-static uint16_t *g_pix;         /* the picture, 16-bit with 6 bits of green */
-static int g_pw, g_ph;
-static const int g_rect[2][4] = { { 0, 0, 255, 127 }, { 0, 128, 255, 255 } };  /* 0x4eaa3c/40 */
-static uint16_t g_above, g_below;       /* sprite A +0x46, +0x48 */
+typedef struct {
+    uint16_t *pix;              /* the picture, 16-bit with 6 bits of green */
+    int pw;
+    uint16_t above, below;      /* sprite A +0x46, +0x48 */
+} Picture;
+
+static Picture g_pics[3];       /* by the screen's mode: HorizLow, HorizMed, HorizHi */
+static const int g_rects[3][2][4] = {
+    { { 0, 0, 255, 63 }, { 0, 0, 255, 63 } },           /* 0x4eaa4c, both tiles */
+    { { 0, 0, 203, 101 }, { 0, 102, 203, 203 } },       /* 0x4eaa44/48 */
+    { { 0, 0, 255, 127 }, { 0, 128, 255, 255 } } };     /* 0x4eaa3c/40 */
+static uint16_t *g_pix;         /* the screen's picture */
+static int g_pw;
+static const int (*g_rect)[4];
 
 void horizon_free(void)
 {
-    free(g_pix);
+    int i;
+    for (i = 0; i < 3; i++) {
+        free(g_pics[i].pix);
+        g_pics[i].pix = 0;
+    }
     g_pix = 0;
 }
 
@@ -41,59 +56,56 @@ static uint16_t pack(const unsigned c[3])
 
 /* 0x4782e0: above = the mean of row y1's first pixels from x1; below = row y2's last ones
    from x2 leftwards added onto that mean (the sums are not emptied), over their count */
-static void fill_colours(const int r[4])
+static void fill_colours(Picture *o, const int r[4])
 {
     unsigned acc[3] = { 0, 0, 0 }, c[3];
     int n = r[2] - r[0], i, k;
     n = n < 1 ? 1 : n > 10 ? 10 : n;
     for (i = 0; i < n; i++) {
-        chans(g_pix[r[1] * g_pw + r[0] + i], c);
+        chans(o->pix[r[1] * o->pw + r[0] + i], c);
         for (k = 0; k < 3; k++)
             acc[k] += c[k];
     }
     for (k = 0; k < 3; k++)
         acc[k] /= (unsigned)n;
-    g_above = pack(acc);
+    o->above = pack(acc);
     n = r[3] - r[1];
     n = n < 1 ? 1 : n > 10 ? 10 : n;
     for (i = 0; i < n; i++) {
-        chans(g_pix[r[3] * g_pw + r[2] - i], c);
+        chans(o->pix[r[3] * o->pw + r[2] - i], c);
         for (k = 0; k < 3; k++)
             acc[k] += c[k];
     }
     for (k = 0; k < 3; k++)
         acc[k] /= (unsigned)n;
-    g_below = pack(acc);
+    o->below = pack(acc);
 }
 
 /* 0x477b30: 24-bit rows of R, G, B, or a palette (index 0 stays 0, a near-black entry
    gets red 8, off the colour key) */
-int horizon_load(const char *folder)
+static int load_picture(Picture *o, const char *path, const int r[4])
 {
-    char path[0x180];
     unsigned char *d;
     long len;
     int w, h, npal, i;
-    horizon_free();
-    snprintf(path, sizeof path, "%sBank\\HorizHi.raw", folder);
     if (!(d = dsi_load(path, &len)))
         return 0;
     w = d[8] << 8 | d[9];
     h = d[10] << 8 | d[11];
     npal = d[12] << 8 | d[13];
-    if (len < 32 || memcmp(d, "mhwanh", 6) || w < 256 || h < 256
+    if (len < 32 || memcmp(d, "mhwanh", 6) || w <= r[2] || h <= r[3]
         || len < 32 + 3L * npal + (long)w * h * (npal ? 1 : 3)
-        || !(g_pix = malloc(sizeof(uint16_t) * (size_t)w * (size_t)h))) {
+        || !(o->pix = malloc(sizeof(uint16_t) * (size_t)w * (size_t)h))) {
         free(d);
         return 0;
     }
-    g_pw = w, g_ph = h;
+    o->pw = w;
     for (i = 0; i < w * h; i++) {
         unsigned char rgb[3];
         if (npal) {
             int k = d[32 + 3 * npal + i];
             if (!k) {
-                g_pix[i] = 0;
+                o->pix[i] = 0;
                 continue;
             }
             memcpy(rgb, d + 32 + 3 * k, 3);
@@ -101,10 +113,27 @@ int horizon_load(const char *folder)
                 rgb[0] = 8;
         } else
             memcpy(rgb, d + 32 + 3 * i, 3);
-        g_pix[i] = (uint16_t)((rgb[0] >> 3) << 11 | (rgb[1] >> 2) << 5 | rgb[2] >> 3);
+        o->pix[i] = (uint16_t)((rgb[0] >> 3) << 11 | (rgb[1] >> 2) << 5 | rgb[2] >> 3);
     }
     free(d);
-    fill_colours(g_rect[0]);
+    fill_colours(o, r);
+    return 1;
+}
+
+/* 0x410350 keeps the screen's own; the port has the three, F2 and F3 changing it in a race */
+int horizon_load(const char *folder)
+{
+    static const char *const names[3] = { "HorizLow", "HorizMed", "HorizHi" };
+    char path[0x180];
+    int i;
+    horizon_free();
+    for (i = 0; i < 3; i++) {
+        snprintf(path, sizeof path, "%sBank\\%s.raw", folder, names[i]);
+        if (!load_picture(&g_pics[i], path, g_rects[i][0])) {
+            horizon_free();
+            return 0;
+        }
+    }
     return 1;
 }
 
@@ -149,8 +178,10 @@ void horizon_draw(const float c[3][3], const float t[3], float cam_y, int offset
     double ym, l2, p, r, cf, sf, cf1, sf1, a1, b1, yp, zp;
     int n, i, tw, th, k, m, x, ytop, cnt;
     const int *first, *second;
-    if (!g_pix)
+    const Picture *o = &g_pics[g_screen_mode];
+    if (!o->pix)
         return;
+    g_pix = o->pix, g_pw = o->pw, g_rect = g_rects[g_screen_mode];
     /* the heading: atan2 of the camera's third row (0x402990) */
     vx = (float)((double)c[2][0] + t[0]);
     vy = (float)((double)c[2][1] + t[1]);
@@ -210,6 +241,6 @@ void horizon_draw(const float c[3][3], const float t[3], float cam_y, int offset
         x += tw;
     }
     /* the fills (Blt COLORFILL, bottoms exclusive): the last row is never filled */
-    fill(ytop + th > 0 ? ytop + th : 0, g_scr_h - 1, g_below);
-    fill(0, ytop < g_scr_h - 1 ? ytop : g_scr_h - 1, g_above);
+    fill(ytop + th > 0 ? ytop + th : 0, g_scr_h - 1, o->below);
+    fill(0, ytop < g_scr_h - 1 ? ytop : g_scr_h - 1, o->above);
 }

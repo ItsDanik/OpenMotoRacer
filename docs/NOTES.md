@@ -4689,7 +4689,19 @@ strip, dark-blue fill above, orange fill below, and the strip moves with the yaw
   track_horizon) for the eight captures q14, q15, q17, q19, q20, q22, p3, p7 (camera from
   each dump's block). Against the original's screens, the rest is the bikes, riders,
   shadows, tyre marks and the HUD.
-- Not yet: the 512x384 and 320x240 horizons, the bikes' pages 0 and 1.
+- Later: all three horizons (`horizon.c`, one picture and its two rectangles for each screen size).
+- **The kind drawn lives in the model's face, not in the bucket's entry [asm + memory +
+  pixels, 2026-10-31].** 0x49c590 and 0x49ca70 write the kind they choose (0x49c6dd,
+  0x49cad4) into face +0x3a, and 0x4aef20 reads it from there when drawing (0x4af07f). Copies
+  of a model share their faces, so **every copy of a model is drawn in the kind of the last
+  copy queued**: at Speed Bay's start the nearest palm (sort keys 3554..4003) is drawn in the
+  affine 38, not 53, because a palm beyond 6144 was queued after it. The write comes after
+  the test of a bucket below 0, before the test of the full list of entries. Found by reading
+  the original's see-through tables out of its memory (0x625790, 0x68b040, stopped by SIGSTOP):
+  equal counts batch for batch, other ids. The port: `Face.drawn`. The palm then 0 of 16100
+  pixels different, and of the whole picture only what moves (boat, gulls, the clocks).
+  (`tools/track.py` has the old rule, and its "same to the pixel" above was only against the
+  port.)
 
 #### 4.13.5 What stands by the road and over it: "billboards", the turn signs, the place's figure, AnimDecor (mapped 2026-10-30)
 
@@ -4806,7 +4818,7 @@ before a wreath.
   original (the same speed; the blink can differ by one step).
 - Under a dialog (its drawing flags −10, bit 3 off) neither is drawn or moved, in both: seen in
   the original, the figure's z stays at 16000 under the Continue dialog with state 2 poked.
-- Not handled: the 16:9 screen's different viewport for the signs' position.
+- The 16:9 screen: the signs use 0x625784 and 0x62e448, the live view, so they need nothing of their own.
 
 ##### 4.13.5.6 Compared with the running original (Speed Bay, 640x480, 2026-10-30) [test]
 
@@ -9999,12 +10011,17 @@ The rows are as in the two tables. What the table's actions do in the race:
   does not: the old column is freed at once when the key F11 or F12 does it, and on `done` when a
   row did.
 
-What the port leaves: **L, M, H do nothing**, the screen being the game's 640x480 always (the
-original starts a re-init through 0x4e9ce4); **B does nothing** (no 16:9 band in the port's
-picture) and its tick stays off; **FS** is SDL's desktop full screen, its tick now from the port's
-state: off at the start, as a window under wine shows it. **Shift+F12** (the list of Windows'
-modes) is not written. The original keeps a column open across races; the port's goes with the
-race (`dialog_free`).
+What the port does (2026-10-31): **L, M, H** change the size (`race_ask_screen`, done at the
+next frame's start as 0x4e9ce4 does), **B** the 16:9 band with its tick; every dialog item is
+placed again from its authored place by the 0x4165c0 rule (`dialog_screen`, `item_place`); the
+menus stay 640x480. **F2, F3, F4** the same keys. **Shift+F12**: the game's list of Windows'
+modes shows the three sizes the port has in place of whatever Windows offers, a mode sharing
+width or height with the present one refused as the game does (`act_mode`). **FS** is SDL's
+desktop full screen, its tick from the port's state: off at the start, as a window under wine
+shows it. Compared at 512x384 and 320x240, and 16:9 at 640 and 320, against captures: picture,
+column, pause box, help, messages in the same places, the differences left being what moves.
+Getting the keys there: the hidden Weston stops giving the original's window the keyboard at
+320x240, so `tools/win/keypost.c` posts them from inside wine, 2 s apart.
 
 Compared with the original (F11, F12, the pointer on MOTO, on MEDIUM; a run under wine,
 2026-10-30, again after merging the roadside objects): **the tags and long texts to the pixel**:
@@ -10197,7 +10214,7 @@ the windows, then present.
 **Rough C size:** dials ~250 lines; HUD slots, signs and face ~120; screen set-up and viewport ~100; tyre marks ~80; dust ~60. The drawing itself is r3d's.
 
 ##### 1b.1 Open points (screens, dials, extras)
-1. Where the 16:9 picture sits on screen in the software path (top or centred). One F4 capture of the original would settle it.
+1. Settled (captures of F4 at all three sizes, 2026-10-31): the 16:9 picture sits at the **top**, the rest is black; under wine the window shrinks to W x the view's height.
 2. [guess] font+0x774 is the width of 'O'.
 3. What 0x4e9834 is (it hides the signs).
 4. How the track map, put in the farthest bucket, ends up visible.

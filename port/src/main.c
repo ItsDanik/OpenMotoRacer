@@ -67,6 +67,7 @@ static void usage(void)
          "                     crawl, with no time limit (to reach the winner's lap)\n"
          "  OMR_RACELOG=FILE   a sum of every rider's place and speed, a line a step\n"
          "  OMR_WATCH_AT=N     the race's replay is asked for at step N\n"
+         "  OMR_SCREEN=MODE[,WIDE]  the race's screen: 0 320x240, 1 512x384, 2 640x480; WIDE 1: 16:9\n"
          "  OMR_PERF=1         every 5 seconds: pictures a second, the time to make one, the slowest");
 }
 
@@ -223,7 +224,8 @@ static void scripted_input(const char *script, int frame)
         { "tab", VK_TAB }, { "backspace", VK_BACK }, { "left", VK_LEFT },
         { "right", VK_RIGHT }, { "up", VK_UP }, { "down", VK_DOWN }, { "shift", VK_SHIFT },
         { "ctrl", VK_CONTROL },
-        { "minus", VK_SUBTRACT }, { "plus", VK_ADD }, { "f5", 0x74 }, { "f6", 0x75 },
+        { "minus", VK_SUBTRACT }, { "plus", VK_ADD }, { "f2", 0x71 }, { "f3", 0x72 }, { "f4", 0x73 },
+        { "f5", 0x74 }, { "f6", 0x75 }, { "f8", 0x77 },
         { "f7", 0x76 }, { "f10", 0x79 }, { "pause", 0x13 }, { "f1", 0x70 }, { "f11", 0x7a },
         { "f12", 0x7b }, { "pgup", VK_PRIOR }, { "pgdn", VK_NEXT }, { "home", VK_HOME },
         { "end", VK_END },
@@ -335,6 +337,12 @@ int main(int argc, char **argv)
     if (!exe_load(err, sizeof err))
         fail(err, shot != 0);
     config_load();
+    if ((env = getenv("OMR_SCREEN"))) {
+        int m = 2, wide = 0;
+        sscanf(env, "%d,%d", &m, &wide);
+        g_race_screen = m >= 0 && m <= 2 ? m : 2;
+        g_mode169 = wide != 0;
+    }
     if ((env = getenv("OMR_DEVICE")))
         g_input_device = atoi(env);
     joy_detect();                       /* 0x4189b0, at the start */
@@ -407,10 +415,13 @@ int main(int argc, char **argv)
                     menu_key_up(vk_of(e.key.keysym.sym));
                 }
                 break;
-            case SDL_MOUSEMOTION:
-                menu_mouse_move(e.motion.x, e.motion.y);
-                dialog_mouse_move(e.motion.x, e.motion.y);
+            case SDL_MOUSEMOTION: {
+                int mx = e.motion.x, my = e.motion.y;
+                video_mouse(&mx, &my);
+                menu_mouse_move(mx, my);
+                dialog_mouse_move(mx, my);
                 break;
+            }
             case SDL_MOUSEBUTTONDOWN:
             case SDL_MOUSEBUTTONUP:
                 if (e.button.button == SDL_BUTTON_LEFT || e.button.button == SDL_BUTTON_RIGHT) {

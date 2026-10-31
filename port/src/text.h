@@ -44,6 +44,8 @@ typedef struct Text Text;      /* a text object (0xc2 bytes) */
 /* one of one's own, outside the list (the race's dialogs) */
 Text *text_new(const TextArgs *a);
 void text_free(Text *t);
+void text_keep_place(Text *t, int x, int y, int tx, int ty);
+void text_replace(Text *t, void (*place)(int font, int *x, int *y, int *tx, int *ty));
 void text_draw_one(Text *t);            /* 0x416da0: a step of its motion, then drawn */
 void text_snap(Text *t);                /* 0x416b00 */
 void text_rect(const Text *t, int r[4]);        /* 0x4172d0 */

@@ -7,10 +7,12 @@
 #define SCREEN_MAX_H 480
 
 extern uint16_t *g_screen;     /* the back surface the game draws on (0x624f5c) */
-extern int g_scr_w, g_scr_h;   /* its size (0x655d10, 0x624b18) */
+extern int g_scr_w, g_scr_h;   /* the picture's size (0x655d10, 0x624b18): the 16:9 height in 16:9 */
 extern int g_pitch;            /* pixels a row (0x62ebec) */
 
 int video_init(int headless, char *err, int errsize);
+void video_set_size(int w, int h, int view_h);  /* 0x4592a0's screen: w x h, the picture view_h high */
+void video_mouse(int *x, int *y);       /* the window's 640x480 to the screen's own places */
 void video_present(void);
 int video_shot(const char *file);   /* the screen as a BMP */
 void video_quit(void);

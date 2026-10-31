@@ -898,6 +898,11 @@ void hud_notice(int slot, const char *s)
     say(&id[slot & 1], s, 3000, 0x22, 0, 0x14, FX_FADE_OUT, F_MESSAGES, 4);
 }
 
+void hud_screen(void)           /* 0x484810: its layout again for a new screen */
+{
+    g_dash.built = 0;
+}
+
 void hud_restart(void)
 {
     g_laps_mode = g_last_count = -1;

@@ -11,6 +11,7 @@
 typedef struct {                /* 0x40 bytes in the game */
     int kind;                   /* +0x00: the draw kind (16, 21, 38, 39 textured) */
     int colour;                 /* +0x02: RGB565, for the untextured kinds */
+    int drawn;                  /* +0x3a: the kind as last queued: copies of a model share it */
     int page;                   /* +0x36 */
     int flags;                  /* +0x38: bit 1 = sorted 1024 farther */
     int n;                      /* 3 or 4 corners */
@@ -93,6 +94,7 @@ void r3d_render(void);                          /* 0x49ad90 */
    menus' (near 256, kinds as they are) */
 void r3d_race(int detail);
 void r3d_focal(float f);                        /* 0x49a0e0 + 0x49a100 */
+void r3d_screen(void);                          /* 0x499ba0: the centre of the screen's size */
 
 /* the menu's 3D objects (0x479eb0) and their camera (0x47af50, the object 0x504bc8) */
 void r3d_menu_matrix(float m[3][3], const float ang[3]);

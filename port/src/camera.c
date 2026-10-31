@@ -45,7 +45,7 @@ static const float g_preset_ang[8][3] = {       /* +0x17c */
 #define CHASE_Y 64.0f           /* +0x1dc */
 #define OFF_Y 191.0f            /* +0x54 */
 #define OFF_Z -484.0f           /* +0x58 */
-#define CAMERA_FOCAL 394.0f     /* 0x49a0d0 with the zoom at 1, at 640x480 */
+#define CAMERA_FOCAL ((float)(g_scr_w * 394 / 640))     /* 0x49a0d0 with the zoom at 1 */
 
 /* 0x490220: the heading of a matrix of rows (its T is 0) */
 static double heading(const float *m)

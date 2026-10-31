@@ -13,6 +13,9 @@ enum {                          /* the control bits (+0x31e9, NOTES §4.18.2.1) 
 };
 extern unsigned g_keys[RIDERS];
 
+void race_ask_screen(int mode);
+void race_ask_169(void);
+int race_is_169(void);
 void race_key(int vk, int down);        /* 0x431250 / 0x432700 */
 int race_load(char *err, int errsize);  /* 0x47b420 and the start 0x47bf70 */
 void race_frame(void);

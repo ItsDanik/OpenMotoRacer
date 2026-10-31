@@ -15,6 +15,7 @@ void hud_key(int vk);                           /* F7: dials, digits, none (0x43
 void hud_notice(int slot, const char *s);       /* a controller change, 3 s */
 void hud_sound_notice(const char *s, int trouble);      /* a sound switched, 2 s (0x4e98ec) */
 void hud_dials_3d(void);        /* the dial and needles, before the 3D is drawn */
+void hud_screen(void);
 void hud_draw(int dials);       /* 0x4806e0, after the 3D, before the text lists */
 
 #endif

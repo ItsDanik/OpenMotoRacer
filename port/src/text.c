@@ -6,14 +6,15 @@
 #include "text.h"
 #include "clock.h"
 #include "font.h"
+#include "video.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define TEXTS 48
-#define SCREEN_W 640    /* 0x5d93c8, 0x5d8948 in the menu */
-#define SCREEN_H 480
+#define SCREEN_W g_scr_w        /* 0x5d93c8, 0x5d8948 */
+#define SCREEN_H g_scr_h
 
 struct Text {
     int align;                  /* +8 */
@@ -21,6 +22,7 @@ struct Text {
     double s, k;                /* +0x40, +0x38 */
     int vx, vy;                 /* +0x58, +0x5c */
     int tx, ty;                 /* +0x60, +0x64 */
+    int ax, ay, atx, aty;       /* +0x78, +0x7c, +0x68, +0x6c: the places as authored */
     int x, y;                   /* +0x70, +0x74 */
     int w, h;                   /* +0x80, +0x84 */
     unsigned start;             /* +0x88 */
@@ -189,6 +191,29 @@ Text *text_new(const TextArgs *a)
     t->fvx = a->vx;
     t->fvy = a->vy;
     return t;
+}
+
+void text_keep_place(Text *t, int x, int y, int tx, int ty)
+{
+    t->ax = x, t->ay = y, t->atx = tx, t->aty = ty;
+}
+
+/* slot 6, 0x4165c0: the places as authored, through the screen's rule, and aligned again */
+void text_replace(Text *t, void (*place)(int font, int *x, int *y, int *tx, int *ty))
+{
+    int x = t->ax, y = t->ay, tx = t->atx, ty = t->aty, w = t->w, h = t->h;
+    Font *f = t->nspr ? 0 : font_get(t->font);
+    place(t->font, &x, &y, &tx, &ty);
+    if (f && t->text) {
+        font_measure(f, t->text, &w, &h, 0);
+        t->w = w, t->h = h;
+    }
+    if (t->motion != 1)
+        align(w, h, &x, &y, t->align);
+    align(w, h, &tx, &ty, t->align);
+    t->x = x, t->y = y, t->tx = tx, t->ty = ty;
+    t->px = x;
+    t->py = SCREEN_H - y;
 }
 
 void text_free(Text *t)

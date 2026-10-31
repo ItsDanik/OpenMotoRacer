@@ -81,7 +81,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   are refused with a message).
 - The CD: `-data` at the CD's files works alone, `MOTO.EXE` read from `DISK1/data.z` (`exe.c`, NOTES §3.5a): GOG's logic on
   the CD's data, title and main menu equal to MOTO.EXE's; no music without `NN.wav` (its tracks aren't files).
-- The screen is the game's: 640x480 RGB565 (`video.c`), shown 4:3.
+- The screen is the game's: RGB565 (`video.c`), shown 4:3; menus 640x480, the race also 512x384 and 320x240 and 16:9 at the top (F2, F3, F4, the F12 column, Shift+F12; `OMR_SCREEN=MODE[,WIDE]`; NOTES §4.20 §1b, §4.19 §5b).
 - `--shot FILE N` (`OMR_SHOT`): no window, N frames, the screen as a BMP. `--help` lists
   the test switches (`OMR_*`).
 - `clock.c`: the game's millisecond clock (timeGetTime): the real time in a window, 1000/60 a
@@ -103,7 +103,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - Settings: `config.c` reads CONFIG.BPT (the player's home copy first, else the game's)
   and writes it to the home folder when the program ends, as the game does (NOTES §4.14.5).
 - 3D (NOTES §4.9): `r3d.c` the software renderer (float transform, depth buckets, s-buffer,
-  affine triangles), `model.c` 3DF+MAP, `rand.c` the game's random streams (seeds from
+  affine triangles; the kind drawn lives in the model's face, shared by its copies, §4.13.4), `model.c` 3DF+MAP, `rand.c` the game's random streams (seeds from
   game.EXE). The glass transition is `menu.c`'s.
 - Sound (NOTES §4.10): `sound.c`, the effects by the game's id tables, its queues of
   delayed voices, the music as GOG plays it (NN.wav, looping). `OMR_WAV=FILE` records it.

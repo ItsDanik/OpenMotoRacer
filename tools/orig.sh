@@ -38,7 +38,7 @@ start)
     [ -d build/orig ] || { mkdir -p build/orig; cp -r "Moto Racer/data" "Moto Racer/game.EXE" "Moto Racer/winmm.dll" "Moto Racer/DDraw.dll" "Moto Racer/D3DImm.dll" "Moto Racer/dgVoodoo.conf" "Moto Racer"/[01]*.wav build/orig/; }
     (cd build/orig && rm -f data/delphine.err
      WINEDLLOVERRIDES='ddraw,d3dimm=n,b' nohup wine game.EXE ${@:--NoD3D -windowed -us} > ../logs/orig.log 2>&1 &)
-    for _ in $(seq 100); do w=$(win); [ -n "$w" ] && break; sleep 0.2; done
+    for _ in $(seq 600); do w=$(win); [ -n "$w" ] && break; sleep 0.2; done
     [ -n "$w" ] || { echo "no game window (build/logs/orig.log)"; exit 1; }
     xdotool windowactivate "$w" 2>/dev/null
     echo "running on $DISPLAY, window $w"

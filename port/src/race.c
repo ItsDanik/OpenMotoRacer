@@ -19,6 +19,7 @@
 #include "generic.h"
 #include "ghost.h"
 #include "horizon.h"
+#include "font.h"
 #include "hud.h"
 #include "input.h"
 #include "joy.h"
@@ -42,7 +43,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define FOCAL 394.0f            /* 0x6d20c4 in a race at 640x480 (build/trackcap) */
+#define FOCAL ((float)(g_scr_w * 394 / 640))    /* 0x6d20c4: 0x4592a0's, 394 at 640x480 (build/trackcap) */
 
 Rider g_rider[RIDERS];
 int g_racing;
@@ -94,6 +95,41 @@ static void controller(int joystick)
 /* 0x431250 (WM_KEYDOWN, the repeats of a held key too) and 0x432700 (WM_KEYUP): the keys
    bound to the seven actions (0x53eae0) set and clear the player's bits; pressing one
    way clears the other, as the original's handlers do */
+static int g_new_screen;        /* 0x4e9ce4 */
+
+/* 0x4592a0 with the game's three sizes (0x4dc0d0 -1: not Windows' list of modes): the picture
+   W x H, or W x W 9/16 in 16:9 with the rest of the surface black; 0x499ba0's view, the focal
+   from the size (the full height's even in 16:9); the messages go, the dialogs' places again */
+static void screen_set(void)
+{
+    static const int w[3] = { 320, 512, 640 }, h[3] = { 240, 384, 480 };
+    int m = g_race_screen;
+    g_new_screen = 0;
+    g_screen_mode = m;
+    video_set_size(w[m], h[m], g_mode169 ? w[m] / 16 * 9 : h[m]);
+    r3d_screen();
+    text_clear();
+    hud_screen();
+    dialog_screen();
+}
+
+void race_ask_screen(int mode)   /* 0x43a2d0, 0x43a300, 0x43a320: L, M, H */
+{
+    g_race_screen = mode;
+    g_new_screen = 1;
+}
+
+void race_ask_169(void)         /* 0x43a370: B */
+{
+    g_mode169 ^= 1;
+    g_new_screen = 1;
+}
+
+int race_is_169(void)
+{
+    return g_mode169;
+}
+
 void race_key(int vk, int down)
 {
     unsigned *b = &g_keys[g_player];
@@ -143,14 +179,25 @@ void race_key(int vk, int down)
         dialog_pause(1);
         return;
     }
+    if (vk >= 0x71 && vk <= 0x73) {             /* F2, F3 the screen's size, F4 16:9 (0x431250) */
+        if (down) {
+            if (vk == 0x73)
+                g_mode169 ^= 1;
+            else
+                g_race_screen = (g_race_screen + (vk == 0x71 ? 2 : 1)) % 3;
+            g_new_screen = 1;
+        }
+        return;
+    }
     if (vk == 0x70) {                           /* F1 (0x431cf2): the help, in Solo */
         if (down && !g_ctrl_held && !g_shift_held && g_solo && !g_playback)
             dialog_help();
         return;
     }
     if (vk == 0x7a || vk == 0x7b) {             /* F11 and F12 (0x432200): the columns */
-        /* (Shift+F12's list of Windows' screen modes: not in the port) */
-        if (down && !g_ctrl_held && !g_shift_held)
+        if (down && !g_ctrl_held && g_shift_held && vk == 0x7b)
+            dialog_modes();
+        else if (down && !g_ctrl_held && !g_shift_held)
             dialog_side(vk == 0x7a ? 3 : 1);
         return;
     }
@@ -721,6 +768,7 @@ int race_load(char *err, int errsize)
         return 0;
     }
     figure_load(g_tracks[g_track].folder);      /* 0x47b600 */
+    screen_set();                               /* 0x410e10 -> 0x4592a0 */
     /* 0x47b420: practice 1, else 23 opponents, or 11 with "OPPONENTS: 12"; 0x410a50 */
     opponents = g_mode == 0 ? 1 : g_opponents && !g_playback ? 11 : 23;
     g_riders = 2 + opponents;
@@ -955,6 +1003,9 @@ void race_unload(void)
     land_free();
     r3d_race(-1);
     r3d_focal(1911.0f);
+    g_screen_mode = 2;                          /* 0x409f70: the menus' screen */
+    video_set_size(640, 480, 480);
+    r3d_screen();
     g_racing = 0;
 }
 
@@ -1062,8 +1113,8 @@ int race_label_place(int k, int *sx, int *sy)
     z = c[0][2] * v[0] + c[2][2] * v[2] + c[1][2] * v[1];
     if (!(z >= 64.0f))          /* (0..64: the original keeps whatever was on its stack) */
         return 0;
-    *sx = (int)nearbyintf(320.0f + x * focal * (1.0f / z));
-    *sy = (int)nearbyintf(240.0f - y * focal * (1.0f / z));
+    *sx = (int)nearbyintf((float)(g_scr_w >> 1) + x * focal * (1.0f / z));
+    *sy = (int)nearbyintf((float)(g_scr_h >> 1) - y * focal * (1.0f / z));
     return 1;
 }
 
@@ -1081,6 +1132,8 @@ void race_frame(void)
         pointer_draw();
         return;
     }
+    if (g_new_screen)           /* 0x47ff90's end: 0x4e9ce4 */
+        screen_set();
     if (g_events && !events())
         return;
     text_clock(g_now);
