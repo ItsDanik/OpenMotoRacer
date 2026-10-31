@@ -86,6 +86,13 @@ static void rdv(Rd *r, float v[3], int new_format)
                           : (float)(int)(rd16(r) / 10.0);      /* the old format, truncated */
 }
 
+/* the file's 5:6:5 to 5:5:5 and back through 0x402020, which loses green's lowest bit */
+static int from_file(int c)
+{
+    c = (c & 0xffc1) >> 1 | (c & 0x1f);
+    return (c & 0x7c00) << 1 | (c & 0x3e0) << 1 | (c & 0x1f);
+}
+
 /* the faces of a bone (bones = 1) or the extra group: 36 bytes each, the colour settled
    as 0x462c60 leaves it on a paletted page 0 */
 static Face *read_faces(Rd *r, int count, int bones)
@@ -118,7 +125,7 @@ static Face *read_faces(Rd *r, int count, int bones)
         }
         if (!tx) {                                      /* no texels: 0x402020, 555 -> 565 */
             if (bones)
-                f->colour = (colour & 0x7c00) << 1 | (colour & 0x3e0) << 1 | (colour & 0x1f);
+                f->colour = from_file(colour);
             else
                 f->colour = colour;
         } else if (u[0] == u[1] && u[1] == u[2] && v[0] == v[1] && v[1] == v[2]) {
@@ -129,7 +136,7 @@ static Face *read_faces(Rd *r, int count, int bones)
             f->kind = 0;
             f->colour = bones ? t & 0xdf : t;
         } else {                /* the index of its 5:6:5 colour in palette 0, else 0 */
-            int c = (colour & 0x7c00) << 1 | (colour & 0x3e0) << 1 | (colour & 0x1f);
+            int c = from_file(colour);
             f->colour = 0;
             for (k = 0; k < 256; k++)
                 if (pal0[k] == c) {
