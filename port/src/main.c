@@ -399,6 +399,8 @@ int main(int argc, char **argv)
     }
     if ((env = getenv("OMR_DEVICE")))
         g_input_device = atoi(env);
+    if (script && strstr(script, ":pad:"))      /* (a pretend pad is there from the start) */
+        joy_fake_pad(0x8000, 0x8000, 0, 0, 0, 0);
     joy_detect();                       /* 0x4189b0, at the start */
     if ((env = getenv("OMR_LIST")))
         g_list_number = atoi(env);

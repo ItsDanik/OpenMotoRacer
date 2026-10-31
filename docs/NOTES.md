@@ -11531,6 +11531,7 @@ computer riders as before, the pictures the same).
   row ("Press..."), the next thing pressed goes to it (a trigger takes a firm press), Start cancels. Back, Start, Guide can't be
   bound. The cross moves up and down the rows and from Accept to the two options. On a plain joystick the page is as it was.
 - Tests: `OMR_INPUT` `F:pad:X,Y,BUTTONS,LT,RT,CROSS`; pictures pad_settings, pad_pause, pad_ride; the soak's extra_pad*.
+- `--shot` reads no real controller, now truly: `joy_detect` used to switch SDL's joysticks on itself when it found them off, so test runs saw whatever was plugged in (here an "ASRock LED Controller" as joystick 0). The ARM build's check found it: under qemu there is no device, pad_settings opened on the Keyboard page. The pretend pad is now there from the first picture when `OMR_INPUT` holds a `pad:`. No other picture depended on it.
   Not tested by me on the real pad: SDL listed it ("Generic X-Box pad", a layout known, 6 axes), nothing more; the rumble has never been felt. Danik's feel is the check.
 
 ### 4.23 The MiSTer's ARM (2026-10-30)

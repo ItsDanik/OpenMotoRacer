@@ -166,8 +166,6 @@ void joy_detect(void)
     joy_close();
     for (j = 0; j < JOY_MAX; j++)
         g_joy[j].present = g_joy[j].working = 0;
-    if (!SDL_WasInit(SDL_INIT_GAMECONTROLLER))
-        SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
     n = SDL_WasInit(SDL_INIT_GAMECONTROLLER) ? SDL_NumJoysticks() : 0;
     /* the gamepads first: a keyboard's or a mouse's extra keys can come before them in the
        system's list, as joysticks that do nothing */
