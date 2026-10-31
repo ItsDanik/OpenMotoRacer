@@ -1,6 +1,7 @@
 /* The horizon picture (build/notes/track_horizon.md): load 0x410350 / 0x477b30, the fill
    colours 0x4782e0, the draw 0x402960. A picture for each screen size (§4.13.3). */
 #include "horizon.h"
+#include "ftol.h"
 #include "files.h"
 #include "font.h"
 #include "r3d.h"
@@ -163,11 +164,6 @@ static void fill(int y0, int y1, uint16_t c)    /* rows y0 .. y1 - 1 */
     for (y = y0 < 0 ? 0 : y0; y < y1 && y < g_scr_h; y++)
         for (x = 0; x < g_scr_w; x++)
             g_screen[y * g_pitch + x] = c;
-}
-
-static int ftol(double x)
-{
-    return x > -2147483649.0 && x < 2147483648.0 ? (int)x : INT32_MIN;
 }
 
 void horizon_draw(const float c[3][3], const float t[3], float cam_y, int offset,

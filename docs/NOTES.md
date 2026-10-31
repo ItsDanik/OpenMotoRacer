@@ -4076,8 +4076,9 @@ Page 24 (0x452240, 0x452f80, 0x452eb0; `page_podium.c`); its data from 0x452090 
 - Compared: `build/ref/orig_p24_podium*.png`, taken by forcing a finish (poke place 0x5873a6, state 0x587206,
   0x509ba0 = 1 in a championship race; `n` at the replay question). Settled, the stand differs from the port's in no
   pixel; only the riders (the moment of their arm movement, their liveries) and the pointer differ.
-  **Not captured: the player out of the three (the 4th rider)**: the menus would not take the keys in the runs tried.
-  From the code alone; `OMR_PODIUM=4` shows it.
+  **The player out of the three (the 4th rider)**, captured 2026-10-31 (a championship race, the cursor on Continue with
+  Up three times since Return is not its key; place 5 poked): the stand and camera in no pixel different from `OMR_PODIUM=4`, the
+  kneeling rider's shape and its arm's movement the same; only the liveries differ, the test's own.
 - 0x4dc078 (saved, 0, restored) is the Reverse switch: nothing the port's family load reads.
 
 ### 4.13 The race's track: files, the .trk, how the race draws it (mapped 2026-10-26)

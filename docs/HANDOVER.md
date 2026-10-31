@@ -149,6 +149,21 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
 - Where saves go (bestscor.dat, championship saves, ghosts): the game's data folder, as
   the original, or a user folder? (For now a user folder, the game's read as a fallback.)
 
+## Done (2026-10-31, session 4: the PC version finished, all but the split screen)
+- The race at 320x240, 512x384 and 16:9 (F2, F3, F4, the F12 column, Shift+F12, Options): picture, column, pause box,
+  help and messages compared with captures at each. `tools/win/keypost.c`: keys from inside wine where the hidden display
+  won't give them.
+- **The kind drawn lives in the model's face** (NOTES §4.13.4): the palm at Speed Bay now 0 pixels different. Found by
+  reading the original's tables of see-through pieces (a way to check any later drawing question).
+- Every track's start against the original, the locked ones with 0x4dc058 poked: on road tracks only what moves differs,
+  and two thin lines of 24 pixels on Track 4's roof (a texel row's rounding, not chased). On dirt bikes the standing bike
+  rocks in both, so no pixel compare there.
+- F9 the map, numpad detail and volumes, Ctrl+F, Ctrl+U, Shift+F1, focus, `-windowed`, `-fullscreen`, `-NoSound`, Alt+Return,
+  Link stays on the menu (NOTES §4.20 §2.6, §5b, §4.10.5.3). A demo has 23 riders as the original.
+- The Windows build (`tools/windows.sh`, checks under wine; never run on real Windows) and the soak (`tools/soak.py`,
+  NOTES §4.24: 510 + 72 runs clean, 4 real bugs fixed, among them writes past the screen in ordinary races).
+- The 4th place on the podium compared. Demos are live races, not recordings: they can't be compared picture for picture.
+
 ## Next, in order
 1. Speed on a real MiSTer: Danik runs the command in NOTES §4.23 (the program: `build/arm/openmotoracer`; not reachable
    from here without the MiSTer's address). If it is too slow, make the painters faster with the pictures' check (span6, row).
@@ -156,6 +171,8 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
    the shared Hybrid_MiSTer, its testing needs the MiSTer, and "local git only" still stands.
 3. **Last: the split screen** for two players on one PC (the original has none). Danik, 2026-10-30: leave it for last and
    **stop before starting work on it**.
-Small things known and left: F12's sizes and 16:9, Shift+F12, Ctrl+U and the numpad's volumes, the music's pause on losing
-focus, the signs on a 16:9 view, the bikes drawn without the game's culling. The helpers' worktrees in `.claude/worktrees/`
-are merged and empty of anything unique (the session's lock kept them; `git worktree remove -f -f` once it has ended).
+Not compared with the original, for want of a way to run both in step: computer riders' marks, the crash's debris, spray at
+detail 2, a real dark section, later signs of a ride, the CD's pages past the main menu. Not run: real Windows, a real
+joystick, a real full screen. Left in the code: T and Ctrl+H don't show their messages (they change nothing here).
+The helpers' worktrees in `.claude/worktrees/` are merged and empty of anything unique (one holds a 690 MB private wine
+prefix; `git worktree remove -f -f` once the session has ended, its `dosdevices` links first).

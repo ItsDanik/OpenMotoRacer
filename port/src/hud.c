@@ -6,6 +6,7 @@
    time attack). GAME OVER, and the messages on the CD's data (0x4dc180 = 0), are sprite
    objects (0x482120, 0x482030, §3.5). */
 #include "hud.h"
+#include "ftol.h"
 #include "bikephys.h"
 #include "bikes.h"
 #include "choices.h"
@@ -627,11 +628,6 @@ static void dash_layout(void)
     g_dash.built = 1;
     g_dash.type = g_counter_type;
     g_dash.small = halving();
-}
-
-static int ftol(double x)       /* 0x4b3048 */
-{
-    return (int)x;
 }
 
 static uint16_t rgb(int r, int g, int b)        /* 0x45a2e0: green shifted by 6 */
