@@ -792,7 +792,7 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
         uint32_t de = (uint32_t)du >> 13 | (uint32_t)du << 19;
         uint32_t df = (uint32_t)dv >> 13 | (uint32_t)dv << 19;
         unsigned bl = e & 0xff, bh = f & 0xff;
-#if defined(__arm__) && !defined(__thumb__)
+#if defined(__arm__)
         if (kind == 0x10 && x0 < x1) {  /* the ARM adds with the carry as the x86 does */
             uint16_t *to = o + x0;
             unsigned dl = de & 0xff, dh = df & 0xff, t0, t1;
@@ -802,8 +802,12 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
                 "uxtb %[t0], %[bl]\n"
                 "uxtb %[t1], %[bh]\n"
                 "orr %[t0], %[t0], %[t1], lsl #8\n"
+#ifdef __thumb__
+                "ldrh %[t0], [%[tex], %[t0], lsl #1]\n"
+#else
                 "add %[t0], %[tex], %[t0], lsl #1\n"
                 "ldrh %[t0], [%[t0]]\n"
+#endif
                 "adds %[e], %[e], %[de]\n"
                 "adc %[bl], %[bl], %[dl]\n"
                 "adds %[f], %[f], %[df]\n"
