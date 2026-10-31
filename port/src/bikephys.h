@@ -172,6 +172,7 @@ typedef struct {
     int brake, gas;             /* the port's: how hard a gamepad's triggers are held, 1..255; 0 the game's */
 } BikeWorld;
 
+extern int g_phys_cd;           /* 1: the 1997 CD's MOTO.EXE, 0: GOG's game.EXE (set at the race's load) */
 extern BikeWorld g_bikeworld;
 
 double bikephys_road_y(int sec, const float p[3]);      /* 0x40c8b0 */

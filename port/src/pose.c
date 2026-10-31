@@ -12,6 +12,7 @@
 #include "choices.h"
 #include "files.h"
 #include "race.h"
+#include "rand.h"
 #include "rules.h"
 #include <float.h>
 #include <math.h>
@@ -265,7 +266,10 @@ static void stunt(BikePhys *b, Pose *q)
         b->stunt_k = g_fam.stunt_list[b->stunt_next];
         b->stunt_on = 1;
         b->stunt_at = g_bikeworld.clock;
-        b->stunt_next = (int)(g_bikeworld.clock % (unsigned)g_fam.nstunts);
+        /* the game draws stream 5 and keeps the clock's (0x45e087); the CD keeps the draw
+           (/0x47f7d9). Nothing else draws stream 5, so GOG's undrawn one changes nothing */
+        b->stunt_next = g_phys_cd ? rand_next(5) % g_fam.nstunts
+                                  : (int)(g_bikeworld.clock % (unsigned)g_fam.nstunts);
     }
     if (!b->stunt_on)
         return;
@@ -323,7 +327,14 @@ static void body(BikePhys *b)
             }
             if (!dirt) {
                 pose_mix(&t, low, high, (float)((b->speed - 8.333333333333334) * 0.12));
-                f *= b->speed < (float)16.666666666666668 ? 4.3478260040283f : 2.1739130020142f;
+                if (g_phys_cd)          /* /0x47f6b7, /0x47f6f2 */
+                    f *= b->speed < (float)16.666666666666668 ? 4.5454545f : 2.27272725f;
+                else
+                    f *= b->speed < (float)16.666666666666668 ? 4.3478260040283f : 2.1739130020142f;
+            } else if (g_phys_cd) {     /* /0x47f6c3 */
+                f *= 2.0f;
+                pose_mix(&t, high, low, (f - 0.439999998f) * 1.13636363f);
+                f *= 2.27272725f;
             } else {
                 f *= 2.0f;
                 pose_mix(&t, high, low, (f - 0.46000000834465f) * 1.0869565010071f);

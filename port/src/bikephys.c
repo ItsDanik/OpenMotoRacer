@@ -18,6 +18,10 @@ typedef double R;
 BikeWorld g_bikeworld = { 1.6f, 0, 1, 16.0f, 0, 0, 1, 0, 0, 0, { 0 }, 0, 0, 0, 0, 0, 0, 0, 0 };
 #define W g_bikeworld
 
+/* 1: the driven bike as the 1997 CD's MOTO.EXE rides it (addresses after a / are MOTO.EXE's);
+   0: as GOG's game.EXE. Set at the race's load. */
+int g_phys_cd = 0;
+
 #define PI_F 1.5707963705062866         /* 0x3fc90fdb: pi/2 as a float */
 #define TO_INDEX 2607.594587618272      /* 0x4d0300 / 0x4d0ed0: 16384 / 2pi */
 #define TWO_PI 6.283185307179586        /* 0x4d0e20, 0x4d0e58 */
@@ -25,7 +29,7 @@ BikeWorld g_bikeworld = { 1.6f, 0, 1, 16.0f, 0, 0, 1, 0, 0, 0, { 0 }, 0, 0, 0, 0
 
 /* the carac row (0x509278 + bike x 0x124) */
 enum {
-    C_FREIN = 0x14, C_MVM = 0x18, C_MASSE = 0x1c, C_RETARD = 0x20, C_RAA = 0x24,
+    C_FREIN = 0x14, C_MVM = 0x18, C_MASSE = 0x1c, C_RETARD = 0x20, C_RAA = 0x24, C_RMAA = 0x28,
     C_RVR = 0x2c, C_ANGSUSP = 0x30, C_RLA = 0x34, C_AXE = 0x38, C_RAV = 0x3c, C_RAR = 0x40,
     C_RSM = 0x48, C_VMB = 0x4c, C_ROT = 0x50, C_HAUT = 0x58, C_RDEC = 0x5c, C_RMIN = 0x60,
     C_RFAC = 0x64, C_NBSPEED = 0x70, C_RM = 0x74, C_RCM = 0x90, C_CM = 0x94, C_C1000 = 0x98,
@@ -58,7 +62,7 @@ static float carac(const BikePhys *b, int off)
 {
     const Bike *k = bk(b);
     float v = k->phys[(off - 0x14) / 4];
-    if (off == C_RAA && k->type == 1) {         /* 0x42a7c3: the dirt bikes' clamp */
+    if (off == C_RAA && k->type == 1 && !g_phys_cd) {   /* 0x42a7c3: the dirt bikes' clamp, not in /0x4978c0 */
         if (bits(v) > 0x40c00000)
             v = 6.0f;
         else if (bits(v) > 0x40400000)
@@ -77,8 +81,10 @@ static int dirt(const BikePhys *b)
     return bk(b)->type == 1;
 }
 
-/* the engine brake by gear (0x4f17dc + 4g) */
+/* the engine brake by gear (0x4f17dc + 4g; /0x4dcb28 + 4g starts one earlier, so on the CD a
+   gear brakes as the next one, the top gear not at all) */
 static const float k_engine_brake[8] = { 0.0f, 0.25f, 0.2f, 0.16f, 0.12f, 0.08f, 0.05f, 0.0f };
+static const float k_engine_brake_cd[8] = { 0.25f, 0.2f, 0.16f, 0.12f, 0.08f, 0.05f, 0.0f, 0.0f };
 
 /* ------------------------------------------------------------------ vectors */
 
@@ -100,7 +106,8 @@ static R length(const float v[3])               /* 0x40fcb0 */
 static void mulvec(float o[3], const float v[3], const float *m)
 {
     float x = (float)((((R)m[6] * v[2] + (R)m[3] * v[1]) + (R)m[0] * v[0]) + m[9]);
-    float y = (float)((((R)m[7] * v[2] + (R)m[4] * v[1]) + (R)m[1] * v[0]) + m[10]);
+    float y = g_phys_cd ? (float)((((R)m[1] * v[0] + (R)m[4] * v[1]) + (R)m[7] * v[2]) + m[10])  /* /0x405e30 */
+                        : (float)((((R)m[7] * v[2] + (R)m[4] * v[1]) + (R)m[1] * v[0]) + m[10]);
     float z = (float)((((R)m[8] * v[2] + (R)m[5] * v[1]) + (R)m[2] * v[0]) + m[11]);
     o[0] = x, o[1] = y, o[2] = z;
 }
@@ -580,6 +587,19 @@ static void local_velocity(const BikePhys *b, R out[3])
 static R lateral(const BikePhys *b)             /* 0x48d0f0 */
 {
     R l[3];
+    if (g_phys_cd) {                            /* /0x41c650: nothing stored on the way */
+        const float *m = b->m;
+        float d0 = b->dir[0], d1 = b->dir[1], d2 = b->dir[2];
+        float n = (float)sqrt(((R)d1 * d1 + (R)d2 * d2) + (R)d0 * d0);
+        R S = b->speed, v0, v1, v2, T;
+        if (n != 0.0f) {
+            R k = 1.0 / n;
+            d0 = (float)(d0 * k), d1 = (float)(d1 * k), d2 = (float)(k * d2);
+        }
+        v0 = d0 * S, v1 = d1 * S, v2 = d2 * S;
+        T = ((R)m[10] * m[1] + (R)m[11] * m[2]) + (R)m[9] * m[0];
+        return ((v1 * m[1] + v2 * m[2]) + v0 * m[0]) + -T;
+    }
     local_velocity(b, l);
     return l[0];
 }
@@ -587,6 +607,19 @@ static R lateral(const BikePhys *b)             /* 0x48d0f0 */
 static R longitudinal(const BikePhys *b)        /* 0x48ca10 */
 {
     R l[3];
+    if (g_phys_cd) {                            /* /0x41c0f0: nothing stored on the way */
+        const float *m = b->m;
+        float d0 = b->dir[0], d1 = b->dir[1], d2 = b->dir[2];
+        float n = (float)sqrt(((R)d2 * d2 + (R)d1 * d1) + (R)d0 * d0);
+        R S = b->speed, v0, v1, v2, T;
+        if (n != 0.0f) {
+            R k = 1.0 / n;
+            d0 = (float)(d0 * k), d1 = (float)(d1 * k), d2 = (float)(k * d2);
+        }
+        v0 = d0 * S, v1 = d1 * S, v2 = d2 * S;
+        T = ((R)m[9] * m[6] + (R)m[10] * m[7]) + (R)m[11] * m[8];
+        return -T + (v2 * m[8] + (v1 * m[7] + m[6] * v0));
+    }
     local_velocity(b, l);
     return l[2];
 }
@@ -596,6 +629,11 @@ static R grip(const BikePhys *b)
 {
     if (dirt(b)) {
         R a = fabs(lateral(b));
+        if (g_phys_cd) {                /* /0x41e2d5: this one through the routines, stored */
+            R l[3];
+            local_velocity(b, l);
+            a = fabs((R)(float)l[0]);
+        }
         if (a > 0.01 && a < 20.0)
             return (float)(a * -0.05 + 1.0);
         return 1.0;
@@ -944,7 +982,7 @@ static void engine_step(BikePhys *b, const float d[3], int t, int scale, float d
             if (air)
                 wheel_sync(b);
         } else if (mvm / rm * 1000.0 < b->engine) {     /* the engine brake */
-            R eb = k_engine_brake[b->gear & 7];
+            R eb = (g_phys_cd ? k_engine_brake_cd : k_engine_brake)[b->gear & 7];
             b->engine = (float)(eb * b->engine * dt10 * -0.001 + b->engine);
             if (b->engine < 0.0f)
                 b->engine = 0.0f;
@@ -990,7 +1028,13 @@ static void engine_step(BikePhys *b, const float d[3], int t, int scale, float d
         float r = 0.02f, rr;
         local_velocity(b, l);
         fwd = (float)l[2];
-        if (!hold || b->speed > 0.1) {
+        if (g_phys_cd) {                /* /0x41f44c: always, the axis' height over its length */
+            R n = sqrt(((R)d[1] * d[1] + (R)d[2] * d[2]) + (R)d[0] * d[0]);
+            float g = (float)(-((R)d[1] / n) * dt10 * 0.004905);
+            if (g > 0.55f)
+                g = 0.55f;
+            fwd = (float)((R)g + fwd);
+        } else if (!hold || b->speed > 0.1) {
             float g = (float)(-(R)d[1] * dt10 * 0.004905);
             if (g > 0.55f)
                 g = 0.55f;
@@ -1118,6 +1162,8 @@ static void steering(BikePhys *b, unsigned keys, int joy_x, float dt)
     const R K = 0.5555555555555556;     /* 2 km/h */
     float lat0 = (float)lateral(b), s = b->steer, r = b->steer_rate, T, T2, m, yaw;
     float raa = carac(b, C_RAA), rla = carac(b, C_RLA), rvr = carac(b, C_RVR);
+    /* /0x486fbb, /0x487054: the CD holds the rate to RoueMaxAccelerationAngulaire */
+    R rmax = g_phys_cd ? (R)carac(b, C_RMAA) : HUGE_VAL;
     R v = b->speed;
     float rot_[12];
     if (b->forced)
@@ -1131,7 +1177,8 @@ static void steering(BikePhys *b, unsigned keys, int joy_x, float dt)
         b->analog = 0;
         if (NEG(s))
             s = 0.0f;
-        r = (float)((R)raa * dt + r);
+        nw = (R)raa * dt + r;
+        r = (float)(rmax <= nw ? rmax : nw);
         nw = (R)r * dt + s;
         s = (float)(rla <= nw ? (R)rla : nw);
     } else if ((keys & 4) && v > K) {
@@ -1139,7 +1186,8 @@ static void steering(BikePhys *b, unsigned keys, int joy_x, float dt)
         b->analog = 0;
         if (bits(s) > 0)
             s = 0.0f;
-        r = (float)((R)raa * dt + r);
+        nw = (R)raa * dt + r;
+        r = (float)(rmax <= nw ? rmax : nw);
         nw = s - (R)r * dt;
         s = (float)(-(R)rla >= nw ? -(R)rla : nw);
     } else {                            /* back to the centre */
@@ -1157,6 +1205,11 @@ static void steering(BikePhys *b, unsigned keys, int joy_x, float dt)
         }
     }
     b->steer = s, b->steer_rate = r;
+    if (g_phys_cd) {                    /* /0x487135: a turn by +0x2e45, only ever 0: it still
+                                           puts the matrix through the table once more */
+        rot(rot_, 0.0, 0.0, 0.0);
+        turn(b, rot_);
+    }
     if (!b->driven)
         T = 0.004f;
     else {
@@ -1183,7 +1236,7 @@ static void steering(BikePhys *b, unsigned keys, int joy_x, float dt)
         g = g < 1.0 ? 1.0 : g < 1.6 ? g : 1.6;
         m = (float)g;
     }
-    if ((keys & 2) && (keys & 0xc))
+    if ((keys & 2) && (keys & 0xc) && (b->sliding || !g_phys_cd))
         m = 1.6f;
     yaw = (float)(((R)m * T2) * s);
     rot(rot_, 0.0, yaw, 0.0);
@@ -1252,10 +1305,20 @@ static void set_lateral(BikePhys *b, float lat)
         w[i] = (float)((R)b->speed * d[i]);
     ly = (float)((((R)m[3] * w[0] + (R)m[4] * w[1]) + (R)m[5] * w[2]) + -0.0);
     lz = (float)((((R)m[8] * w[2] + (R)m[7] * w[1]) + (R)m[6] * w[0]) + -0.0);
-    x = (float)((((R)m[0] * lat + (R)m[3] * ly) + (R)m[6] * lz) + m[9]);
-    y = (float)((((R)m[1] * lat + (R)m[7] * lz) + (R)m[4] * ly) + m[10]);
-    z = (float)((((R)m[2] * lat + (R)m[5] * ly) + (R)m[8] * lz) + m[11]);
-    sp = (float)sqrt(((R)y * y + (R)z * z) + (R)x * x);
+    if (g_phys_cd) {                            /* /0x41c740's orders; z squared half stored */
+        R zr;
+        ly = (float)((((R)m[5] * w[2] + (R)m[4] * w[1]) + (R)m[3] * w[0]) + -0.0);
+        x = (float)((((R)m[3] * ly + (R)m[6] * lz) + (R)m[0] * lat) + m[9]);
+        y = (float)((((R)m[7] * lz + (R)m[4] * ly) + (R)m[1] * lat) + m[10]);
+        zr = (((R)m[5] * ly + (R)m[8] * lz) + (R)m[2] * lat) + m[11];
+        z = (float)zr;
+        sp = (float)sqrt((zr * z + (R)y * y) + (R)x * x);
+    } else {
+        x = (float)((((R)m[0] * lat + (R)m[3] * ly) + (R)m[6] * lz) + m[9]);
+        y = (float)((((R)m[1] * lat + (R)m[7] * lz) + (R)m[4] * ly) + m[10]);
+        z = (float)((((R)m[2] * lat + (R)m[5] * ly) + (R)m[8] * lz) + m[11]);
+        sp = (float)sqrt(((R)y * y + (R)z * z) + (R)x * x);
+    }
     b->speed = sp;
     if (!ZERO(sp)) {
         R k = 1.0 / sp;
@@ -1279,9 +1342,9 @@ static void slide(BikePhys *b, float dt)
     lon = (float)longitudinal(b);
     lat = (float)lateral(b);
     /* (0x4dc1f8, a genuine-copy flag, is set to 1 here in the championship) */
-    if (!d)
+    if (!d || g_phys_cd)                /* /0x47e850: the CD, every bike, and a road bike keeps it */
         b->radius = FLT_MAX;
-    if (b->forced == 0 && bits(b->speed) > 0x3f800000) {
+    if (b->forced == 0 && bits(b->speed) > 0x3f800000 && (d || !g_phys_cd)) {
         R r = turn_radius(b->pos2[0], b->pos2[2], b->pos1[0], b->pos1[2], b->pos[0],
                           b->pos[2]) * 0.0078125;
         b->radius = (float)r;
@@ -1313,6 +1376,17 @@ static void slide(BikePhys *b, float dt)
             nw = 0.0f;
     }
     set_lateral(b, nw);
+    if (g_phys_cd && fabs((R)nw - lat) > 0.1) {     /* /0x47ebfd: a slide's change costs speed */
+        set_forward(b, (float)((R)lon * 0.994));
+        if (ZERO(b->air)) {
+            R l[3], k;
+            local_velocity(b, l);
+            k = grip(b);
+            b->wheel = (float)(((R)(float)l[2] - b->wheel) * k + b->wheel);
+        }
+        clamp_wheel(b);
+        eng_sync(b);
+    }
 }
 
 /* ------------------------------------------------------------------ moving */
@@ -1355,14 +1429,20 @@ static void integrate(BikePhys *b, float dt, int flat)
     } else {                            /* on the ground */
         R c = ((R)V[1] * F[1] + (R)V[2] * F[2]) + (R)V[0] * F[0], g80, r80, w;
         float g, r;
+        if (g_phys_cd)                  /* /0x41cd85 */
+            c = ((R)V[2] * F[2] + (R)V[0] * F[0]) + (R)V[1] * F[1];
         if (c < 0.0)
             b->speed = (float)(b->speed * fabs((float)c));
-        g80 = (dirt(b) ? 11.0 : 6.0) / fabs((R)b->radius);
-        g = (float)(1.0 - g80);
-        if (bits(g) > 0x3f800000)
-            g = 1.0f;
-        else if (g < 0.5)
-            g = 0.5f;
+        if (g_phys_cd)                  /* /0x41cda5: only going sideways loses ground, no radius */
+            g = (float)fabs((float)c);
+        else {
+            g80 = (dirt(b) ? 11.0 : 6.0) / fabs((R)b->radius);
+            g = (float)(1.0 - g80);
+            if (bits(g) > 0x3f800000)
+                g = 1.0f;
+            else if (g < 0.5)
+                g = 0.5f;
+        }
         r80 = (R)b->speed / b->top * 2.0f;
         r = (float)r80;
         if (r80 > 0.9)
@@ -1393,7 +1473,10 @@ static void integrate(BikePhys *b, float dt, int flat)
     memcpy(b->move, d, 12);
     if (fabs((float)((R)old - b->speed)) > 0.001) {
         if (ZERO(b->air)) {
-            float a = (float)longitudinal(b);
+            R l[3];
+            float a;
+            local_velocity(b, l);       /* (/0x41e040: stored on the way) */
+            a = (float)l[2];
             b->wheel = (float)(((R)a - b->wheel) * grip(b) + b->wheel);
         }
         clamp_wheel(b);
@@ -1428,6 +1511,10 @@ static R frame_pitch(const BikePhys *b)
     float r = (float)(sqrt(h) * n);
     if (fabs(r) < 1e-4)
         return bits(fy) > 0 ? PI_F : -PI_F;
+    if (g_phys_cd) {                    /* /0x47e073: the products stored first */
+        float a0 = (float)((R)fz * fy), a2 = (float)-((R)fx * fy);
+        return atan2((((R)a2 * xz) + (R)a0 * xx) / r, h / (R)r);
+    }
     return atan2(((((R)fz * fy) * xx) + (-((R)fx * fy)) * xz) / r, h / (R)r);
 }
 
@@ -1452,7 +1539,10 @@ static void gearbox(BikePhys *b, unsigned keys)
             if (b->brake_dive < -0.19634954084936207)
                 b->brake_dive = -0.19634955f;
         }
-        auto_box(b);
+        if (g_phys_cd && (keys & 2) && bits(b->speed) > 0x40400000)
+            b->shift = 0;               /* /0x487442: no box above 3 m/s under the brake */
+        else
+            auto_box(b);
     }
     if (b->driven) {
         int up = keys & 0x10, down = keys & 0x20;
@@ -1469,7 +1559,7 @@ static void gearbox(BikePhys *b, unsigned keys)
         } else
             W.gear_latch = 0;
     }
-    shift_step(b, (int)(W.dt * 10.0f));
+    shift_step(b, (int)((R)W.dt * 10.0f));
 }
 
 /* ------------------------------------------------------------------ crashes */
@@ -1587,7 +1677,7 @@ static void tumble(BikePhys *b, float dt)
             b->thud = 1;
         b->tumble_air = 0;
         b->tumble_pt[1] = g;
-        b->tumble_dir[1] = (float)(-(R)b->tumble_dir[1] * 0.01);
+        b->tumble_dir[1] = (float)(-(R)b->tumble_dir[1] * (g_phys_cd ? 0.1 : 0.01));
         normalise(b->tumble_dir);
         lay_flat(b);
         b->roll[2] = 0.0f;
@@ -1615,7 +1705,22 @@ static void tumble(BikePhys *b, float dt)
     }
     f = ((R)b->tumble_speed / b->tumble_speed0) * k;
     rot(r, (float)(b->roll[0] * f), (float)(b->roll[1] * f), (float)(b->roll[2] * f));
-    matmul(b->tumble, b->tumble, r);
+    if (g_phys_cd) {                    /* /0x489a25: written out, its own sum orders */
+        const float *a = b->tumble;
+        float t[12];
+        t[0] = (float)(((R)a[2] * r[6] + (R)a[0] * r[0]) + (R)a[1] * r[3]);
+        t[1] = (float)(((R)a[0] * r[1] + (R)a[1] * r[4]) + (R)a[2] * r[7]);
+        t[2] = (float)(((R)a[1] * r[5] + (R)a[0] * r[2]) + (R)a[2] * r[8]);
+        t[3] = (float)(((R)a[4] * r[3] + (R)a[5] * r[6]) + (R)a[3] * r[0]);
+        t[4] = (float)(((R)a[4] * r[4] + (R)a[5] * r[7]) + (R)a[3] * r[1]);
+        t[5] = (float)(((R)a[4] * r[5] + (R)a[3] * r[2]) + (R)a[5] * r[8]);
+        t[6] = (float)(((R)a[7] * r[3] + (R)a[8] * r[6]) + (R)a[6] * r[0]);
+        t[7] = (float)(((R)a[7] * r[4] + (R)a[8] * r[7]) + (R)a[6] * r[1]);
+        t[8] = (float)(((R)a[7] * r[5] + (R)a[6] * r[2]) + (R)a[8] * r[8]);
+        t[9] = t[10] = t[11] = 0.0f;    /* (the tumble's T is 0, as r's) */
+        memcpy(b->tumble, t, sizeof t);
+    } else
+        matmul(b->tumble, b->tumble, r);
     if (b->tumble_speed < 0.2777777777777778 && bits(b->crash_timer) < 0x42c80000)
         get_up(b);
     else if (!b->driven) {
@@ -1916,7 +2021,7 @@ static void suspension(BikePhys *b)
     R x;
     if (bits(d) > 0x40a00000)
         d = 5.0f;
-    if (bits(d) < 0x40400000)
+    if (bits(d) < 0x40400000 && !g_phys_cd)     /* (/0x4877db: no floor on the CD) */
         d = 3.0f;
     b->amp = (float)((R)carac(b, C_RDEC) * b->amp);
     b->kick = (float)(d * 5.184 + b->kick);
@@ -2046,10 +2151,23 @@ static void frame_and_lean(BikePhys *b)
         float x[3], y[3];
         static const float up[3] = { 0.0f, 1.0f, 0.0f };
         int sf, sr;
-        for (i = 0; i < 3; i++) {
-            b->rear[i] = (float)((((R)cr * Mt[6 + i] + (R)br * Mt[3 + i]) + Mt[9 + i]) + b->pos[i]);
-            b->front[i] = (float)((((R)cf * Mt[6 + i] + (R)bf * Mt[3 + i]) + Mt[9 + i]) + b->pos[i]);
-        }
+        if (g_phys_cd) {                /* /0x48b03f: through a float, the rear by a routine */
+            float a32 = (float)a, v[3], t[3];
+            R kf = (R)carac(b, C_AXE) * 48.0f;
+            br = (float)((R)carac(b, C_RAR) * -192.0f + a32);
+            bf = (float)((R)carac(b, C_RAV) * -192.0f + a32);
+            v[0] = 0.0f, v[1] = br, v[2] = cr;
+            mulvec(t, v, Mt);
+            for (i = 0; i < 3; i++)
+                b->rear[i] = (float)((R)t[i] + b->pos[i]);
+            b->front[0] = (float)(((kf * Mt[6] + (R)bf * Mt[3]) + Mt[9]) + b->pos[0]);
+            b->front[1] = (float)(((((R)cf * Mt[7] + (R)bf * Mt[4])) + Mt[10]) + b->pos[1]);
+            b->front[2] = (float)((((R)cf * Mt[8] + (R)bf * Mt[5]) + Mt[11]) + b->pos[2]);
+        } else
+            for (i = 0; i < 3; i++) {
+                b->rear[i] = (float)((((R)cr * Mt[6 + i] + (R)br * Mt[3 + i]) + Mt[9 + i]) + b->pos[i]);
+                b->front[i] = (float)((((R)cf * Mt[6 + i] + (R)bf * Mt[3 + i]) + Mt[9 + i]) + b->pos[i]);
+            }
         sf = walk(b->sec, b->front);
         sr = walk(b->sec, b->rear);
         b->front[1] = (float)road_y(sf, b->front);
@@ -2078,7 +2196,7 @@ static void frame_and_lean(BikePhys *b)
         B = (float)(B - TWO_PI);
     if ((R)A - PI > B)
         B = (float)(B + TWO_PI);
-    if (b->driven && b->human && d) {   /* a player's dirt bike */
+    if (b->driven && b->human && d && !g_phys_cd) {     /* a player's dirt bike */
         float v = bits(b->speed) > 0x42480000 ? 50.0f : b->speed, L, k;
         e = wrap_ge((float)((R)B - A));
         if (e > PI)
@@ -2103,8 +2221,8 @@ static void frame_and_lean(BikePhys *b)
         e2 = -1.0471976f;
     if (d)                              /* a computer's dirt bike */
         b->lean = (float)(((R)e2 / (3.0 - ((R)b->speed * 0.045) * 0.5)) * -1.3);
-    else if (!b->driven || !b->human || W.replay == 1 || W.replay == 2)
-        b->lean = -e2;
+    else if (!b->driven || !b->human || W.replay == 1 || W.replay == 2 || g_phys_cd)
+        b->lean = -e2;                  /* (/0x48ba34: on the CD, everyone) */
     else {
         float f = W.frame_ms, L;
         if (!b->analog && bits(f) < 0x41a00000)

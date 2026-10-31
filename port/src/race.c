@@ -785,6 +785,7 @@ static void start(void)
     for (k = 1; k < g_riders; k++)
         g_bikeworld.rider[k] = &g_phys[k];
     g_bikeworld.nriders = g_riders;
+    g_phys_cd = behaviour_cd();
     g_bikeworld.crt = 0;
     g_bikeworld.reverse = g_reverse ? -1 : 1;
     g_bikeworld.mode = g_mode;
