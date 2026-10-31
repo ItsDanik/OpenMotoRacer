@@ -6,6 +6,7 @@
 #include "choices.h"
 #include "config.h"
 #include "files.h"
+#include "ftol.h"
 #include "horizon.h"
 #include "script.h"
 #include <ctype.h>
@@ -101,7 +102,8 @@ static void read_model(Reader *r, Model *m)
             float u = rd_f32(r), v = rd_f32(r);
             if (k < 4) {
                 f->ut[k] = u, f->vt[k] = v;
-                f->u[k] = (int)(u * 8192.0), f->v[k] = (int)(v * 8192.0);
+                /* (the files have rubbish in faces' unused corners) */
+                f->u[k] = ftol(u * 8192.0), f->v[k] = ftol(v * 8192.0);
             }
         }
         for (k = 0; k < f->n; k++) {

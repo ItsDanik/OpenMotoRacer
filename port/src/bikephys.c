@@ -3,6 +3,7 @@
    to a float field is the game's store. The order of the sums is the game's. */
 #include "bikephys.h"
 #include "bikes.h"
+#include "ftol.h"
 #include "land.h"
 #include "r3d.h"
 #include "rand.h"
@@ -121,7 +122,7 @@ static R dot3(const float a[3], const float b[3])       /* 0x46d5e0 */
 /* the cosine table through an angle: index = ftol(a x k) */
 static void cos_sin(R a, R *c, R *s)
 {
-    int i = (int)(a * TO_INDEX);
+    int i = ftol(a * TO_INDEX);
     *c = g_cos[i & 0x3fff];
     *s = g_cos[(i - 0x1000) & 0x3fff];
 }
@@ -172,7 +173,8 @@ static void matmul(float *o, const float *a, const float *b)
 static void angles(const float *m, float a[3])
 {
     float c = (float)sqrt(1.0 - (R)m[6] * m[6]);
-    if (c <= 1e-5f) {                                   /* 0x4d0e50 */
+    /* 0x46d28b: not above 1e-5 (0x4d0e50), and a matrix a little past 1 gives a NaN here */
+    if (!(c > 1e-5f)) {
         a[0] = 0.0f;
         a[1] = NEG(m[6]) ? (float)-PI_F : (float)PI_F;
         a[2] = (float)atan2(m[1], m[4]);

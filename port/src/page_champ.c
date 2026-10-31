@@ -138,7 +138,11 @@ static void save_slot(int i)
     }
     strcat(title, ")");
     title[0x1f] = 0;
-    memcpy(g_slot[i], title, 0x20);
+    /* Continue's neighbour on the arrows is a button 9 that does not exist (0x1ffff09, as in
+       0x450f40), and Return presses it: the game then saves to Champ8.sav, which nothing lists,
+       and its title lands past the eight (0x451323), over the variables at 0x540ad0 */
+    if (i < SLOTS)
+        memcpy(g_slot[i], title, 0x20);
 
     put_u32(b + 4 * F_REVERSE, (unsigned)g_reverse);
     put_u32(b + 4 * F_POCKET, (unsigned)g_pocket);

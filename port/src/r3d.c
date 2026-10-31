@@ -6,6 +6,7 @@
    floats. */
 #include "r3d.h"
 #include "files.h"
+#include "ftol.h"
 #include "video.h"
 #include <math.h>
 #include <stdio.h>
@@ -656,11 +657,6 @@ static int wrap(long long v)    /* a 32-bit register's sum or product */
     return (int)(uint32_t)v;
 }
 
-static int ftol(double x)       /* 0x4b3048: truncation; out of range the x87's 0x80000000 */
-{
-    return x > -2147483649.0 && x < 2147483648.0 ? (int)x : INT32_MIN;
-}
-
 static int see_through(int kind)
 {
     return kind == 12 || kind == 37 || kind == 38 || kind == 39 || kind == 44 || kind == 50
@@ -696,7 +692,11 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
                  const uint16_t *tex, uint16_t colour)
 {
     uint16_t *o = g_screen + y * g_pitch;
-    int x;
+    int x, top = -y * g_pitch;
+    if (x0 < top) {                                     /* (above the screen: see span6) */
+        u += (top - x0) * du, v += (top - x0) * dv;
+        x0 = top;
+    }
     if (kind == 12) {                                   /* 0x4a4110: half the screen + colour */
         for (x = x0; x < x1; x++)
             o[x] = (uint16_t)(((o[x] >> 1) & HALF) + colour);
@@ -792,8 +792,8 @@ static void triangle(Corner c0, Corner c1, Corner c2, int kind, const uint16_t *
     D = (x0 - x2) * A - (x1 - x2) * B;
     if (D < 1)
         return;
-    du = (int)((double)(u0 - u2) / D * A - (double)(u1 - u2) / D * B);
-    dv = (int)((double)(v0 - v2) / D * A - (double)(v1 - v2) / D * B);
+    du = ftol((double)(u0 - u2) / D * A - (double)(u1 - u2) / D * B);
+    dv = ftol((double)(v0 - v2) / D * A - (double)(v1 - v2) / D * B);
     if (y2 < y1) {                                      /* the bend on corner 2's side */
         int sr, h;
         if (!(y0 < y1 && y1 >= 0))
@@ -882,8 +882,9 @@ static void flat_row(int y, int xl, int xr, uint16_t c)
 {
     int16_t out[2 * FREE_MAX];
     uint16_t *o = g_screen + y * g_pitch;
-    int i = 0, n = 0, nf = g_nfree[y], x;
+    int i = 0, n = 0, nf = g_nfree[y], x, top = -y * g_pitch;
 #define KEEP(a, b) do { if (n < FREE_MAX) out[2 * n] = (int16_t)(a), out[2 * n + 1] = (int16_t)(b), n++; } while (0)
+#define FILL(from, to) for (x = (from) < top ? top : (from); x < (to); x++) o[x] = c    /* (see span6) */
     while (i < nf) {
         int a = g_free[y][2 * i], b = g_free[y][2 * i + 1];
         if (xl > a) {
@@ -893,16 +894,14 @@ static void flat_row(int y, int xl, int xr, uint16_t c)
                 continue;
             }
             if (xr <= b) {
-                for (x = xl; x < xr; x++)
-                    o[x] = c;
+                FILL(xl, xr);
                 KEEP(a, xl);
                 if (xr < b)
                     KEEP(xr, b);
                 i++;
                 break;
             }
-            for (x = xl; x < b; x++)
-                o[x] = c;
+            FILL(xl, b);
             KEEP(a, xl);
             i++;
             continue;
@@ -910,14 +909,12 @@ static void flat_row(int y, int xl, int xr, uint16_t c)
         if (xr < a)
             break;
         if (xr < b) {
-            for (x = a; x < xr; x++)
-                o[x] = c;
+            FILL(a, xr);
             KEEP(xr, b);
             i++;
             break;
         }
-        for (x = a; x < b; x++)              /* the piece used up */
-            o[x] = c;
+        FILL(a, b);                          /* the piece used up */
         i++;
         if (xr == b)
             break;
@@ -926,6 +923,7 @@ static void flat_row(int y, int xl, int xr, uint16_t c)
         KEEP(g_free[y][2 * i], g_free[y][2 * i + 1]);
     memcpy(g_free[y], out, sizeof(int16_t) * 2 * n);
     g_nfree[y] = n;
+#undef FILL
 }
 
 /* 0x4a34f0: a triangle of one colour, 13-bit fixed-point edges, no area test */
@@ -1043,10 +1041,17 @@ static void span6(int y, int x0, int x1, const float e[3], const float g16[3], i
                   const uint16_t *tex, uint16_t colour)
 {
     uint16_t *o = g_screen + y * g_pitch + x0;
-    int n = x1 - x0, k;
+    int n = x1 - x0, k, room = (g_scr_h - y) * g_pitch - x0, skip = -y * g_pitch - x0;
     float uz = e[0], vz = e[1], rz = e[2];
     double z, rze;
     uint32_t u, v, du, dv;
+    /* 0x4a04d0 keeps a piece's end in 16 bits: an edge far off to the left comes back as an end
+       up to 32767 to the right, and the game's painters run on over the rows below and past
+       their surface. The free lists can hold a piece that starts left of the row, too (a
+       reversed row splits one: 0x4a0260, 0x4a2f10), which paints the row above. Those rows are
+       painted the same here, but nothing outside the screen. */
+    if (n > room)
+        n = room;
     if (n <= 0 || kind == 28 || kind == 50)             /* 0x4a5090, 0x4a50b0: ret */
         return;
     z = 8192.0 / rz;                                    /* 0x4f1a24 */
@@ -1074,6 +1079,8 @@ static void span6(int y, int x0, int x1, const float e[3], const float g16[3], i
             dv = (uint32_t)ftol((vz * z - (int)v) * (1.0 / k));
         }
         n -= k;
+        for (; k > 0 && skip > 0; k--, skip--, o++, u += du, v += dv)
+            ;
         for (; k > 0; k--, o++, u += du, v += dv) {
             unsigned c = tex[((v >> 13) * 256 + (u >> 13)) & 0xffff];
             switch (kind) {
@@ -1385,9 +1392,9 @@ static void face(const Entry *e)
             flat_face(f, base, colour);
             return;
         }
-        if (kind != 1 && kind != 2 && kind != 42) {
+        if (kind != 1 && kind != 2 && kind != 42) {     /* (0x4af100: the others, as 8, draw nothing) */
             static int told;
-            if (!told++)
+            if ((kind == 3 || kind == 4 || kind == 9) && !told++)
                 fprintf(stderr, "openmotoracer: paletted face kind %d is not written yet\n",
                         kind);
             return;
