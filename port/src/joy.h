@@ -55,6 +55,7 @@ void joy_fake(int x, int y, unsigned buttons);
 void joy_fake_pad(int x, int y, unsigned buttons, int lt, int rt, unsigned cross);
 
 int joy_is_pad(int j);
+int joy_spare_trigger(int j, int action);        /* RT, LT there without being set, or -1 */
 const char *joy_button_name(int code);          /* a gamepad's button by its number */
 void joy_rumble(int low, int high, int ms);     /* joystick 0 shakes, if it can */
 

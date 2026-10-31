@@ -195,6 +195,6 @@ drawn, whatever their distance. Both fixed; every check passes; `build/shots.txt
 
 ## 2026-10-31: the gamepad
 Danik's real pad works; he asked for Start to pause, the triggers to be bindable and analog, rumble, and the cross and stick in
-the menus. All done (NOTES §4.22), on by default, tried with a pretend pad (`OMR_INPUT` pad:); Danik judges the real one. The
+the menus. All done (NOTES §4.22), on by default, tried with a pretend pad (`OMR_INPUT` pad:) and a virtual copy of his pad; RT and LT work unset; Danik judges the real one. The
 original has analog steering and throttle only on one stick under JOYSTICK, a brake that is on or off, no triggers.
 

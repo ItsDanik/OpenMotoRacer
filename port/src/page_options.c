@@ -415,7 +415,7 @@ void page_settings_frame(void)
                 }
             }
         } else {
-            int b = g_binding[i][1];
+            int b = g_binding[i][1], spare = joy_spare_trigger(0, i);
             static const int dir[4] = { P_JLEFT, P_JRIGHT, P_JTOP, P_JBAS };
             if (g_pad_listen && i == g_row) {
                 snprintf(buf, sizeof buf, T(7), name);
@@ -424,7 +424,11 @@ void page_settings_frame(void)
             } else if (b >= 0 && pad) {
                 snprintf(buf, sizeof buf, T(7), name);
                 font_draw(f12, buf, 255, y, 0, 0);
-                font_draw(f12, joy_button_name(b), 550, y, 0, 0);
+                if (spare >= 0) {
+                    snprintf(buf, sizeof buf, "%s + %s", joy_button_name(b), joy_button_name(spare));
+                    font_draw(f12, buf, 510, y, 0, 0);
+                } else
+                    font_draw(f12, joy_button_name(b), 550, y, 0, 0);
             } else if (b >= 0) {
                 snprintf(buf, sizeof buf, T(9), name, b);
                 font_draw(f12, buf, 255, y, 0, 0);
@@ -433,6 +437,12 @@ void page_settings_frame(void)
                 font_draw(f12, buf, 255, y, 0, 0);
                 bitmap_place(PIC(dir[-2 - b]), 550, y - 7, 0);
                 bitmap_draw(PIC(dir[-2 - b]), BM_OWN, 100, 0);
+                if (spare >= 0)
+                    font_draw(f12, joy_button_name(spare), 510, y, 0, 0);
+            } else if (spare >= 0) {
+                snprintf(buf, sizeof buf, T(7), name);
+                font_draw(f12, buf, 255, y, 0, 0);
+                font_draw(f12, joy_button_name(spare), 550, y, 0, 0);
             } else {
                 snprintf(buf, sizeof buf, T(8), name);
                 font_draw(f12, buf, 255, y, 0, 0);

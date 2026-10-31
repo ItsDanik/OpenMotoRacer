@@ -144,7 +144,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - Joysticks (NOTES §4.22): `joy.c`, SDL's joysticks as the game's WinMM ones (dead zone, rescale,
   the bindings 0x411b30, the dialogs' arrows, Ctrl+J/K); `-jN` / `OMR_JOYDEAD` the dead
   zone, `OMR_DEVICE` the input device, `OMR_INPUT` `F:joy:X,Y,B` a pretend joystick.
-- A gamepad, the port's own (NOTES §4.22): `joy.c` through SDL_GameController, triggers bindable and by degrees (key bits 8..23), the settings page's Analog and Rumble (openmotoracer.ini, both on), `pad.c` the cross and stick in the menus and dialogs, Start the pause; `OMR_INPUT` `F:pad:X,Y,B,LT,RT,CROSS`.
+- A gamepad, the port's own (NOTES §4.22): `joy.c` through SDL_GameController, triggers bindable and by degrees (key bits 8..23), RT and LT accelerate and brake without being set (`joy_spare_trigger`), `tools/padtest.sh` what a real pad sends, the settings page's Analog and Rumble (openmotoracer.ini, both on), `pad.c` the cross and stick in the menus and dialogs, Start the pause; `OMR_INPUT` `F:pad:X,Y,B,LT,RT,CROSS`.
 - The MiSTer's ARM (NOTES §4.23): `tools/arm.sh` the static build, `tools/arm.sh check` all pictures and replays on it
   under qemu (the same as the PC's); `OMR_PERF=1` the speed readout. Not yet measured on a real MiSTer.
 - The race's small keys (NOTES §4.20 §2.6): F9 the map (`trackmap.c`), numpad + and − the detail, * and / the volumes, Ctrl+F the

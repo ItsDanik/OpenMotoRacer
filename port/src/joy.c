@@ -290,14 +290,30 @@ static int trigger_of(int j, int action)
     return g_joy[j].trigger[code - PAD_LT];
 }
 
-static unsigned trigger_amount(int j, int action)
+static unsigned trigger_scale(int v)
 {
-    int t = trigger_of(j, action) * 255 / 0x7fff;
+    int t = v * 255 / 0x7fff;
     return (unsigned)(t < 1 ? 1 : t > 255 ? 255 : t);
+}
+
+/* The port's: RT accelerates and LT brakes without being set, beside what the rows say, as
+   long as that action is on no trigger and that trigger is on no row */
+int joy_spare_trigger(int j, int action)
+{
+    int code = action == 0 ? PAD_RT : action == 1 ? PAD_LT : -1, i;
+    if (code < 0 || !joy_is_pad(j) || g_binding[action][1] == PAD_LT
+        || g_binding[action][1] == PAD_RT)
+        return -1;
+    for (i = 0; i < ACTIONS; i++)
+        if (g_binding[i][1] == code)
+            return -1;
+    return code;
 }
 
 unsigned joy_race(int j, int *x, int *y, int *turbo, int countdown, int running, int device)
 {
+    int gas, brake;
+    unsigned pressed;
     Joy *J = &g_joy[j];
     unsigned bits = 0, d, b;
     int i;
@@ -348,6 +364,15 @@ unsigned joy_race(int j, int *x, int *y, int *turbo, int countdown, int running,
         if (bits & 2)           /* braking lets go of the throttle */
             bits &= ~1u;
     }
+    pressed = bits;
+    gas = joy_spare_trigger(j, 0);
+    brake = joy_spare_trigger(j, 1);
+    if (gas >= 0 && J->trigger[gas - PAD_LT] >= trigger_on())
+        J->y = 0x8000, bits |= 1;
+    if (brake >= 0 && running && J->trigger[brake - PAD_LT] >= trigger_on())
+        J->y = 0x8000, bits |= 2;
+    if (bits & 2)
+        bits &= ~1u;
     /* the original: joystick 0x4dc11c = 2. The port's: a gamepad under either name, and
        off, the bits alone whatever the name. */
     if (g_analog && (device == 2 || joy_is_pad(j))) {
@@ -366,9 +391,13 @@ unsigned joy_race(int j, int *x, int *y, int *turbo, int countdown, int running,
                game's Y, whose half way holds the engine to half its revs, and the gearbox
                then never changes up */
             if ((bits & 2) && trigger_of(j, 1) >= 0)
-                bits |= trigger_amount(j, 1) << 8;
-            if ((bits & 1) && !(bits & 2) && trigger_of(j, 0) >= 0)
-                bits |= trigger_amount(j, 0) << 16;
+                bits |= trigger_scale(trigger_of(j, 1)) << 8;
+            else if ((bits & 2) && brake >= 0 && !(pressed & 2))
+                bits |= trigger_scale(J->trigger[brake - PAD_LT]) << 8;
+            if ((bits & 1) && trigger_of(j, 0) >= 0)
+                bits |= trigger_scale(trigger_of(j, 0)) << 16;
+            else if ((bits & 1) && gas >= 0 && !(pressed & 1))
+                bits |= trigger_scale(J->trigger[gas - PAD_LT]) << 16;
         }
     } else                      /* a joypad: the bits alone */
         J->x = J->y = 0x8000;
