@@ -65,6 +65,7 @@ static int16_t g_ring[MUSIC_RING][2];
 static unsigned g_ring_r, g_ring_w;                 /* frames, read and written */
 static int g_mus_paused;                            /* the music holds its place (0x4b1660) */
 static int g_mus_ended, g_mus_repeat;               /* the CD's: read to the end; +0xc */
+static int g_mus_mode;                              /* +0x1c */
 
 static void lock(void)
 {
@@ -512,7 +513,7 @@ void music_toggle(void)
     if (!g_cd_on)
         music_stop();
     else if (g_mus_track >= 0)
-        music_play(g_mus_track, 2);
+        music_play(g_mus_track, g_mus_mode);
 }
 
 /* the mixer's lines as gains: master x wave for the effects, master x CD for the music
@@ -749,13 +750,12 @@ static void queue_step(Queue *q)
         }
         break;
     case 2:
-        if (q->mode && (int)(g_now - q->played) <= q->delays[q->i] + (int)q->len)
+        if (q->mode && (int)(g_now - q->played) < q->delays[q->i] + (int)q->len)
             break;
         q->i = (q->i + 1) & 7;
         if (q->i == q->count)
             q->idle = 1;
-        else
-            q->state = 0;
+        q->state = 0;           /* (also when idle: the next voice queued starts afresh) */
         break;
     }
 }
@@ -862,19 +862,21 @@ static void music_fill(unsigned want)
     }
 }
 
-/* 0x404990 → 0x4b18e0 (choose) and 0x4b19f0 (play): modes 1 and 3 leave a track going
-   when it is the one asked for. (Track 0, a random one, is asked for by no level.) */
+/* 0x404990 → 0x4b18e0 (choose) and 0x4b19f0 (play with -1): the track asked for is chosen
+   whatever follows, and modes 1 and 3 leave going whatever plays, so the podium's runs on into the
+   menus. (Track 0, a random one, is asked for by no level.) */
 void music_play(int track, int mode)
 {
-    if (!g_cd_on || track < 2 || track > 13)
+    if (track < 2 || track > 13)
         return;
-    if ((mode == 1 || mode == 3) && g_mus_playing && track == g_mus_track)
+    g_mus_track = track;
+    g_mus_mode = mode;          /* +0x1c */
+    if (!g_cd_on || ((mode == 1 || mode == 3) && g_mus_playing))
         return;
     lock();
     g_ring_r = g_ring_w = 0;
     g_mus_paused = 0;
     unlock();
-    g_mus_track = track;
     g_mus_ended = 0;
     g_mus_repeat = mode == 2 || mode == 3;      /* +0xc */
     g_mus_playing = music_open(track);

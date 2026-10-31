@@ -14,6 +14,7 @@ void race_sound_start(const float cam[3], int player);
    all[k] the riders' records (all[0] unused), followed the rider the camera follows
    (0x508834), cam / look the camera's eye and the point it looks at, dt the step
    (ms x 0.1) */
+void race_sound_commentary(int place, int count);   /* 0x407420 */
 void race_sound_step(BikePhys *const *all, int followed, const float cam[3],
                      const float look[3], float dt);
 int race_sound_player(void);

@@ -12,9 +12,9 @@
 #define BASE 0x400000u
 
 /* FNV-1a of the whole file, for the builds known (NOTES §1), and where each keeps the
-   tables the port reads. The 1997 CD's MOTO.EXE has the same tables record for record but
-   no named colours (its address 0: named_colour's own) and lies inside the CD's installer
-   archive when the game was never installed (NOTES §3.5a). */
+   tables the port reads. The 1997 CD's MOTO.EXE has the same tables record for record, its
+   named colours lacking the grey, and lies inside the CD's installer archive when the game
+   was never installed (NOTES §3.5a). */
 static const struct {
     unsigned sum;
     unsigned len;
@@ -27,7 +27,7 @@ static const struct {
                                                                 0x4db810, 0x4db8a0, 0x4db920,
                                                                 0x4db680, 0x4e9128, 0x4f1640, 0x4f16a0,
                                                                 0x4dc050 } },
-    { 0x52c7ba57u, 1083392, "the 1997 CD's MOTO.EXE, 1997-07-21", { 0x4d9840, 0x4da8a8, 0, 0x4d2bb8,
+    { 0x52c7ba57u, 1083392, "the 1997 CD's MOTO.EXE, 1997-07-21", { 0x4d9840, 0x4da8a8, 0x4e7790, 0x4d2bb8,
                                                                 0x4de830, 0x4de7d8, 0x4de7c8,
                                                                 0x4e7530, 0x4e7528, 0x4d8340,
                                                                 0x4de868, 0x4de8f8, 0x4de978,

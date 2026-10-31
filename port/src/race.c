@@ -478,6 +478,15 @@ static void ghost_rider(float dt)
     cpu_passive_step(g, g_ghost_at, before, dt, g_counting);
 }
 
+/* 0x4dc100, 0x4817a0's count */
+static int riders_loaded(void)
+{
+    int k, n = 0;
+    for (k = 1; k < g_riders; k++)
+        n += g_racer[k].loaded != 0;
+    return n;
+}
+
 /* one step of Game_Frame (0x47d660) of ms milliseconds: the inputs, the timers, the
    countdown and the time limit, each driven bike's step (0x45d540) and bike against bike
    (0x47ecd0), the race's rules, the camera */
@@ -551,6 +560,9 @@ static void step(int ms)
                 g_mode != MODE_PRACTICE && g_racer[g_follow].state == RS_FINISHED
                 ? g_racer[g_follow].place : -1, g_winner_sequence);
     race_sound_step(all, g_follow, camera_eye(), camera_target(), (float)(ms * 0.1));
+    if (g_race_kind == 0 && !g_race_over && !g_time_over && g_mode != MODE_PRACTICE
+        && g_racer[race_local()].state == RS_RACING && race_local() == g_follow)
+        race_sound_commentary(rules_place_of(race_local()), riders_loaded());
     race_log();
 }
 

@@ -22,15 +22,15 @@ static const unsigned char black[3];
 
 const unsigned char *named_colour(int c)
 {
-    /* the 1997 program pushes its colours as numbers in its code, with no table to read:
-       the plain colours by their names (NOTES §3.5a) */
-    static const unsigned char plain[][3] = {
-        { 255, 255, 255 }, { 0, 0, 0 }, { 128, 128, 128 }, { 0, 255, 255 }, { 255, 0, 255 },
-        { 255, 255, 0 }, { 255, 0, 0 }, { 0, 0, 255 }, { 0, 255, 0 }, { 0, 255, 0 }, { 255, 160, 0 }
-    };
+    /* the 1997 program's table has no grey, which it writes as a number (NOTES §3.5a) */
+    static const unsigned char grey[3] = { 127, 127, 127 };
     const unsigned char *p;
-    if (!exe_addr(X_COLOURS))
-        return c >= 0 && c < (int)(sizeof plain / sizeof plain[0]) ? plain[c] : black;
+    if (exe_is_cd()) {
+        if (c == COL_GREY)
+            return grey;
+        if (c > COL_GREY)
+            c--;
+    }
     p = exe_at(exe_addr(X_COLOURS) + 4 * (unsigned)c, 3);
     return p ? p : black;
 }

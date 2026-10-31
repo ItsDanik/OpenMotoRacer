@@ -1188,6 +1188,8 @@ static void ambience(const float cam[3], const float look[3])
 
 /* ------------------------------------------------------------------ the calls */
 
+static unsigned g_comm_clock;   /* 0x54299c */
+
 /* the engines and the shouts from nothing (0x4084e0, and 0x408900, 0x408b30 switching on) */
 static void engines_afresh(void)
 {
@@ -1195,6 +1197,7 @@ static void engines_afresh(void)
     g_last_followed = 0;
     g_slide_on = g_air_on = g_flat_on = 0;
     g_flat_said = 0;
+    g_comm_clock = g_now + 36000;
     g_slide_last = g_now;
     g_slide_said = 0;
     g_air_said = 0;
@@ -1302,6 +1305,7 @@ void race_sound_start(const float cam[3], int player)
 {
     int i;
     g_player = player;
+    sound_queue_reset();        /* 0x4086b0..0x4086e7 */
     engines_afresh();
     memcpy(g_cam_prev, cam, sizeof g_cam_prev);
     /* (0x405ea0 runs at the track's load; the port reads Sound.Spt again at each start) */
@@ -1314,6 +1318,29 @@ void race_sound_start(const float cam[3], int player)
     sound_set_last_effect(-1);
     if (sound_effects_on() && !g_engine_on && !g_ambience_on)
         g_engine_on = g_ambience_on = 1;
+}
+
+/* 0x407420, what the commentator says of the player's place: looked at once a minute, the first
+   time 96 s after the start. (The ids are 0x4db988's and 0x4db990's.) */
+void race_sound_commentary(int place, int count)
+{
+    static const int leading[2] = { 0x41, 0x40 };       /* stillrun, running4 */
+    static const int behind[3] = { 0x38, 0x3c, 0x3f };  /* fuel, onegear, runlast */
+    int left = count - place;
+    if (!sound_voices_on() || g_comm_clock + 60000 >= g_now)
+        return;
+    g_comm_clock = g_now;
+    if (count < 2)
+        return;
+    if (place == 0)
+        sound_queue_voice(leading[RAND() & 1], 500);
+    else if (left == 1) {
+        if (!(RAND() & 1) && sound_last_voice() != 0x49) {
+            sound_set_last_voice(0x49);                 /* yurdalst */
+            sound_volume(sound_server_play(0x49, 0), 0xff);
+        }
+    } else if (left == 2 || (count > 3 && left == 3))
+        sound_queue_voice(behind[RAND() % 3], 500);
 }
 
 void race_sound_step(BikePhys *const *all, int followed, const float cam[3],

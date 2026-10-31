@@ -130,12 +130,14 @@ folders 0x4da8a8, seeds 0x4d2bb8 (8th 0; the port never draws stream 7), sounds 
 0x4de868, 0x4de8f8, 0x4de978, 0x4de6d8 (ids and names all equal), podium's sound objects 0x4e4a68, cheats 0x4e7530
 (count 0x4e7528, switches 0x4d2350 for GOG's 0x4dc050), words 0x4d8340 (191, two wordings differ: 86 and 160, the
 port doesn't format with either), scripts 0x4e73f0, 0x4e7450; the cursors' resources have the same numbers.
-**No named colours**: the program pushes R,G,B as numbers (0x422fa0's 103 calls: white, black, yellow, 128 grey,
-cyan, and reds from 100 to 240 by menu row, 236 on the HUD). `font.c` uses plain colours on this build, which is
-not the CD's look in every place: the port runs **GOG's logic on the CD's data** (the choice left open in §1).
+**Named colours (corrected 2026-10-31):** an earlier line here said there were none: wrong. 0x422fa0 is `Font_Get` (249 calls), and the
+"colours" taken for its arguments were what lay on the stack under them. The table is at **0x4e7790**: GOG's 0x4f0dd4 without its grey,
+10 entries [read from the file and from the running program]; grey is 127 as a number. The two programs colour alike nearly everywhere:
+the only difference with a pixel to it is page 8's grey rows, 128 against 127, and the port has no page 8. So the CD has no look of its own in colours. `font.c` reads the table.
+The port runs **GOG's logic on the CD's data** (the choice left open in §1); what would change that is in build/notes/cd_logic_diff.md, §3.5b.
 "FULL D3D VERSION" is the patch's: not on this build. Registry value `Version` 1 makes the program use the
 `title*GP.lez` pictures (0x4d247c) ("Moto Racer GP"); the port doesn't read it and shows the plain title.
-Not handled: the CD's audio tracks are not files, so a CD with no `NN.wav` beside it has no music.
+The CD's audio tracks come from its image (§4.10.5.3a).
 
 **Running MOTO.EXE under wine** (build/origcd: MOTO.EXE, DATA, GOG's DDraw.dll, D3DImm.dll, dgVoodoo.conf; drive
 e: at that folder with `.windows-label` moto_rac and `HKLM\Software\Wine\Drives` e: cdrom). Without the install's
@@ -143,9 +145,18 @@ registry it says PROGRAM INCORRECTLY INSTALLED. Under `HKLM\SOFTWARE\Wow6432Node
 (the 32-bit view: reg.exe's plain path doesn't reach it): strings DataPath `e:\`, SavingPath `e:\`, Language ENGLISH,
 dwords Version 0, InstallType 3, PId = the sum of 0x47bf90 over Windows' ProductId (`e = 2e ^ c`; here 140469129).
 Title and main menu: the port on the CD's files differs from it in the pointer only (175 and 179 pixels, box of
-the pointer; main with OMR_TILE=89,89). The name page wasn't compared (its letters turn). **Pressing Solo did
-nothing**: keys, xdotool's press and click: the button lights and the page stays. So no page past the main menu
-and no race has been compared with MOTO.EXE. The drive and link were removed afterwards from the prefix.
+the pointer; main with OMR_TILE=89,89). The name page wasn't compared (its letters turn). **Pressing Solo did nothing** was the copy check 0x466920 (track 2's length through MCI, 4:12:62): no disc under wine, so page 26.
+
+**A whole race on MOTO.EXE under wine, since 2026-10-31.** Two things: its switch is spelled **`-noD3D`**, and it is case-sensitive: with `-NoD3D`
+it stays on the Direct3D path and the 3D draws black; and the check's two jumps, 0x466941 and 0x466959, are overwritten with NOPs in the running
+program's memory, for this comparison on our own copy (a memtool with the name moto.exe). No file of the game is changed, and the port has no check.
+`build/origcd.sh` (start, shot, key, poke, read, stop, its own prefix `build/wineprefix_cd` and hidden display, sound into a null sink; `build/origcd_reg.sh` the registry and drive) stays git-ignored. Not capped by -FrameRateMax60 unless asked.
+
+### 3.5b MOTO.EXE against game.EXE, function by function (2026-10-31)
+Full report in `build/notes/cd_logic_diff.md` (made from the programs, so git-ignored). 3738 pairs by masked instructions: 2788 equal, 950 differ (910 the game's own, all read: 646 noise, 179 out of scope, 85 logic); 472 in one program only (7 logic). All from reading [asm, decomp], none run yet, physics figures by hand. **Physics: the player's bike only; the computer riders' numbers are the same.**
+On the CD: lean by the computer's rule (0x48ad50), about half GOG's; keyboard steering limited to carac+0x28 (0x487043); dirt steering not clamped (0x4978c0); ground covered in turns by |velocity·forward|, not 1−R/|r| (0x41cad0); speed x 0.994 on a big lateral change (0x47ebc2); engine braking one gear off (0x41e510); crash bounce 0.1 not 0.01 (0x4894a0).
+Seen: podium's 3D drawn first, so the panel shows, no Escape, glass to Top 5 (0x476f40, 0x476180); Choose Bike's panels over the bike (0x4730b0; **seen in a capture**); big messages not forced Direct (0x4939ee); 4 flat shadow points (0x487aa0); key messages at y 0, not 20; replay limit 10000, not 20400. Copy check and "ILLEGAL VERS" (0x417660): never in the port.
+None of these is in the port: it runs GOG's logic on the CD's data until Danik says otherwise.
 
 ## 4. Map of the program
 
@@ -2188,7 +2199,8 @@ game's folder, the one above it, or `../CD`. The .bin is the name the .cue gives
 image here is renamed: the .cue says MOTO_RACER.BIN). A track runs from its INDEX 01 to the next track's INDEX 01: track 2 comes to 4:12:62,
 the length 0x442740's copy check wants. Without an image: `NN.wav` beside the files if any, with the CD's rules.
 The rules are the disc's (asm above), not GOG's loop: a track at its end has stopped; the 1 s timer plays one with the repeat flag again in
-mode 0 (twice in all), then it stays stopped until a page asks for it. Checked (`OMR_WAV`, main menu, 5 minutes): track 3 twice with a gap of
+mode 0 (twice in all), then it stays stopped until a page asks for it. In both builds 0x404990 chooses first and plays with -1, so modes 1 and 3 leave going whatever
+plays, and the podium's track runs on into the menus [asm; GOG's mode status answers playing from its own flags]. Checked (`OMR_WAV`, main menu, 5 minutes): track 3 twice with a gap of
 under a second and then silence from 281 s; 2 s from the middle found in GOG's 03.wav at score 0.99999.
 
 ##### 4.10.5.4 Track use (both the CD and the GOG files: 02..13.wav, 44.1 kHz stereo 16-bit)
@@ -2222,6 +2234,13 @@ onto the mixer control's range with MulDiv; restored at exit (0x470970). In-game
 draw a gauge. CD config: 19/19/19; GOG config: Master 0, CD 32, Wave 32. For the port: a
 music gain = CDVolume/32 and an effects gain = WaveVolume/32 (ignore Master, or treat it
 as overall) [guess on what feels the same; the original changed system volumes].
+
+#### 4.10.5b The race's sound measured against the original (2026-10-31)
+Full report and how it was done: `build/notes/race_sound.md` (git-ignored; recordings under `build/agent_sound/`). The original under wine, recorded from a null sink, its commands logged inside the process, the port by `OMR_WAV`. A known tone through the same path came back at 0.00 dB, so wine's path is calibrated; what it hides is a real machine's primary format and hardware mixer.
+**Equal within what can be heard:** everything together within 0.06 dB in 5 windows; music -21.50 against -21.58 dB, and against the files -0.002 dB; effects -8.54 against -8.61 dB, balance 0.00 dB; engines idle and accelerating within 0.3 dB; the followed rider's pitch commands equal (MOTOSTP 35 of 36 on KTM, the rest all); the others' up to where the riders part (V 2278/2287, F 2197/2275); 3, 2, 1, GO exact.
+**Found and fixed:** (1) `queue_step` left the voice queue in state 2 when it went idle (0x404ce0..0x404ce7 also sets state 0), so the next voice queued was skipped: CHCKPVOX 2 of 11, no FINLAP, YOULOST, TIMEOUT or GAMEOVER. The wait is `<` too (`cmp eax,ecx; ja`), it was 1 ms late. (2) The position commentary 0x407420 was never written: `race_sound_commentary`. First look 96 s after the start, then every 60 s; riding and the laps checked in a full race, leading (running4, stillrun) by `OMR_AUTOPILOT=win`. (3) 0x4084e0 empties the queues at the race's start (0x4086b0..0x4086e7): no old voice after a restart.
+**Not changed, Danik's call:** effects 1 to 2.5 dB lower at 1.6 to 5 kHz, voices -4.6 dB at 4-5 kHz: the port's mixer is linear (`sound.c`), wine's is sharper. Original minus port at 3.2-5 kHz: +1.47 dB linear, +0.60 Hermite, +0.17 8-tap. A 1997 Windows mixer was probably cruder than wine's [not measured], so matching wine may not be matching 1997.
+**Open:** with the two programs held in step by the helper's lock, the computer riders part just after GO, a few tenths of a unit at first, median 3100 units by step 1000. Its lock didn't carry the frame-time smoothing 0x4dc150, which may be all it is; `tools/cpucheck.sh` passes. So voices tied to laps were compared by order and gaps, not on the same step. Also not measured: real Windows, latency, the port in real time.
 
 #### 4.10.6 Settings and race sounds (for later)
 
