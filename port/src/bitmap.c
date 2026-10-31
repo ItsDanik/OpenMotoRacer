@@ -300,6 +300,7 @@ void bitmap_draw(const Bitmap *b, int mode, int pct_h, int pct_w)
     dst = g_screen + y * g_pitch + x;
     if (rows <= 0 || cols <= 0)
         return;
+    VIDEO_ROWS(y, y + rows - 1);
     if (mode == BM_OWN)
         mode = b->mode;
     switch (mode) {

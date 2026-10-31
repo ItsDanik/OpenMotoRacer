@@ -14,6 +14,7 @@
 #include "pad.h"
 #include "pages.h"
 #include "r3d.h"
+#include "race.h"
 #include "sound.h"
 #include <SDL.h>
 #include <stdio.h>

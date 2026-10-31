@@ -1045,6 +1045,7 @@ void dialog_shade(int x0, int y0, int x1, int y1)
     if (y1 > g_scr_h - 1) y1 = g_scr_h - 1;
     if (x1 <= x0 || y1 <= y0)
         return;
+    VIDEO_ROWS(y0, y1);
     for (y = y0; y <= y1; y++) {
         uint16_t *p = g_screen + y * g_pitch;
         int t = -1;

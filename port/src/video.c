@@ -80,6 +80,10 @@ void video_mouse(int *x, int *y)
 
 #ifdef MISTER_HYBRID
 static uint16_t g_small[320 * 240];
+/* over a race's 3D at 640x240, the 2D's rows are taken from it only as the 2D comes to them, and
+   only those go back: VIDEO_ROWS in whatever draws there */
+int g_half_lazy;
+static unsigned char g_half_taken[240];
 /* where 640x240's rows are: each g_half_step pixels from g_half_to */
 static uint16_t *g_half_to = g_pixels;
 static int g_half_step = 2 * SCREEN_MAX_W;
@@ -132,51 +136,94 @@ void video_direct_end(void)
     g_last = 0;
 }
 
+static void half_take(int y)
+{
+    const uint16_t *from = g_half_to + y * g_half_step;
+    uint16_t *to = g_small + y * 320;
+    int x;
+#ifdef __ARM_NEON
+    for (x = 0; x < 320; x += 8)
+        vst1q_u16(to + x, vld2q_u16(from + 2 * x).val[0]);
+#else
+    for (x = 0; x < 320; x++)
+        to[x] = from[2 * x];
+#endif
+}
+
+void video_half_rows(int y0, int y1)
+{
+    int y;
+    if (y0 < 0)
+        y0 = 0;
+    if (y1 > 239)
+        y1 = 239;
+    for (y = y0; y <= y1; y++)
+        if (!g_half_taken[y]) {
+            g_half_taken[y] = 1;
+            half_take(y);
+        }
+}
+
 void video_half_3d(int on)
 {
-    int x, y;
     if (on) {
         g_screen = g_half_to, g_pitch = g_half_step / 2, g_scr_w = 640, g_scr_h = 480;
         return;
     }
-    /* what the 2D sees under it: every second pixel of the rows */
-    for (y = 0; y < 240; y++) {
-        const uint16_t *from = g_half_to + y * g_half_step;
-        uint16_t *to = g_small + y * 320;
-#ifdef __ARM_NEON
-        for (x = 0; x < 320; x += 8)
-            vst1q_u16(to + x, vld2q_u16(from + 2 * x).val[0]);
-#else
-        for (x = 0; x < 320; x++)
-            to[x] = from[2 * x];
-#endif
+    memset(g_half_taken, 0, sizeof g_half_taken);
+    g_half_lazy = 1;
+#ifdef OMR_PROF
+    if (getenv("OMR_ROWS_CHECK")) {     /* every row at hand, to see what draws without saying */
+        int y;
+        for (y = 0; y < 240; y++)
+            half_take(y);
     }
+#endif
     g_screen = g_small, g_pitch = 320, g_scr_w = 320, g_scr_h = 240;
 }
 
 /* what the 2D changed goes over the 3D, each pixel twice as wide */
+static void half_merge_row(int y)
+{
+    const uint16_t *a = g_small + y * 320;
+    uint16_t *o = g_half_to + y * g_half_step;
+    int x;
+#ifdef __ARM_NEON
+    for (x = 0; x < 320; x += 8) {
+        uint16x8_t d = veorq_u16(vld1q_u16(a + x), vld2q_u16(o + 2 * x).val[0]);
+        uint64x2_t q = vreinterpretq_u64_u16(d);
+        int i;
+        if (!(vgetq_lane_u64(q, 0) | vgetq_lane_u64(q, 1)))
+            continue;
+        for (i = x; i < x + 8; i++)
+            o[2 * i] = o[2 * i + 1] = a[i];
+    }
+#else
+    for (x = 0; x < 320; x++)
+        if (a[x] != o[2 * x])
+            o[2 * x] = o[2 * x + 1] = a[x];
+#endif
+}
+
 static void half_merge(void)
 {
-    int x, y;
+    int y;
     for (y = 0; y < 240; y++) {
-        const uint16_t *a = g_small + y * 320;
-        uint16_t *o = g_half_to + y * g_half_step;
-#ifdef __ARM_NEON
-        for (x = 0; x < 320; x += 8) {
-            uint16x8_t d = veorq_u16(vld1q_u16(a + x), vld2q_u16(o + 2 * x).val[0]);
-            uint64x2_t q = vreinterpretq_u64_u16(d);
-            int i;
-            if (!(vgetq_lane_u64(q, 0) | vgetq_lane_u64(q, 1)))
-                continue;
-            for (i = x; i < x + 8; i++)
-                o[2 * i] = o[2 * i + 1] = a[i];
+#ifdef OMR_PROF
+        if (g_half_lazy && !g_half_taken[y] && getenv("OMR_ROWS_CHECK")) {
+            const uint16_t *a = g_small + y * 320, *o = g_half_to + y * g_half_step;
+            int x;
+            for (x = 0; x < 320; x++)
+                if (a[x] != o[2 * x]) {
+                    fprintf(stderr, "rows: row %d drawn on without saying\n", y);
+                    break;
+                }
         }
-#else
-        for (x = 0; x < 320; x++)
-            if (a[x] != o[2 * x])
-                o[2 * x] = o[2 * x + 1] = a[x];
 #endif
+        if (!g_half_lazy || g_half_taken[y])
+            half_merge_row(y);
     }
+    g_half_lazy = 0;
 }
 
 /* the picture to the core: drawn in its buffer already, or its rows copied there. The copy only

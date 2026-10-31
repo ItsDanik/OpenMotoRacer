@@ -1283,7 +1283,7 @@ void race_frame(void)
     const BikePhys *b = &g_phys[g_follow];
     float eye[3], c[3][3], a, focal;
     static const float zero[3];
-    int i, k, y, sec, flags;
+    int i, k, sec, flags;
     if (g_paused) {             /* the last picture stays; no time passes */
         g_step_at += g_now - g_last_now;
         g_last_now = g_now;
@@ -1349,8 +1349,6 @@ void race_frame(void)
     }
 #endif
     focal = FOCAL * camera_zoom();
-    for (y = 0; y < g_scr_h; y += 1 + (g_half_rows != 0))
-        memset(g_screen + y * g_pitch, 0, sizeof(uint16_t) * (size_t)g_scr_w);
     horizon_draw((const float (*)[3])c, zero, eye[1], g_land.horizon_offset,
                  g_land.horizon_scale, focal);
     r3d_race(g_detail);
