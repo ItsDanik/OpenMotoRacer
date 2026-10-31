@@ -11690,6 +11690,7 @@ All of it behind `MISTER_HYBRID` (`port/src/mister.c`, `mister.h`); the PC's pic
   `page_name_picks`), the record's name on TOP 5: up and down turn the last letter, right adds one, left takes one
   away, OK ends (`page_top5_letter`). A demo's dialog does not hold the race (`dialog_holds()` is 0), so the pad
   counts it as a menu through `dialog_open()`: before that a pad could not leave a demo.
+- **The settings page's buttons**: in menus the core's buttons reach the game only as OK, Back and Select, so page 12 waiting at "Press..." heard nothing else (found on the real core, 2026-11-01). While `g_pad_listen` is set `mister_pad` gives them as in a race, and Y as PAD_Y; a Y that an action uses no longer changes the camera. Data on a USB drive (`TEST_USB`), settings written there at the end, Flicker Filter usable at 480i, the `_Test` entry through the launcher: all tried on the real core.
 - **HUD margins**: `g_hud_top` moves the top texts, `g_hud_bottom` the dials and bottom texts up; the signs and the
   place's 3D figure go down through `r3d_screen_down()`.
 - **Cheats on the OSD**: the game's three follow `g_island_unlocked`, `g_reverse_unlocked2`,
