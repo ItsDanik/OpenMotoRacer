@@ -36,6 +36,8 @@
 #include "signs.h"
 #include "sound.h"
 #include "text.h"
+#include "racekeys.h"
+#include "trackmap.h"
 #include "video.h"
 #include <math.h>
 #include <stdint.h>
@@ -146,11 +148,49 @@ void race_key(int vk, int down)
         g_shift_held = down;
         return;
     }
+    /* the control keys first, whatever else the key does, and in a pause too */
+    for (a = 0; a < ACTIONS; a++)
+        if (g_binding[a][0] == vk)
+            bikephys_key(&g_phys[g_player], b, a, down, g_control);
     /* Pause, Ctrl+P (0x4314f7): the race stands. (The pause menu leaves the music going.) */
     if ((vk == 0x13 || (vk == 'P' && g_ctrl_held)) && down && g_solo) {
         g_paused ^= 1;
         music_pause(g_paused);                  /* 0x4096e0 */
         sound_pause_all(g_paused);              /* 0x409700 -> 0x424090 */
+        return;
+    }
+    if (vk == 0x78) {                           /* F9: the track map (0x4e8944 is set in a race) */
+        if (down && g_hotkeys)
+            trackmap_key();
+        return;
+    }
+    if (vk == 0x6a || vk == 0x6f) {             /* * and /: the volumes */
+        if (down)
+            racekeys_volume(vk == 0x6a, g_shift_held, g_ctrl_held);
+        return;
+    }
+    if (vk == VK_ADD || vk == VK_SUBTRACT) {    /* + and -: the detail */
+        if (down && !g_shift_held) {
+            if (vk == VK_ADD && g_detail < 4)
+                g_detail++;
+            else if (vk == VK_SUBTRACT && g_detail > 0)
+                g_detail--;
+        }
+        return;
+    }
+    if (g_ctrl_held && vk == 'F') {             /* the small fonts */
+        if (down)
+            racekeys_small_fonts();
+        return;
+    }
+    if (g_ctrl_held && vk == 'U') {             /* the speed in mph or km/h (0x4f0dd0) */
+        if (down && !g_shift_held)
+            g_speed_unit = !g_speed_unit;
+        return;
+    }
+    if (vk == 0x70 && g_shift_held && !g_ctrl_held) {   /* Shift+F1: the screen's size */
+        if (down)
+            racekeys_info();
         return;
     }
     if (g_paused)
@@ -240,9 +280,6 @@ void race_key(int vk, int down)
             signs_key();
         return;
     }
-    for (a = 0; a < ACTIONS; a++)
-        if (g_binding[a][0] == vk)
-            bikephys_key(&g_phys[g_player], b, a, down, g_control);
 }
 
 #define STEP_MS 16
@@ -769,6 +806,7 @@ int race_load(char *err, int errsize)
     }
     figure_load(g_tracks[g_track].folder);      /* 0x47b600 */
     screen_set();                               /* 0x410e10 -> 0x4592a0 */
+    trackmap_build();                           /* 0x40ed10 */
     /* 0x47b420: practice 1, else 23 opponents, or 11 with "OPPONENTS: 12"; 0x410a50 */
     opponents = g_mode == 0 ? 1 : g_opponents && !g_playback ? 11 : 23;
     g_riders = 2 + opponents;
@@ -1000,6 +1038,7 @@ void race_unload(void)
     music_stop();
     bike3d_free();
     figure_free();
+    trackmap_free();
     land_free();
     r3d_race(-1);
     r3d_focal(1911.0f);
@@ -1132,8 +1171,10 @@ void race_frame(void)
         pointer_draw();
         return;
     }
-    if (g_new_screen)           /* 0x47ff90's end: 0x4e9ce4 */
+    if (g_new_screen) {         /* 0x47ff90's end: 0x4e9ce4 */
         screen_set();
+        racekeys_new_screen();
+    }
     if (g_events && !events())
         return;
     text_clock(g_now);
@@ -1194,6 +1235,10 @@ void race_frame(void)
     hud_bike(b);
     if (flags & RACE_DRAW_DIALS) {      /* the drawing flags' bit 3: off under a dialog */
         hud_dials_3d();
+        if (!g_winner_sequence) {               /* 0x40f2d0 */
+            trackmap_draw(g_shown, g_follow, FOCAL);
+            r3d_focal(focal);
+        }
         signs_draw();
         figure_draw();
     }

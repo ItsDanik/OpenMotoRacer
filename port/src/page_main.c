@@ -129,10 +129,11 @@ void page_main_frame(void)
         g_solo = 1;
         break;
     case 1:
+        /* The game goes to page 2, its network games; the port has none (no network, by
+           decision). The button says its name, as any press does, and stays. */
         menu_press_done();
-        g_solo = 0;
-        menu_capture();
-        page = 2;
+        g_voice_played = 0;
+        g_go_at = 0xffffffffu;
         break;
     case 2:
         menu_press_done();

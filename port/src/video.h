@@ -12,6 +12,7 @@ extern int g_pitch;            /* pixels a row (0x62ebec) */
 
 int video_init(int headless, char *err, int errsize);
 void video_set_size(int w, int h, int view_h);  /* 0x4592a0's screen: w x h, the picture view_h high */
+int video_surface_h(void);       /* 0x4dbffc: the screen's height, also under a 16:9 picture */
 void video_mouse(int *x, int *y);       /* the window's 640x480 to the screen's own places */
 void video_present(void);
 int video_shot(const char *file);   /* the screen as a BMP */
@@ -19,5 +20,13 @@ void video_quit(void);
 
 void video_toggle_fullscreen(void);     /* the display menu's FS (0x43a3a0) */
 int video_fullscreen(void);             /* 0x4dbff0 */
+void video_set_fullscreen(int on);
+int video_has_window(void);
+void video_focus(int gained);           /* WM_ACTIVATEAPP's part for the screen */
+void video_frame_end(void);             /* 0x49b1c0's part for it */
+int video_no_3d(void);                  /* 0x4e893c, 0x4e8940: the 3D is not drawn */
+extern int g_draw_2d;                   /* 0x4f1824: texts and pictures are drawn */
+int video_fullscreen_kept(void);        /* what is saved as FullScreen */
+extern int g_alt_return;                /* 0x4e8934: Alt+Return works (not on the podium) */
 
 #endif

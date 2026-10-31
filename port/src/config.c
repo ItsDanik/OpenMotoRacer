@@ -2,6 +2,8 @@
    0x42ae30, and written in the same order when the program ends, as 0x42c4c0 and the .BPT
    rewrite after it do. */
 #include "config.h"
+#include "trackmap.h"
+#include "video.h"
 #include "choices.h"
 #include "font.h"
 #include "saves.h"
@@ -51,6 +53,11 @@ int g_binding[ACTIONS][2];
 
 static int g_cfg[CFG_COUNT];
 static int g_cfg_read;          /* 0x4e716c: the file was read, so it may be written */
+
+int config_fullscreen(void)     /* 0x4dbff0 as read */
+{
+    return g_cfg[CFG_FULLSCREEN];
+}
 
 /* 0x430f20: the bindings before the file's */
 static void default_bindings(void)
@@ -104,6 +111,7 @@ void config_load(void)
     if (g_race_screen < 0 || g_race_screen > 2)
         g_race_screen = 2;
     g_mode169 = g_cfg[CFG_MODE_169] & 1;
+    g_map_mode = g_cfg[CFG_MAP_MODE];
     g_input_device = g_cfg[CFG_INPUT_DEVICE];
     g_joy_type = g_cfg[CFG_JOY_TYPE];
     g_wave16 = g_cfg[CFG_WAVE16];
@@ -142,6 +150,9 @@ void config_save(void)
         return;
     g_cfg[CFG_SCREEN_MODE] = g_race_screen;
     g_cfg[CFG_MODE_169] = g_mode169;
+    g_cfg[CFG_MAP_MODE] = g_map_mode;
+    if (video_has_window())     /* (without one, the settings' value stays) */
+        g_cfg[CFG_FULLSCREEN] = video_fullscreen_kept();
     g_cfg[CFG_DETAIL] = g_detail;
     g_cfg[CFG_DIFFICULTY] = g_difficulty;
     g_cfg[CFG_COMPUTER_CUT] = g_opponents;

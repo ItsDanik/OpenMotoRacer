@@ -13,6 +13,16 @@ static SDL_Renderer *g_ren;
 static SDL_Texture *g_tex;
 static int g_fullscreen;
 static int g_surf_h = 480;      /* the surface's height: below a 16:9 picture it stays black */
+int g_alt_return = 1;
+int g_draw_2d = 1;
+int g_no_3d;
+static int g_no_3d_once;        /* 0x4e8940 */
+static int g_kept = -1;         /* 0x4e8954: while another program has the focus */
+
+int video_surface_h(void)
+{
+    return g_surf_h;
+}
 
 int video_init(int headless, char *err, int errsize)
 {
@@ -78,9 +88,64 @@ void video_toggle_fullscreen(void)
         SDL_SetWindowFullscreen(g_win, g_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 }
 
+/* the start; a run without a window stays as it is, so that the pictures do not depend on
+   the settings */
+void video_set_fullscreen(int on)
+{
+    if (g_win && !g_fullscreen != !on)
+        video_toggle_fullscreen();
+}
+
 int video_fullscreen(void)
 {
     return g_fullscreen;
+}
+
+int video_has_window(void)
+{
+    return g_win != 0;
+}
+
+/* WM_ACTIVATEAPP (0x4333bf, 0x433425): the full screen gives way to a window while another
+   program has the focus, and comes back with it; what is saved is what it was (0x432fda) */
+void video_focus(int gained)
+{
+    if (!gained) {
+        g_no_3d_once = 0;
+        g_draw_2d = 0;
+        if (g_kept < 0)
+            g_kept = g_fullscreen;
+        if (g_fullscreen) {
+            video_set_fullscreen(0);
+            g_no_3d = 1;
+        }
+    } else {
+        g_no_3d = 0;
+        g_no_3d_once = 1;
+        if (g_kept >= 0)
+            video_set_fullscreen(g_kept);
+        g_kept = -1;
+    }
+}
+
+/* 0x49ad90's test */
+int video_no_3d(void)
+{
+    return g_no_3d || g_no_3d_once;
+}
+
+/* 0x49b1c0, each picture shown: back from another program, one without 3D, then all */
+void video_frame_end(void)
+{
+    if (g_no_3d_once) {
+        g_no_3d_once = 0;
+        g_draw_2d = 1;
+    }
+}
+
+int video_fullscreen_kept(void)
+{
+    return g_kept >= 0 ? g_kept : g_fullscreen;
 }
 
 void video_quit(void)

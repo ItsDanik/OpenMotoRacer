@@ -19,6 +19,7 @@ enum {                          /* the file's numbers, in their order */
 
 #define ACTIONS 7               /* accelerate, brake, left, right, gear up, gear down, turbo */
 
+int config_fullscreen(void);    /* the settings' FullScreen */
 extern char g_player_name[16];  /* 0x5161b0: DefName, then the name typed on page 15 */
 extern int g_detail;            /* 0x4dc098: CurrentDetail, the row of Level.Spt's detail
                                    table (0..4; 4 in the GOG copy) */

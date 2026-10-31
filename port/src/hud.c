@@ -892,6 +892,12 @@ void hud_sound_notice(const char *s, int trouble)
         say(&id, s, 2000, 0x22, 0, 0x14, FX_FADE_OUT, F_MESSAGES, 4);
 }
 
+void hud_say(int *id, const char *s, int life, int align, int x, int y, int effect, int font,
+             int blink)
+{
+    say(id, s, life, align, x, y, effect, font, blink);
+}
+
 void hud_notice(int slot, const char *s)
 {
     static int id[2];
