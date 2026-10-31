@@ -834,30 +834,25 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
         }
         return;
     }
-    for (x = x0; x < x1; x++, u += du, v += dv) {
-        unsigned c;
-        c = tex[((v >> 13) * 256 + (u >> 13)) & 0xffff];  /* 0x4a5e10, 0x4a5330, 0x4a5580 */
-        if (kind == 0x25) {                             /* 0x4a50c0: the face's colour */
-            if (c)
-                o[x] = colour;
-            continue;
-        }
-        if ((kind == 0x26 || kind == 0x27) && c == 0)
-            continue;
-        if (kind == 0x2c) {                             /* 0x4a57f0: half and half */
-            if (c)
-                o[x] = (uint16_t)(((o[x] >> 1) & HALF) + ((c >> 1) & HALF));
-            continue;
-        }
-        if (kind == 0x14) {     /* 0x4adbf0: red from the table 0x4f62f0, which nothing writes;
-                                   the palette's colour 0 halves the screen */
-            o[x] = (uint16_t)(c ? c & 0x7ff : (o[x] >> 1) & HALF);
-            continue;
-        }
-        if (kind == 0x15 || kind == 0x27)
-            c = (c >> 1) & HALF;
-        o[x] = (uint16_t)c;
+#define TEXELS(what) \
+    for (x = x0; x < x1; x++, u += du, v += dv) { \
+        unsigned c = tex[((v >> 13) * 256 + (u >> 13)) & 0xffff]; \
+        what; \
+    } \
+    return
+    switch (kind) {
+    case 0x25: TEXELS(if (c) o[x] = colour);                    /* 0x4a50c0: the face's colour */
+    case 0x26: TEXELS(if (c) o[x] = (uint16_t)c);               /* 0x4a5330 */
+    case 0x27: TEXELS(if (c) o[x] = (uint16_t)((c >> 1) & HALF));   /* 0x4a5580 */
+    case 0x2c:                                                  /* 0x4a57f0: half and half */
+        TEXELS(if (c) o[x] = (uint16_t)(((o[x] >> 1) & HALF) + ((c >> 1) & HALF)));
+    case 0x14:          /* 0x4adbf0: red from the table 0x4f62f0, which nothing writes; the
+                           palette's colour 0 halves the screen */
+        TEXELS(o[x] = (uint16_t)(c ? c & 0x7ff : (o[x] >> 1) & HALF));
+    case 0x15: TEXELS(o[x] = (uint16_t)((c >> 1) & HALF));      /* 0x4a5e10 */
+    default: TEXELS(o[x] = (uint16_t)c);
     }
+#undef TEXELS
 }
 
 /* 0x49d9e0 (opaque: draw the free pieces and close them) and 0x49dbf0 (see-through:
@@ -1221,20 +1216,22 @@ static void span6(int y, int x0, int x1, const float e[3], const float g16[3], i
         n -= k;
         for (; k > 0 && skip > 0; k--, skip--, o++, u += du, v += dv)
             ;
-        for (; k > 0; k--, o++, u += du, v += dv) {
-            unsigned c = tex[((v >> 13) * 256 + (u >> 13)) & 0xffff];
-            switch (kind) {
-            case 31: *o = (uint16_t)c; break;                       /* 0x4a5c40 */
-            case 32: *o = (uint16_t)((c >> 1) & HALF); break;       /* 0x4a5e90 */
-            case 53: if (c) *o = (uint16_t)c; break;                /* 0x4a53b0 */
-            case 54: if (c) *o = (uint16_t)((c >> 1) & HALF); break;   /* 0x4a5610 */
-            case 51: if (c) *o = colour; break;                     /* 0x4a5150 */
-            case 62:                                                /* 0x4a5890 */
-                if (c)
-                    *o = (uint16_t)(((*o >> 1) & HALF) + ((c >> 1) & HALF));
-                break;
-            }
+#define TEXELS(what) \
+        for (; k > 0; k--, o++, u += du, v += dv) { \
+            unsigned c = tex[((v >> 13) * 256 + (u >> 13)) & 0xffff]; \
+            what; \
+        } \
+        break
+        switch (kind) {
+        case 31: TEXELS(*o = (uint16_t)c);                          /* 0x4a5c40 */
+        case 32: TEXELS(*o = (uint16_t)((c >> 1) & HALF));          /* 0x4a5e90 */
+        case 53: TEXELS(if (c) *o = (uint16_t)c);                   /* 0x4a53b0 */
+        case 54: TEXELS(if (c) *o = (uint16_t)((c >> 1) & HALF));   /* 0x4a5610 */
+        case 51: TEXELS(if (c) *o = colour);                        /* 0x4a5150 */
+        case 62: TEXELS(if (c) *o = (uint16_t)(((*o >> 1) & HALF) + ((c >> 1) & HALF)));   /* 0x4a5890 */
+        default: o += k, u += (uint32_t)k * du, v += (uint32_t)k * dv;
         }
+#undef TEXELS
     }
 }
 
@@ -1242,8 +1239,14 @@ static void span6(int y, int x0, int x1, const float e[3], const float g16[3], i
 static void row6(int y, int xl, int xr, const float e[3], const Tri6 *t)
 {
     int16_t out[2 * FREE_MAX];
-    int i = 0, n = 0, nf = g_nfree[y];
+    int i = 0, n, first, nf = g_nfree[y];
     float es[3];
+    /* (most pieces are out of its way, and stay) */
+    while (i < nf && g_free[y][2 * i] < xl && g_free[y][2 * i + 1] < xl)
+        i++;
+    if (i == nf || (g_free[y][2 * i] >= xl && g_free[y][2 * i] > xr))
+        return;
+    n = first = i;
 #define KEEP(a, b) do { if (n < FREE_MAX) out[2 * n] = (int16_t)(a), out[2 * n + 1] = (int16_t)(b), n++; } while (0)
     while (i < nf) {
         int a = g_free[y][2 * i], b = g_free[y][2 * i + 1], d;
@@ -1286,7 +1289,8 @@ static void row6(int y, int xl, int xr, const float e[3], const Tri6 *t)
     for (; i < nf; i++)
         KEEP(g_free[y][2 * i], g_free[y][2 * i + 1]);
 #undef KEEP
-    memcpy(g_free[y], out, sizeof(int16_t) * 2 * n);
+    if (n > first)
+        memcpy(g_free[y] + 2 * first, out + 2 * first, sizeof(int16_t) * 2 * (size_t)(n - first));
     g_nfree[y] = n;
 }
 
@@ -1328,21 +1332,26 @@ static void row6s(int y, int xl, int xr, const float e[3], const Tri6 *t)
 static void rows6(int y, int cnt, int *xl, int sl, int *xr, int sr, float e[3],
                   const float de[3], const Tri6 *t)
 {
-    int see = see_through(t->kind), first = g_nspan, k;
+    int see = see_through(t->kind), first = g_nspan, l = *xl, r = *xr;
+    float now[3], d0 = de[0], d1 = de[1], d2 = de[2];
     if (see && !g_room)
         return;
+    now[0] = e[0], now[1] = e[1], now[2] = e[2];
     for (; cnt > 0; cnt--, y++) {
         if (g_nfree[y] && (!g_half_rows || !(y & 1))) {
             if (see)
-                row6s(y, *xl >> 13, *xr >> 13, e, t);
+                row6s(y, l >> 13, r >> 13, now, t);
             else
-                row6(y, *xl >> 13, *xr >> 13, e, t);
+                row6(y, l >> 13, r >> 13, now, t);
         }
-        for (k = 0; k < 3; k++)
-            e[k] = (float)((double)e[k] + de[k]);
-        *xl = wrap((long long)*xl + sl);
-        *xr = wrap((long long)*xr + sr);
+        now[0] = (float)((double)now[0] + d0);
+        now[1] = (float)((double)now[1] + d1);
+        now[2] = (float)((double)now[2] + d2);
+        l = wrap((long long)l + sl);
+        r = wrap((long long)r + sr);
     }
+    e[0] = now[0], e[1] = now[1], e[2] = now[2];
+    *xl = l, *xr = r;
     if (see)
         batch_end(first, t->kind, t->tex, t->colour, t->g16);
 }
@@ -1605,9 +1614,14 @@ void r3d_render(void)
         return;
     }
     for (b = g_bucket_lo; b <= g_bucket_hi; b++)        /* nearest first */
-        for (e = g_head[b]; e >= 0; e = g_entry[e].next)
+        for (e = g_head[b]; e >= 0; e = g_entry[e].next) {
+#ifdef __arm__
+            if (g_entry[e].next >= 0)                   /* (the next face asked for ahead) */
+                __builtin_prefetch(g_entry[g_entry[e].next].f);
+#endif
             if (n++ <= FACES_MAX)
                 face(&g_entry[e]);
+        }
     g_batch[g_nbatch].first = g_nspan;
     for (b = g_nbatch - 1; b >= 0; b--) {               /* 0x4af130: the last first */
         const Batch *t = &g_batch[b];

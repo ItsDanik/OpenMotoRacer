@@ -33,8 +33,11 @@ static int g_behaviour = -1;    /* the player's choice: -1 none, so what the fil
 
 int behaviour_cd(void)
 {
-    const char *e;
-    if ((e = getenv("OMR_BEHAVIOUR")) != 0)
+    static int read;
+    static const char *e;
+    if (!read)
+        e = getenv("OMR_BEHAVIOUR"), read = 1;
+    if (e)
         return strcmp(e, "gog") != 0;
     return g_behaviour >= 0 ? g_behaviour : exe_is_cd();
 }

@@ -84,6 +84,9 @@ static uint16_t g_small[320 * 240];
    only those go back: VIDEO_ROWS in whatever draws there */
 int g_half_lazy;
 static unsigned char g_half_taken[240];
+#ifdef OMR_PROF
+static int g_rows_check = -1;
+#endif
 /* where 640x240's rows are: each g_half_step pixels from g_half_to */
 static uint16_t *g_half_to = g_pixels;
 static int g_half_step = 2 * SCREEN_MAX_W;
@@ -173,7 +176,9 @@ void video_half_3d(int on)
     memset(g_half_taken, 0, sizeof g_half_taken);
     g_half_lazy = 1;
 #ifdef OMR_PROF
-    if (getenv("OMR_ROWS_CHECK")) {     /* every row at hand, to see what draws without saying */
+    if (g_rows_check < 0)
+        g_rows_check = getenv("OMR_ROWS_CHECK") != 0;
+    if (g_rows_check) {                 /* every row at hand, to see what draws without saying */
         int y;
         for (y = 0; y < 240; y++)
             half_take(y);
@@ -210,7 +215,7 @@ static void half_merge(void)
     int y;
     for (y = 0; y < 240; y++) {
 #ifdef OMR_PROF
-        if (g_half_lazy && !g_half_taken[y] && getenv("OMR_ROWS_CHECK")) {
+        if (g_half_lazy && !g_half_taken[y] && g_rows_check > 0) {
             const uint16_t *a = g_small + y * 320, *o = g_half_to + y * g_half_step;
             int x;
             for (x = 0; x < 320; x++)
