@@ -573,7 +573,7 @@ static struct {
     int bx, by;                 /* 0x5dbc80, 0x5dbc84 */
     int sx[3], sy[3], rx[3], ry[3], dx, dy, gx, gy;
     Dial speed_dial, rev_dial;
-    Face needle[3];
+    Face needle[6];
 } g_dash;
 
 static double wrap_angle(double a)
@@ -654,6 +654,24 @@ static void needle(Face *f, const int (*xy)[2], int colour)
     r3d_screen_faces(r3d_screen_points(3, xy, 2048.0f), 1, f, 4.0f);
 }
 
+/* a needle's black shadow, moved down and right and behind it. Both programs make it; GOG's
+   gives its points the depth 1, behind the near plane, so only the 1997 CD's (0x4a6230, 2048)
+   shows it */
+static void needle_shadow(Face *f, const int (*xy)[2], int off)
+{
+    int s[3][2], i;
+    if (!behaviour_cd())
+        return;
+    for (i = 0; i < 3; i++)
+        s[i][0] = xy[i][0] + off, s[i][1] = xy[i][1] + off;
+    memset(f, 0, sizeof *f);
+    f->kind = 0;
+    f->colour = 0;
+    f->n = 3;
+    f->idx[0] = 0, f->idx[1] = 1, f->idx[2] = 2;
+    r3d_screen_faces(r3d_screen_points(3, (const int (*)[2])s, 2048.0f), 1, f, 8.0f);
+}
+
 /* 0x484810's reads: the speed O+0x118, the rev needle's target ftol(O+0x11c / bike+0x70
    x 16000), the gear O+0x7c; and the gear-change hint's state (0x484d97) */
 void hud_bike(const BikePhys *b)
@@ -713,7 +731,7 @@ void hud_dials_3d(void)
     if (g_counter_type != 1)
         return;
     hi = !halving();
-    /* the speed needle (its black shadow, at depth 1.0, is behind the near plane) */
+    /* the speed needle */
     d = &g_dash.speed_dial;
     v = g_dash.speed < 0 ? 0 : g_dash.speed > 300 ? 300 : g_dash.speed;
     a = v * d->k + d->a1;
@@ -727,8 +745,10 @@ void hud_dials_3d(void)
         memcpy(xy[0], tail, sizeof tail), memcpy(xy[1], tip, sizeof tip);
         memcpy(xy[2], minus, sizeof minus);
         needle(&g_dash.needle[0], (const int (*)[2])xy, rgb(0x19, 0x10, 0));
+        needle_shadow(&g_dash.needle[3], (const int (*)[2])xy, 2 + hi);
         memcpy(xy[1], plus, sizeof plus), memcpy(xy[2], tip, sizeof tip);
         needle(&g_dash.needle[1], (const int (*)[2])xy, rgb(0x1f, 0x10, 0));
+        needle_shadow(&g_dash.needle[4], (const int (*)[2])xy, 2 + hi);
     }
     /* the rev needle: towards its target by 3000 a picture at most */
     v = g_dash.rev;
@@ -746,6 +766,7 @@ void hud_dials_3d(void)
     corner(xy[1], d, a, R, 0);
     corner(xy[2], d, a, 2 * (-1 - hi), 2 * (-1 - hi));
     needle(&g_dash.needle[2], (const int (*)[2])xy, rgb(0x1f, 0x10, 0));
+    needle_shadow(&g_dash.needle[5], (const int (*)[2])xy, 2 + hi);
     /* the face: the track's model "counter" from the bottom right corner */
     for (i = 0; i < g_land.nlib; i++)
         if (strcmp(g_land.lib[i].name, "counter") == 0) {

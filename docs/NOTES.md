@@ -174,10 +174,18 @@ set again at each race (`font_follow_behaviour`). Shadow: 4 corners on the crash
 (0x487aa0, 0x47d550). Sky: tile size is the rectangle's corner, not +1 (0x41a956), fills from the one corner pixel (0x465a02), palette as it is. Messages at y 0
 (Ctrl+S, V, A, J, K, F8), replay 10000 records, text snap < 3.0, map marker 50 in mode 3, low readout + 1, Shift+F1's VIDEO 8M line, diagnostic's video
 line gone, F12 opens the column with any modifier and no Shift+F12 list, Ctrl+U with Shift, Ctrl+F not with Shift.
-**The player's bike**: `build/notes/cd_physics.md`, below when merged.
+**Follows the setting, the player's bike** (`g_phys_cd`, set at a race's load; full record build/notes/cd_physics.md): lean by the computer's rule, steering rate limit, dirt bikes unclamped, ground
+covered by the slide's angle, forward speed x 0.994 when lateral speed changes by over 0.1, engine braking a gear off, no gearbox above speed 3 under braking, crash bounce 0.1, slope pull always, pitch spring
+with no floor, the pose's constants and next stunt by the draw (reading only); also found on the way: an extra turn through the cosine table (0x487135), a road bike's turn radius left at none (0x47e850), MOTO's sums in their own order.
+Checked by `tools/physcheck_cd.sh` against MOTO.EXE itself: `tools/win/stepwatch.c` records as a debugger, 10 runs on 4 tracks in build/phys_cd/, one step from "before" compared with "after", 70 fields, 16547 of 16549
+steps all equal (one a crash's draw before the recorder read rand's state, one the recorder's own height poke). `tools/physcheck_cd_off.py`: each difference turned back fails its steps, so the recordings do hold it. Not recorded: a natural jump (air by poking the height only), a computer rider under MOTO, two players.
+Winner's lap hand-back (32) left out: at most a frame of engine note, by reading. Steps depend on the frame in MOTO (no cap): at the port's 1.6 the landing spring kicks about twice as hard as at dt 3 (a guessed 1997 PC's 20-30 fps); for Danik's judgment by feel.
+**Whole pictures against MOTO.EXE** (Speed Bay, Practice, standing, the CD's files, the port's frame found by the lap clock): race 1 pixel of 640x480 at the matching frame (gull);
+on-board view 0, F9 map 8, pause dialog 38 (clock and gulls), Choose Bike 0 below the bike, against 25725 for the GOG setting. Two real differences found that way: a bone's one-texel face keeps bit 5 of its palette index on the CD (0x483d40; GOG loses it,
+which turned parts of the bike and exhaust red and light), the needles' black shadow shows on the CD (0x4a6230: depth 2048, moved 3 or 2 pixels; GOG's has depth 1, behind the near plane).
+**Things that move are right** (all programs): a scratch build with every decor animation moved by a fraction of a step against captures of the original: Dirt Arena's helicopter 0 and 7 pixels of its box at -0.1 and -0.4 units (1 and 4 ms), Fun Fair's flag 0 at -0.25..-1. The differences in §3.5d are the moment of the capture between two 16 ms steps.
 **Left out on purpose:** copy check and page 26 (never in the port); Ctrl+F1's three letters and stats line (0x4a5e50, 0x4a5cb0: DirectDraw flip counters and
-capabilities, nothing they could say here); dialogs' clear to black (A9, drawn over at once); the colour helper's green limit (31) and the raw flat
-colours of models (33): nothing traced them to a face that shows. A replay is keys: it plays as what recorded it, in the same session always; demos are
+capabilities, nothing they could say here); dialogs' clear to black (A9, drawn over at once); the colour helper's green limit (31): nothing traced it to anything shown. A replay is keys: it plays as what recorded it, in the same session always; demos are
 computer riders, the same in both programs.
 
 ### 3.5d The second list's starts against the original: four faults (2026-10-31)

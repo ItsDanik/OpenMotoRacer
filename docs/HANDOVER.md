@@ -202,6 +202,8 @@ original has analog steering and throttle only on one stick under JOYSTICK, a br
 - All 8 tracks of LIST01, each four ways, two shots a run, the original under wine against the port (build/notes/list2_starts.md, build/agent_list2/):
   four real faults, every track, now written. The road painter adds with the carry (r3d.c span: "rounding"); the sections' start planes rebuilt, not the file's
   (bikephys_track: the walk, so the places and what the computer riders aim at); a race's first step of 1 ms (race.c: what the original's clock says, as a rule);
-  the camera starts above and drops in (camera.c). What is left, 4705 pixels over 66 pictures, mostly the helicopter, gulls and flags that move, and 1-7 pixels under the shadow and single ones not explained.
+  the camera starts above and drops in (camera.c). What is left, 4705 pixels over 66 pictures, mostly the helicopter, gulls and flags at another moment between two steps (proved right by moving their time a fraction, NOTES §3.5c), and 1-7 pixels under the shadow and single ones not explained.
   Not in the port: the red "640X480 / VIDEO ..." strip of a race's first 0.3 s (Danik's to decide; the figures are dgVoodoo's).
 - Game Behaviour (NOTES §3.5c): Options, 1997 CD / GOG RELEASE, with any files. Bike browsing's slide counts 60ths; a click on + or - is one step (the port's, menu.c).
+- The player's bike under the setting (g_phys_cd), bit for bit on MOTO.EXE's recorded steps (`tools/physcheck_cd.sh`). A GOG fault found on the way and fixed: steering's 1.6 under brake only while sliding (0x46661a).
+- Open: whether the 1997 handling feels right after jumps and in slides (MOTO has no frame cap, its feel depended on the PC), Danik's by feel; the red mode strip of a race's first 0.3 s; the mixer (recommended leaving). Split screen last, not started.

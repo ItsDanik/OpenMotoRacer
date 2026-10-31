@@ -81,6 +81,7 @@ static void usage(void)
          "                     (the camera block's +0x68), FOCAL 394 as the race's\n"
          "  OMR_AUTOPILOT=1    the computer rides the player's bike; =win: and the others\n"
          "                     crawl, with no time limit (to reach the winner's lap)\n"
+         "  OMR_BEHAVIOUR=cd   the program the port acts like, cd or gog, over the setting\n"
          "  OMR_RACELOG=FILE   a sum of every rider's place and speed, a line a step\n"
          "  OMR_WATCH_AT=N     the race's replay is asked for at step N\n"
          "  OMR_SHOT_STEP=N    with --shot: the picture when the race has run N steps\n"

@@ -3,6 +3,7 @@
    palettes (0x401d90), and the drawer 0x45f290 at detail 0 as page 10 calls it: no lean,
    pitch, steering, speed, suspension or wheel spin, not crashed, unlit. */
 #include "bike3d.h"
+#include "config.h"
 #include "bikes.h"
 #include "files.h"
 #include "land.h"
@@ -124,17 +125,17 @@ static Face *read_faces(Rd *r, int count, int bones)
             f->v[k] = v[k] * 8192;
         }
         if (!tx) {                                      /* no texels: 0x402020, 555 -> 565 */
-            if (bones)
+            if (bones && !behaviour_cd())
                 f->colour = from_file(colour);
             else
                 f->colour = colour;
         } else if (u[0] == u[1] && u[1] == u[2] && v[0] == v[1] && v[1] == v[2]) {
             /* one texel for all: a face of its colour. The bones' loop passes the texel
                through 0x402020 as if it were 5:5:5, which loses its bit 5; the extra
-               group's loop keeps it */
+               group's loop keeps it, and so do both on the 1997 CD (0x483d40) */
             int t = tx[((v[0] << 8) + u[0]) & 0xffff];
             f->kind = 0;
-            f->colour = bones ? t & 0xdf : t;
+            f->colour = bones && !behaviour_cd() ? t & 0xdf : t;
         } else {                /* the index of its 5:6:5 colour in palette 0, else 0 */
             int c = from_file(colour);
             f->colour = 0;
