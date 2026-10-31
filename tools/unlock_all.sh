@@ -4,8 +4,9 @@
 #   tools/unlock_all.sh --undo       the game's own lists again
 cd "$(dirname "$0")/.."
 if [ "$1" = --undo ]; then
-    home=${OMR_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/openmotoracer}
-    rm -f "$home/LIST.BPT" "$home"/LIST[0-9][0-9].BPT
+    for home in "${OMR_HOME:-$PWD}" "${XDG_CONFIG_HOME:-$HOME/.config}/openmotoracer"; do
+        rm -f "$home/LIST.BPT" "$home"/LIST[0-9][0-9].BPT
+    done
     exit 0
 fi
 bin=${1:-port/build/openmotoracer}

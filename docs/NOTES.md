@@ -2182,6 +2182,15 @@ what GOG's copy does**. To sound as GOG's: an empty `music_pause`. Not written: 
 the port has no focus handling. Checked in the port by a recording: Pause and F1 silence the music
 (RMS 0 once the last voices end), and it comes back where it was.
 
+##### 4.10.5.3a The CD's music in the port (2026-10-31)
+`cdaudio.c`: on the CD's program (`exe_is_cd`) the tracks are read from the CD's image: `OMR_CD` (a .cue or its folder), else a .cue in the
+game's folder, the one above it, or `../CD`. The .bin is the name the .cue gives, else the .cue's own name, else the only .bin there (the
+image here is renamed: the .cue says MOTO_RACER.BIN). A track runs from its INDEX 01 to the next track's INDEX 01: track 2 comes to 4:12:62,
+the length 0x442740's copy check wants. Without an image: `NN.wav` beside the files if any, with the CD's rules.
+The rules are the disc's (asm above), not GOG's loop: a track at its end has stopped; the 1 s timer plays one with the repeat flag again in
+mode 0 (twice in all), then it stays stopped until a page asks for it. Checked (`OMR_WAV`, main menu, 5 minutes): track 3 twice with a gap of
+under a second and then silence from 281 s; 2 s from the middle found in GOG's 03.wav at score 0.99999.
+
 ##### 4.10.5.4 Track use (both the CD and the GOG files: 02..13.wav, 44.1 kHz stereo 16-bit)
 
 | track | length | used by | mode |

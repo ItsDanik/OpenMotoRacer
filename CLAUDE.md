@@ -72,15 +72,15 @@ launcher (Delphi): it writes `motoracer.ini` and starts `game.EXE`.
 ## The port (`port/`)
 C11, CMake, SDL2 linked dynamically. Built with one command:
 `cmake -S port -B port/build && cmake --build port/build` → `port/build/openmotoracer`.
-- `-home DIR` / `OMR_HOME`: where saves are written (`saves.c`; default
-  `~/.config/openmotoracer`), the game's format; read from there, else the game's data/.
+- `-home DIR` / `OMR_HOME`: where saves are written (`saves.c`; default the working directory,
+  Danik's call), the game's format; read from there, else `~/.config/openmotoracer` where they used to go, else the game's data/.
 - `-data DIR` / `OMR_DATA`: the player's Moto Racer folder (game.EXE + data/; default
   `./Moto Racer`). Names matched in any case. Files through the banks first (`files.c`).
 - **The game's tables are read from the player's game.EXE** at their addresses
   (`exe.c`: the PE placed at 0x400000, the build known by its FNV-1a sum; unknown builds
   are refused with a message).
 - The CD: `-data` at the CD's files works alone, `MOTO.EXE` read from `DISK1/data.z` (`exe.c`, NOTES §3.5a): GOG's logic on
-  the CD's data, title and main menu equal to MOTO.EXE's; no music without `NN.wav` (its tracks aren't files).
+  the CD's data, title and main menu equal to MOTO.EXE's; its music from the CD's image (`cdaudio.c`, §4.10.5.3a), played as the disc did.
 - The screen is the game's: RGB565 (`video.c`), shown 4:3; menus 640x480, the race also 512x384 and 320x240 and 16:9 at the top (F2, F3, F4, the F12 column, Shift+F12; `OMR_SCREEN=MODE[,WIDE]`; NOTES §4.20 §1b, §4.19 §5b).
 - `--shot FILE N` (`OMR_SHOT`): no window, N frames, the screen as a BMP. `--help` lists
   the test switches (`OMR_*`).

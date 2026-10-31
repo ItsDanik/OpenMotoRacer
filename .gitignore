@@ -10,6 +10,12 @@ __pycache__/
 *.ppm
 *.png
 *.wav
+/CONFIG.BPT
+/LIST*.BPT
+/bestscor.dat
+/openmotoracer.ini
+/[Cc]hamp*.sav
+/ile*/
 # release packages
 /dist/
 /Moto Racer CD/

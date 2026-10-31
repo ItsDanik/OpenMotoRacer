@@ -5,6 +5,7 @@
    beside game.EXE, read ahead a piece a picture. */
 #include "sound.h"
 #include "clock.h"
+#include "cdaudio.h"
 #include "exe.h"
 #include "files.h"
 #include <SDL.h>
@@ -63,6 +64,7 @@ static int g_mus_track = -1, g_mus_playing;
 static int16_t g_ring[MUSIC_RING][2];
 static unsigned g_ring_r, g_ring_w;                 /* frames, read and written */
 static int g_mus_paused;                            /* the music holds its place (0x4b1660) */
+static int g_mus_ended, g_mus_repeat;               /* the CD's: read to the end; +0xc */
 
 static void lock(void)
 {
@@ -769,7 +771,7 @@ void sound_update(void)
 /* ------------------------------------------------------------------ the music */
 
 /* GOG's winmm.dll: MCI_PLAY of track n is PlaySound("0n.wav" or "n.wav", SND_LOOP), so
-   every track goes round and round (NOTES §4.10.5) */
+   every track goes round and round (NOTES §4.10.5); the CD's own come from its image */
 static int music_open(int track)
 {
     char name[16], path[1024];
@@ -777,6 +779,17 @@ static int music_open(int track)
     if (g_mus)
         fclose(g_mus);
     g_mus = 0;
+    if (exe_is_cd() && cdaudio_track(track, path, sizeof path, &g_mus_data, &g_mus_len)) {
+        if (!(g_mus = fopen(path, "rb")) || fseek(g_mus, g_mus_data, SEEK_SET)) {
+            if (g_mus)
+                fclose(g_mus);
+            g_mus = 0;
+            return 0;
+        }
+        g_mus_len &= ~3L;
+        g_mus_pos = 0;
+        return 1;
+    }
     snprintf(name, sizeof name, track < 10 ? "0%d.wav" : "%d.wav", track);
     if (!files_find(name, path, sizeof path) || !(g_mus = fopen(path, "rb")))
         return 0;
@@ -820,8 +833,14 @@ static void music_fill(unsigned want)
         size_t got;
         if (n > sizeof buf / 4)
             n = sizeof buf / 4;
-        if (g_mus_pos >= g_mus_len) {           /* SND_LOOP */
-            fseek(g_mus, g_mus_data, SEEK_SET);
+        if (g_mus_pos >= g_mus_len) {
+            if (exe_is_cd()) {                  /* a real disc comes to the track's end */
+                fclose(g_mus);
+                g_mus = 0;
+                g_mus_ended = 1;
+                break;
+            }
+            fseek(g_mus, g_mus_data, SEEK_SET); /* GOG's SND_LOOP */
             g_mus_pos = 0;
         }
         if ((long)n * 4 > g_mus_len - g_mus_pos)
@@ -856,8 +875,37 @@ void music_play(int track, int mode)
     g_mus_paused = 0;
     unlock();
     g_mus_track = track;
+    g_mus_ended = 0;
+    g_mus_repeat = mode == 2 || mode == 3;      /* +0xc */
     g_mus_playing = music_open(track);
+    if (!g_mus_playing)
+        g_mus_repeat = 0;
     music_fill(MUSIC_AHEAD);
+}
+
+/* The CD's 1 s timer 0x4b12e0, and what MCI says of the drive: a track at its end has stopped;
+   one to repeat plays again with mode 0, so twice in all, and stays stopped until a page asks
+   for it. */
+static void music_timer(void)
+{
+    static unsigned next;
+    if (!exe_is_cd())
+        return;
+    if (g_mus_ended) {
+        unsigned left;
+        lock();
+        left = g_ring_w - g_ring_r;
+        unlock();
+        if (!left) {
+            g_mus_ended = 0;
+            g_mus_playing = 0;
+        }
+    }
+    if (g_now < next)
+        return;
+    next = g_now + 1000;
+    if (g_mus_repeat && !g_mus_playing)
+        music_play(g_mus_track, 0);
 }
 
 void music_stop(void)
@@ -866,6 +914,7 @@ void music_stop(void)
         fclose(g_mus);
     g_mus = 0;
     g_mus_playing = 0;
+    g_mus_ended = g_mus_repeat = 0;
     lock();
     g_ring_r = g_ring_w = 0;
     g_mus_paused = 0;
@@ -904,6 +953,7 @@ void sound_frame(void)
     if (!g_ok)
         return;
     music_fill(g_wav ? RATE / 60 + 2 : MUSIC_AHEAD);
+    music_timer();
     if (g_wav) {                /* exactly 44100 frames every 60 pictures */
         int16_t out[2 * (RATE / 60 + 2)];
         unsigned long n;

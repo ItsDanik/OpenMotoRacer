@@ -4,9 +4,9 @@
 
 /* Where the game's own save files go: bestscor.dat, Champ<n>.sav, the time-attack ghosts
    (in a track's folder: "ile01\\timatak__3.bin"). The original keeps them in its Data folder; the port writes them
-   in a folder of the player's (-home, OMR_HOME, else ~/.config/openmotoracer) in the
-   game's own format, and reads a file there first, else the one in the game's Data
-   folder, so a player's records come along. */
+   in the working directory (-home, OMR_HOME: another; one it can't write: the user's folder) in the
+   game's own format. It reads a file there first, else the user's folder where saves used to
+   go, else the one in the game's Data folder, so a player's records come along. */
 void saves_init(const char *home);
 const char *saves_home(void);
 /* name as the game has it under Data ("bestscor.dat", "Champ0.sav", "ile01\\x.bin"); mode
