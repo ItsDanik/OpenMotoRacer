@@ -11264,7 +11264,8 @@ the race goes on, the player's again. Results saved and put back around a replay
 
 **The demos** (`Data\Demo\EA.dem`: `NbItems: 2`, `DemoN: TRACK ms picture`): 0x409a30 after 30 s
 on page 14 (menu+0x24). Kind 2: mode 1, 3 laps, no reverse or pocket, automatic, bike 0, 23
-opponents, rider 1 the computer's (+8 = 0), the screen follows rider 2 (0x508834), the riders'
+riders in all, 1..23 (0x410a50 skips the player's own, so the dashboard says /23, seen in the
+original; the 24th grid place stays empty), rider 1 the computer's (+8 = 0), the screen follows rider 2 (0x508834), the riders'
 speeds not shuffled (0x47bd82), detail forced to 4 (0x472d2e). Ends at clock > 90000: events
 0x120000 (the next item and load: the same track restarts in place, else unload and page 1;
 none left → page 14). Pause rows: demo [NEXT DEMO] 107, [QUIT DEMO] 106, [CONTINUE DEMO] 108;

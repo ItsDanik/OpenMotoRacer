@@ -17,6 +17,7 @@ void race_ask_screen(int mode);
 void race_ask_169(void);
 int race_is_169(void);
 void race_key(int vk, int down);        /* 0x431250 / 0x432700 */
+extern int g_race_steps;                /* OMR_SHOT_STEP: steps since the race began */
 int race_load(char *err, int errsize);  /* 0x47b420 and the start 0x47bf70 */
 void race_frame(void);
 void race_unload(void);                 /* 0x47d620 */

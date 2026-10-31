@@ -442,8 +442,12 @@ static void ghost_rider(float dt)
 /* one step of Game_Frame (0x47d660) of ms milliseconds: the inputs, the timers, the
    countdown and the time limit, each driven bike's step (0x45d540) and bike against bike
    (0x47ecd0), the race's rules, the camera */
+/* OMR_SHOT_STEP: the race's step count, for a picture at a step (--shot) */
+int g_race_steps;
+
 static void step(int ms)
 {
+    g_race_steps++;
     BikePhys *all[RIDERS];
     int k, attack = g_solo && g_mode == MODE_PRACTICE && g_time_attack;
     g_control = 1;              /* Game_Frame: the player's keys are read */
@@ -796,6 +800,7 @@ int race_local(void)
 int race_load(char *err, int errsize)
 {
     int k, opponents;
+    g_race_steps = 0;
     if (!land_load(g_track, err, errsize))
         return 0;
     if (!bikes_load(g_track) || !bike3d_load(g_land.bank1_rgb)) {
@@ -809,7 +814,7 @@ int race_load(char *err, int errsize)
     trackmap_build();                           /* 0x40ed10 */
     /* 0x47b420: practice 1, else 23 opponents, or 11 with "OPPONENTS: 12"; 0x410a50 */
     opponents = g_mode == 0 ? 1 : g_opponents && !g_playback ? 11 : 23;
-    g_riders = 2 + opponents;
+    g_riders = (g_race_kind == 2 ? 1 : 2) + opponents;  /* 0x410a50: a demo has no player of its own */
     memset(g_rider, 0, sizeof g_rider);
     g_player = 1;
     g_rider[1].bike = g_bike >= 0 && g_bike < BIKES ? g_bike : 0;
@@ -1240,7 +1245,9 @@ void race_frame(void)
             r3d_focal(focal);
         }
         signs_draw();
+        r3d_focal(FOCAL);                       /* 0x47b7a0: the zoom 1.0 */
         figure_draw();
+        r3d_focal(focal);
     }
     r3d_render();
     if (!(flags & RACE_DRAW_HUD)) {

@@ -74,6 +74,7 @@ static void usage(void)
          "                     crawl, with no time limit (to reach the winner's lap)\n"
          "  OMR_RACELOG=FILE   a sum of every rider's place and speed, a line a step\n"
          "  OMR_WATCH_AT=N     the race's replay is asked for at step N\n"
+         "  OMR_SHOT_STEP=N    with --shot: the picture when the race has run N steps\n"
          "  OMR_SCREEN=MODE[,WIDE]  the race's screen: 0 320x240, 1 512x384, 2 640x480; WIDE 1: 16:9\n"
          "  OMR_PERF=1         every 5 seconds: pictures a second, the time to make one, the slowest");
 }
@@ -489,7 +490,8 @@ int main(int argc, char **argv)
             menu_frame();
         if (perf)
             perf_frame(perf_start, SDL_GetPerformanceCounter());
-        if (shot && frame + 1 >= shot_frames) {
+        if (shot && (frame + 1 >= shot_frames
+                     || (getenv("OMR_SHOT_STEP") && g_race_steps >= atoi(getenv("OMR_SHOT_STEP"))))) {
             if (!video_shot(shot))
                 fail(SDL_GetError(), 1);
             break;

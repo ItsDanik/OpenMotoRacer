@@ -115,6 +115,8 @@ void signs_key(void)
     a.fore = named_colour(COL_RED);
     a.back = named_colour(COL_BLACK);
     a.list = 1;                 /* 0x53ba68 */
+    a.dodge_x = a.dodge_y = 5;
+    a.centre_if_full = 1;
     text_add(&a);
 }
 
