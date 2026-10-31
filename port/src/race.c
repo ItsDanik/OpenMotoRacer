@@ -340,6 +340,45 @@ static int cockpit_shown(void)
     return onboard_now() && !camera_preset() && !g_pocket;
 }
 
+/* The port's: the gamepad shakes as the player's bike is knocked (the same events as the
+   sounds, race_sound.c). A shake in progress isn't cut short by a weaker one. */
+static void rumble(BikePhys *b)
+{
+    static int was_crashed;
+    static unsigned until;
+    static int level;
+    int low = 0, high = 0, ms = 0, on = g_rumble && g_race_kind == 0 && !g_playback
+                                         && !g_winner_lap
+                                         && (g_input_device == 2 || g_input_device == 4);
+    unsigned ev = (unsigned)b->events;
+    float k = b->speed / 40.0f;
+    k = k < 0.4f ? 0.4f : k > 1.0f ? 1.0f : k;
+    if (b->crashed && !was_crashed)
+        low = 0xffff, high = 0xffff, ms = 500;                  /* the crash */
+    else if (ev & 0x2a)
+        low = 0xd000, high = 0xb000, ms = 280;                  /* a hard hit */
+    else if (ev & 0x15)
+        low = (int)(0xc000 * k), high = (int)(0x8000 * k), ms = 180;    /* a bump, in the air too */
+    else if ((ev & 0x40) || b->thud)
+        low = 0xa000, high = 0x5000, ms = 160;                  /* the fallen rider comes down, or meets a wall */
+    else if (ev & 0x80) {                                       /* a landing, by the fall */
+        float f = fabsf(b->kick) / 80.0f;
+        if (f > 0.15f) {
+            f = f > 1.0f ? 1.0f : f;
+            low = (int)(0xb000 * f), high = (int)(0x4000 * f), ms = 120;
+        }
+    }
+    b->thud = 0;
+    was_crashed = b->crashed;
+    if (!on || !ms)
+        return;
+    if (g_now < until && low + high < level)
+        return;
+    until = g_now + (unsigned)ms;
+    level = low + high;
+    joy_rumble(low, high, ms);
+}
+
 /* 0x4116f0, a step's inputs: a replay's record, a demo's clock, or the player's own, which
    are recorded. 0 when the demos' time is up: this step does not happen. */
 static int inputs(int ms)
@@ -486,6 +525,7 @@ static void step(int ms)
         p->crash_flag = 0;
     }
     bikephys_collide(all, g_riders, (float)(ms * 0.1));
+    rumble(&g_phys[g_player]);
     effects_step((float)(ms * 0.1));    /* 0x457590 */
     for (k = 1; k < g_riders; k++)
         to_rider(&g_rider[k], &g_phys[k]);
@@ -1195,8 +1235,8 @@ void race_frame(void)
     flags = dialog_flags();
     if (dialog_holds()) {       /* (the time since the last step kept) */
         g_step_at += g_now - g_last_now;
-        if (g_input_device == 2 || g_input_device == 4)
-            joy_menu(race_key); /* 0x411a10: the stick as the arrows and Return */
+        if ((g_input_device == 2 || g_input_device == 4) && !joy_is_pad(0))
+            joy_menu(race_key); /* 0x411a10: the stick as the arrows and Return (a gamepad: pad.c) */
     }
     g_last_now = g_now;
     /* the original steps once a picture by the time it took, and GOG's -FrameRateMax60

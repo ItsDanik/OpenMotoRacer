@@ -57,6 +57,14 @@ int SDL_JoystickNumAxes(SDL_Joystick *j) { (void)j; return 0; }
 int SDL_JoystickNumButtons(SDL_Joystick *j) { (void)j; return 0; }
 int SDL_JoystickNumHats(SDL_Joystick *j) { (void)j; return 0; }
 void SDL_JoystickUpdate(void) {}
+int SDL_JoystickRumble(SDL_Joystick *j, Uint16 l, Uint16 h, Uint32 d) { (void)j, (void)l, (void)h, (void)d; return -1; }
+SDL_bool SDL_IsGameController(int i) { (void)i; return SDL_FALSE; }
+SDL_GameController *SDL_GameControllerOpen(int i) { (void)i; return 0; }
+void SDL_GameControllerClose(SDL_GameController *c) { (void)c; }
+SDL_Joystick *SDL_GameControllerGetJoystick(SDL_GameController *c) { (void)c; return 0; }
+void SDL_GameControllerUpdate(void) {}
+Sint16 SDL_GameControllerGetAxis(SDL_GameController *c, SDL_GameControllerAxis a) { (void)c, (void)a; return 0; }
+Uint8 SDL_GameControllerGetButton(SDL_GameController *c, SDL_GameControllerButton b) { (void)c, (void)b; return 0; }
 void SDL_LockAudioDevice(SDL_AudioDeviceID d) { (void)d; }
 void SDL_UnlockAudioDevice(SDL_AudioDeviceID d) { (void)d; }
 SDL_AudioDeviceID SDL_OpenAudioDevice(const char *n, int c, const SDL_AudioSpec *w, SDL_AudioSpec *o, int a) { (void)n, (void)c, (void)w, (void)o, (void)a; return 0; }

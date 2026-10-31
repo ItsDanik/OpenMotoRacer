@@ -16,7 +16,19 @@ typedef struct {
     unsigned buttons;           /* +0xe78 */
     unsigned dir;               /* +0xe7c: 1 up, 2 down, 4 left, 8 right */
     int nbuttons;               /* the caps' wNumButtons (+0x1e4) */
+    /* the port's, for a gamepad */
+    int pad;                    /* SDL knows its layout: the buttons as PAD_*, the triggers */
+    int stick[2];               /* the left stick alone, rescaled, without the cross */
+    unsigned cross;             /* the cross: as dir */
+    int trigger[2];             /* LT, RT, 0..0x7fff */
 } Joy;
+
+/* a gamepad's buttons, numbered as most of them come raw, which keeps saved bindings; the
+   triggers count as two more */
+enum {
+    PAD_A, PAD_B, PAD_X, PAD_Y, PAD_LB, PAD_RB, PAD_BACK, PAD_START, PAD_GUIDE, PAD_L3, PAD_R3,
+    PAD_LT, PAD_RT, PAD_BUTTONS
+};
 
 extern Joy g_joy[JOY_MAX];
 extern int g_njoy;              /* +0: joyGetNumDevs, at most 8 */
@@ -39,5 +51,11 @@ void joy_menu(void (*key)(int vk, int down));
 
 /* tests: joystick 0 replaced by these values (OMR_INPUT's joy:X,Y,BUTTONS) */
 void joy_fake(int x, int y, unsigned buttons);
+/* the same as a gamepad (pad:X,Y,BUTTONS,LT,RT,CROSS: buttons as PAD_*, cross as dir) */
+void joy_fake_pad(int x, int y, unsigned buttons, int lt, int rt, unsigned cross);
+
+int joy_is_pad(int j);
+const char *joy_button_name(int code);          /* a gamepad's button by its number */
+void joy_rumble(int low, int high, int ms);     /* joystick 0 shakes, if it can */
 
 #endif

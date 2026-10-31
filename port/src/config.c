@@ -26,6 +26,7 @@ int g_enum_session = 10;
 int g_show_counter = 1, g_counter_type = 1, g_speed_unit;
 int g_display_signal = 1;
 int g_smooth = 1;
+int g_analog = 1, g_rumble = 1;
 
 static void port_load(void)
 {
@@ -37,6 +38,10 @@ static void port_load(void)
     while (fgets(line, sizeof line, f))
         if (sscanf(line, "smooth=%d", &v) == 1)
             g_smooth = v != 0;
+        else if (sscanf(line, "analog=%d", &v) == 1)
+            g_analog = v != 0;
+        else if (sscanf(line, "rumble=%d", &v) == 1)
+            g_rumble = v != 0;
     fclose(f);
 }
 
@@ -47,7 +52,11 @@ static void port_save(void)
         return;
     fprintf(f, "# OpenMotoRacer's own settings (the game's are in CONFIG.BPT)\n"
             "# smooth: 1 draws pictures between the race's 62.5 steps a second (F10)\n"
-            "smooth=%d\n", g_smooth);
+            "smooth=%d\n"
+            "# analog: 1 a gamepad's stick and triggers work by degrees (the settings page)\n"
+            "analog=%d\n"
+            "# rumble: 1 a gamepad shakes at hits, bumps, crashes and landings (the settings page)\n"
+            "rumble=%d\n", g_smooth, g_analog, g_rumble);
     fclose(f);
 }
 int g_binding[ACTIONS][2];

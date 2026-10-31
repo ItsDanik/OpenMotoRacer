@@ -17,6 +17,7 @@
 #include "video.h"
 #include "input.h"
 #include "joy.h"
+#include "pad.h"
 #include "dialog.h"
 #include "race.h"
 #include <SDL.h>
@@ -58,7 +59,9 @@ static void usage(void)
          "                     move:X,Y (the mouse), click (left button down and up),\n"
          "                     down, up (the left button alone),\n"
          "                     joy:X,Y,BUTTONS (joystick 0 held so: 0..65535, the button\n"
-         "                     bits; with --shot no real joystick is read)\n"
+         "                     bits; with --shot no real joystick is read); or\n"
+         "                     pad:X,Y,BUTTONS,LT,RT,CROSS (a gamepad; buttons as joy.h,\n"
+         "                     triggers 0..32767, the cross 1 up 2 down 4 left 8 right)\n"
          "  OMR_DEVICE=N       the controller: 1 keyboard, 2 joystick, 4 joypad\n"
          "  OMR_CHOICES=MODE,TRACK,LAPS[,REVERSE,POCKET,MANUAL]  the race chosen (MODE 0\n"
          "                     practice, 1 single race, 2 championship; MANUAL 1: the\n"
@@ -273,11 +276,14 @@ static void scripted_input(const char *script, int frame)
         s += n;
         if (f != frame)
             continue;
-        unsigned jb;
+        unsigned jb, cross;
+        int lt, rt;
         if (sscanf(what, "move:%d,%d", &x, &y) == 2) {
             menu_mouse_move(x, y);
             dialog_mouse_move(x, y);
         }
+        else if (sscanf(what, "pad:%d,%d,%u,%d,%d,%u", &x, &y, &jb, &lt, &rt, &cross) == 6)
+            joy_fake_pad(x, y, jb, lt, rt, cross);
         else if (sscanf(what, "joy:%d,%d,%u", &x, &y, &jb) == 3)
             joy_fake(x, y, jb);
         else if (strcmp(what, "blur") == 0 || strcmp(what, "focus") == 0)
@@ -372,7 +378,7 @@ int main(int argc, char **argv)
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0)
         fail(SDL_GetError(), 1);
     if (!shot)                          /* (tests read no real joystick) */
-        SDL_InitSubSystem(SDL_INIT_JOYSTICK);
+        SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
 
     if (!files_init(data)) {
         snprintf(err, sizeof err, "No data folder in %s.\nPoint -data (or OMR_DATA) at the "
@@ -483,6 +489,10 @@ int main(int argc, char **argv)
                     menu_key_up(vk_of(e.key.keysym.sym));
                 }
                 break;
+            case SDL_JOYDEVICEADDED:
+            case SDL_JOYDEVICEREMOVED:
+                joy_detect();
+                break;
             case SDL_MOUSEMOTION: {
                 int mx = e.motion.x, my = e.motion.y;
                 video_mouse(&mx, &my);
@@ -502,6 +512,7 @@ int main(int argc, char **argv)
             }
         }
         scripted_input(script, frame);
+        pad_frame();
         if (g_view_sec >= 0)
             race_view_frame();
         else if (g_racing)

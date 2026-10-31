@@ -10,6 +10,7 @@
 #include "font.h"
 #include "joy.h"
 #include "menu.h"
+#include "pad.h"
 #include "pages.h"
 #include "r3d.h"
 #include "sound.h"
@@ -263,6 +264,7 @@ enum {
 };
 
 static int g_row;               /* 0x53f790: the action being set */
+static int g_let_go;            /* a gamepad's row chosen: the press must end before the next */
 
 void page_settings_start(void)
 {
@@ -273,6 +275,7 @@ void page_settings_start(void)
     bitmap_place(PIC(P_JOYCARD), 36, 101, 0);
     bitmap_place(PIC(P_CHOSET), 251, 101, 0);
     g_row = 0;
+    g_pad_listen = 0;
 }
 
 /* the keys an action can have (0x44580c): digits, letters, Return, Shift, Ctrl, Caps
@@ -299,40 +302,56 @@ static void bind(int row, int col, int v)
 
 /* what is held on the joystick goes to the row being set, whatever the pointer is on; a
    joystick's direction takes its opposite to the paired action */
-static void joy_bind(int v)
+static int joy_bind(int v)
 {
     int pair = -1, w = 0;
     if (v == -1)
-        return;
+        return 0;
     if (g_ctrl == 1) {          /* a joypad: anything to any row */
         bind(g_row, 1, v);
-        return;
+        return 1;
     }
     switch (g_row) {
     case 0: case 1:             /* accelerate, brake: a button or up / down */
         if (v < 0 && v > -4)
-            return;
+            return 0;
         pair = 1 - g_row, w = v == -4 ? -5 : -4;
         break;
     case 2: case 3:             /* left, right: a button or left / right */
         if (v < -3)
-            return;
+            return 0;
         pair = 5 - g_row, w = v == -2 ? -3 : -2;
         break;
     case 4: case 5:             /* the gears: a button */
         if (v < 0)
-            return;
+            return 0;
         break;
     }
     bind(g_row, 1, v);
     if (pair >= 0 && v < 0)
         bind(pair, 1, w);
+    return 1;
+}
+
+/* The port's: a gamepad's cross and stick work this page too, so what they do can't be taken
+   for a binding as it was: a row is chosen with A, then the next thing pressed goes to it. */
+static void pad_listen(void)
+{
+    int v = joy_code(0);
+    if (g_let_go) {
+        g_let_go = v != -1;
+        return;
+    }
+    if (joy_bind(v)) {
+        g_pad_listen = 0;
+        pad_quiet();
+    }
 }
 
 void page_settings_frame(void)
 {
     char buf[96];
-    int sel, i, p;
+    int sel, i, p, pad = g_ctrl != 0 && joy_is_pad(0);
     Font *f12 = font_get(12), *f24 = font_get(24);
     menu_begin_frame();
     sel = g_menu.sel;
@@ -353,15 +372,29 @@ void page_settings_frame(void)
         Bitmap *card = PIC(g_ctrl == 1 ? P_PADCARD : P_JOYCARD);
         bitmap_step(card, 0, 0);
         bitmap_draw(card, BM_OWN, 100, 0);
-        joy_bind(joy_code(0));
+        if (!pad)
+            joy_bind(joy_code(0));
+        else if (g_pad_listen)
+            pad_listen();
     }
     bitmap_step(PIC(P_CHOSET), 0, 0);
     bitmap_draw(PIC(P_CHOSET), BM_OWN, 100, 0);
     menu_clear_buttons();
-    menu_add_button(PIC(P_ACCEPT), 0, 0x03ff0506u, VK_ESCAPE, -1, 0, 0, 0, -1, -1, 0);
+    /* (a gamepad's cross: up and down the rows, and Accept between the two options) */
+    menu_add_button(PIC(P_ACCEPT), 0, pad ? 0x07ff0908u : 0x03ff0506u, VK_ESCAPE, -1, 0, 0, 0,
+                    -1, -1, 0);
     for (i = 0; i < ACTIONS; i++)
-        menu_add_button(PIC(i == g_row ? P_SET : P_SET2), 0, 0xffffffffu, -1, -1, 0, 0, 0,
-                        251, 148 + 37 * i, 0);
+        menu_add_button(PIC(i == g_row ? P_SET : P_SET2), 0,
+                        !pad ? 0xffffffffu
+                        : (unsigned)(i ? i : 0xff) << 24 | (unsigned)(i < ACTIONS - 1 ? i + 2 : 0) << 16
+                          | 0xffffu, -1, -1, 0, 0, 0, 251, 148 + 37 * i, 0);
+    if (g_ctrl != 0) {          /* the port's two options */
+        font_set_colors(f12, white, white);
+        snprintf(buf, sizeof buf, "Analog   %s", on_off(g_analog));
+        menu_add_text_button(70, 432, buf, 12, 0x07ff00ffu, 0, -1, 0);
+        snprintf(buf, sizeof buf, "Rumble   %s", on_off(g_rumble));
+        menu_add_text_button(420, 432, buf, 12, 0x07ffff00u, 0, -1, 0);
+    }
     menu_draw_buttons();
     for (i = 0; i < ACTIONS; i++) {
         int y = 156 + 37 * i;
@@ -384,7 +417,15 @@ void page_settings_frame(void)
         } else {
             int b = g_binding[i][1];
             static const int dir[4] = { P_JLEFT, P_JRIGHT, P_JTOP, P_JBAS };
-            if (b >= 0) {
+            if (g_pad_listen && i == g_row) {
+                snprintf(buf, sizeof buf, T(7), name);
+                font_draw(f12, buf, 255, y, 0, 0);
+                font_draw(f12, "Press...", 510, y, 0, 0);
+            } else if (b >= 0 && pad) {
+                snprintf(buf, sizeof buf, T(7), name);
+                font_draw(f12, buf, 255, y, 0, 0);
+                font_draw(f12, joy_button_name(b), 550, y, 0, 0);
+            } else if (b >= 0) {
                 snprintf(buf, sizeof buf, T(9), name, b);
                 font_draw(f12, buf, 255, y, 0, 0);
             } else if (b >= -5 && b <= -2) {
@@ -405,12 +446,25 @@ void page_settings_frame(void)
     if (p != -1)
         menu_press_done();
     if (p == 0) {
+        g_pad_listen = 0;
         menu_capture();
         menu_change_page(11);
         return;
     }
-    if (p >= 1 && p <= 7)
+    if (g_pad_listen) {         /* a click elsewhere: not this time */
+        if (p != -1)
+            g_pad_listen = 0;
+        return;
+    }
+    if (p >= 1 && p <= 7) {
         g_row = p - 1;
+        if (pad)
+            g_pad_listen = g_let_go = 1;
+    }
+    if (p == 8)
+        g_analog ^= 1;
+    if (p == 9)
+        g_rumble ^= 1;
     if (sel >= 1 && sel <= 7)   /* the row under the pointer is the one set next */
         g_row = sel - 1;
 }

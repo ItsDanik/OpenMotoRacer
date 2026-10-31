@@ -146,6 +146,10 @@ def runs():
         race(f"extra_joy_{dev}", None, 0, 0, 1, (0, 0), None, 4000, {"OMR_DEVICE": str(dev), "OMR_INPUT": joy})
         out.append((f"extra_joypage_{dev}", {"OMR_DEVICE": str(dev), "OMR_PAGE": "12", "OMR_INPUT": joy + " " + monkey(dev, 4000, 60)}, 4000))
         out.append((f"extra_joymenu_{dev}", {"OMR_DEVICE": str(dev), "OMR_PAGE": "3", "OMR_INPUT": joy}, 4000))
+        pad = " ".join(f"{f}:pad:{(f * 7919) % 65536},{(f * 104729) % 65536},{(f // 40) % 8192},{(f * 31) % 32768},{(f * 57) % 32768},{(f // 25) % 16}" for f in range(20, 4000, 7))
+        race(f"extra_pad_{dev}", None, 0, 0, 1, (0, 0), None, 4000, {"OMR_DEVICE": str(dev), "OMR_INPUT": pad})
+        out.append((f"extra_padpage_{dev}", {"OMR_DEVICE": str(dev), "OMR_PAGE": "11", "OMR_INPUT": pad}, 4000))
+        out.append((f"extra_padmenu_{dev}", {"OMR_DEVICE": str(dev), "OMR_PAGE": "3", "OMR_INPUT": pad}, 4000))
     out.append(("extra_view", {"OMR_PAGE": "3", "OMR_RACEVIEW": "4,394.0,56277.69,12255.37,51147.06,-0.5763,0.0487,0.8157,0.0,0.9982,-0.0596,-0.8172,-0.0343,-0.5753"}, 60))
     out.append(("extra_text", {"OMR_PAGE": "3", "OMR_TEXT": "12,100,100,0,1,1,-1,-1,HELLO"}, 200))
     # the CD's files, its MOTO.EXE

@@ -112,6 +112,12 @@ fresh() {
     rm -rf "$PWD/build/shots/home1"
     OMR_HOME=$PWD/build/shots/home1 run "$@"
 }
+# a gamepad (pad.c): the settings page by the cross, A, the triggers bound; a pause with Start,
+# the cross on its rows; riding on half a trigger and half the stick
+P0="pad:32768,32768,0,0,0,0"
+OMR_DEVICE=4 fresh pad_settings 11 400 "40:$P0 60:pad:32768,32768,0,0,0,2 64:$P0 70:pad:32768,32768,0,0,0,2 74:$P0 80:pad:32768,32768,0,0,0,8 84:$P0 90:pad:32768,32768,1,0,0,0 94:$P0 240:pad:32768,32768,0,0,0,2 244:$P0 250:pad:32768,32768,0,0,0,1 254:$P0 260:pad:32768,32768,0,0,0,1 264:$P0 270:pad:32768,32768,1,0,0,0 274:$P0 300:pad:32768,32768,0,0,32000,0 304:$P0 310:pad:32768,32768,0,0,0,1 314:$P0 320:pad:32768,32768,1,0,0,0 324:$P0 340:pad:32768,32768,0,20000,0,0 344:$P0"
+OMR_DEVICE=4 OMR_CHOICES=1,0,3,0,0 fresh pad_pause 1 575 "30:pad:32768,32768,0,0,32767,0 500:pad:32768,32768,128,0,32767,0 504:$P0 560:pad:32768,32768,0,0,0,2 564:$P0"
+OMR_DEVICE=4 OMR_CHOICES=1,0,3,0,0 fresh pad_ride 1 620 "30:pad:32768,32768,1,0,0,0 520:pad:45000,32768,1,0,0,0"
 OMR_CHOICES=0,0,3,0,0 fresh key_map0 1 500 "400:f9"
 OMR_CHOICES=0,0,3,0,0 fresh key_map3 1 500 "400:f9 402:f9 404:f9 406:f9"
 OMR_CHOICES=1,0,4,0,0 fresh key_map_riders 1 150 "60:f9"

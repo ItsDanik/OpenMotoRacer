@@ -11498,6 +11498,41 @@ as bits (32 at most). No real joystick is read under `--shot`; `OMR_INPUT`'s
 `joy:X,Y,BUTTONS` holds a fake joystick 0 for the tests, `OMR_DEVICE` sets 0x4dc11c,
 `-jN` / `OMR_JOYDEAD` the dead zone.
 
+**What the original has (Danik asked, 2026-10-31).** Analog steering and an analog throttle, but only with the controller
+set to JOYSTICK (0x4dc11c = 2) and only WinMM's X and Y of one stick; JOYPAD (4) throws both away. No triggers: it asks for
+0x483 = X, Y, buttons, and nothing else of the JOYINFOEX. Its brake isn't analog either: 0x465da0 divides a negative Y by 2000
+and the engine routine's `hold = t < 0` (`engine_step`): past 2000 from the centre it is the brake, whole. The Y's half way holds the engine to half its
+revs (target = t / scale x the top revs), so that half a stick is a low speed in first gear (8.93 m/s, 32 km/h, at
+Speed Bay): the gearbox never changes up.
+
+**A gamepad, the port's own (2026-10-31).** Danik's report: the pad works, Start does not pause, the triggers can't be
+bound. Everything below is outside the game; the keyboard's and a plain joystick's ways are untouched (replays, physics and
+computer riders as before, the pictures the same).
+- `joy.c`: a joystick SDL has a layout for (SDL_IsGameController) is read through SDL_GameController. Buttons numbered A 0, B 1,
+  X 2, Y 3, LB 4, RB 5, Back 6, Start 7, Guide 8, L3 9, R3 10 (as such pads come raw, so saved bindings keep meaning), LT 11,
+  RT 12: the triggers count as buttons in CONFIG.BPT's binding numbers (the original would see a button it has not). The
+  gamepads are opened first: on Danik's machine a keyboard's "System Control" is also a joystick. A larger dead zone (0x1800).
+  SDL_JOYDEVICEADDED/REMOVED detect again.
+- **Analog** (`g_analog`, the port's openmotoracer.ini, on by default; on page 12). On: the stick's X and Y as the game's
+  JOYSTICK path, for a gamepad under JOYPAD too; the cross held gives the keys' bits, not full lock at once. Off: the bits
+  alone, under either name. **A trigger's amount goes in the key bits 8..15 (brake) and 16..23 (accelerate)**, which the replay's
+  word keeps (`keys & 0xffffff`) and nobody else reads: not in Y, whose half way is the trap above. 0 is the game's own press.
+  `engine_step`: the acceleration x gas / 255 (free revs held to gas / 255 of the top), the brake's force x brake / 255. Half a
+  trigger at Speed Bay: 33.6 m/s at step 640 against 50.4 at full; a tenth: 18 m/s. An original reading such a replay sees full presses.
+- **Rumble** (`g_rumble`, the same; on page 12): `rumble` in race.c, from the player's events at each step, as race_sound.c's:
+  a crash 500 ms whole; ev 0x2a a hard hit 280 ms; ev 0x15 a bump 180 ms by speed (in the air too: 0x1 is also set then); the
+  fallen rider coming down or meeting a wall 160 ms (`thud`: 0x40 alone is rarely set, since `tumble_dir[1]` is under 0.05 after a fall);
+  a landing by `kick` from 12. Only for the player's own riding, with a joystick chosen: not in replays, demos, the winner's lap.
+  SDL_JoystickRumble (SDL 2.0.9).
+- **pad.c**, menus and race's dialogs: the cross = arrow keys with repeat, the left stick the pointer (square law, 800 px/s whole),
+  A a click when the pointer is on something, else Return; B and Back Escape; Start Return in a menu, Escape in a race (the pause,
+  and back). In a demo A and B give way too. The race's own 0x411a10 route stays for a joystick that isn't a gamepad.
+- Page 12 with a gamepad: the cross and stick now move things, so a press can't be a binding at once as it was: A chooses the
+  row ("Press..."), the next thing pressed goes to it (a trigger takes a firm press), Start cancels. Back, Start, Guide can't be
+  bound. The cross moves up and down the rows and from Accept to the two options. On a plain joystick the page is as it was.
+- Tests: `OMR_INPUT` `F:pad:X,Y,BUTTONS,LT,RT,CROSS`; pictures pad_settings, pad_pause, pad_ride; the soak's extra_pad*.
+  Not tested by me on the real pad: SDL listed it ("Generic X-Box pad", a layout known, 6 axes), nothing more; the rumble has never been felt. Danik's feel is the check.
+
 ### 4.23 The MiSTer's ARM (2026-10-30)
 `tools/arm.sh` builds a static ARM program in the hybrid toolchain's container; `tools/arm.sh check` runs every test
 picture and replay on it under qemu-arm. Result: all 59 pictures the same as the PC's in 5-6-5, the replays the same,

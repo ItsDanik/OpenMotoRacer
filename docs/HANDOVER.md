@@ -192,3 +192,9 @@ prefix; `git worktree remove -f -f` once the session has ended, its `dosdevices`
 Every way of drawing a face in the game's tables is in `r3d.c` (no model reaches 3, 4, 9 and the like; checked by forcing
 them in both programs, NOTES §4.24). That comparison showed the near bike's shadow wrong since b8d650c and all 24 bikes
 drawn, whatever their distance. Both fixed; every check passes; `build/shots.txt` remade (9 + 15 race pictures changed).
+
+## 2026-10-31: the gamepad
+Danik's real pad works; he asked for Start to pause, the triggers to be bindable and analog, rumble, and the cross and stick in
+the menus. All done (NOTES §4.22), on by default, tried with a pretend pad (`OMR_INPUT` pad:); Danik judges the real one. The
+original has analog steering and throttle only on one stick under JOYSTICK, a brake that is on or off, no triggers.
+

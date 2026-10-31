@@ -15,7 +15,7 @@
 
 typedef double R;
 
-BikeWorld g_bikeworld = { 1.6f, 0, 1, 16.0f, 0, 0, 1, 0, 0, 0, { 0 }, 0, 0, 0, 0, 0, 0 };
+BikeWorld g_bikeworld = { 1.6f, 0, 1, 16.0f, 0, 0, 1, 0, 0, 0, { 0 }, 0, 0, 0, 0, 0, 0, 0, 0 };
 #define W g_bikeworld
 
 #define PI_F 1.5707963705062866         /* 0x3fc90fdb: pi/2 as a float */
@@ -904,6 +904,8 @@ static void engine_step(BikePhys *b, const float d[3], int t, int scale, float d
                     b->engine = 0.0f;
                 if (b->engine > mvm)
                     b->engine = (float)mvm;
+                if (W.gas && b->engine > mvm * W.gas / 255.0)
+                    b->engine = (float)(mvm * W.gas / 255.0);
                 if (air)
                     wheel_sync(b);
             } else {                    /* the drive */
@@ -917,6 +919,8 @@ static void engine_step(BikePhys *b, const float d[3], int t, int scale, float d
                 acc = (float)(dt10 * a / masse * 0.001);
                 if (dt10 * 0.03 < acc)
                     acc = (float)(dt10 * 0.03);
+                if (W.gas && W.gas < 255)
+                    acc = (float)(acc * W.gas / 255.0f);
                 b->wheel = (float)((R)b->wheel + acc);
                 if (b->wheel > b->top)
                     b->wheel = b->top;
@@ -962,6 +966,8 @@ static void engine_step(BikePhys *b, const float d[3], int t, int scale, float d
                 fr = 140.0f;
             if ((float)b->brake_ms < 200.0f && !cpu)
                 fr = (float)(fr * (1.0f / 6.0f));
+            if (W.brake && W.brake < 255)
+                fr = (float)(fr * W.brake / 255.0f);
             dec = (float)(fr * 0.2777777777777778 * dt10 * 0.001);
             if (bits(b->wheel) > 0) {
                 b->wheel = (float)((R)b->wheel - dec);
@@ -1063,7 +1069,11 @@ static void throttle(BikePhys *b, unsigned keys, int joy_y, float dt)
         scale = 1;
     } else
         t = 0, scale = 1;
+    /* (the port's: a gamepad's triggers; 0 the game's own full press) */
+    W.brake = (keys >> 8) & 0xff;
+    W.gas = (keys >> 16) & 0xff;
     engine_step(b, d, t, scale, dt);
+    W.brake = W.gas = 0;
 }
 
 /* 0x4660f0: the turbo lifts the front wheel and multiplies the power */
@@ -1568,9 +1578,13 @@ static void tumble(BikePhys *b, float dt)
         memcpy(b->tumble_pt, hit, 12);
         sec = walk(b->sec, b->tumble_pt);
         b->tumble_speed = (float)(b->tumble_speed * 0.5);
+        b->thud = 1;
     }
     g = (float)(int)road_y(sec, b->tumble_pt);
     if (b->tumble_pt[1] < (R)g + 8) {   /* on the ground */
+        if (b->tumble_air)
+            b->thud = 1;
+        b->tumble_air = 0;
         b->tumble_pt[1] = g;
         b->tumble_dir[1] = (float)(-(R)b->tumble_dir[1] * 0.01);
         normalise(b->tumble_dir);
@@ -1586,6 +1600,7 @@ static void tumble(BikePhys *b, float dt)
     } else {                            /* in the air */
         float d[3], s2;
         R s = b->tumble_speed, rr;
+        b->tumble_air = 1;
         d[0] = (float)(b->tumble_dir[0] * s);
         d[1] = (float)(b->tumble_dir[1] * s + dt * -0.0981);
         d[2] = (float)(b->tumble_dir[2] * s);

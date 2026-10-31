@@ -123,6 +123,7 @@ typedef struct BikePhys {
     float crash_v[3];           /* +0x31a1 */
     int crash_flag;             /* +0x31ad */
     int sec;                    /* +0x31c1: the section */
+    int tumble_air, thud;       /* the port's, for the rumble: the fallen rider in the air; hit a wall, or came down */
     float wall_n[3];            /* +0x31c5: the last wall's normal */
     float hit_timer;            /* +0x31d1: 200 after a hit */
     float lane_x;               /* +0x31d5: computer bikes: across the racing line, units */
@@ -168,6 +169,7 @@ typedef struct {
     void (*effects)(BikePhys *, unsigned keys);         /* 0x466d70, the same */
     /* 0x467c40, the same (without it the stream 1 is only drawn from) */
     void (*debris)(int n, const float pos[3], int base, int mask, const float *m);
+    int brake, gas;             /* the port's: how hard a gamepad's triggers are held, 1..255; 0 the game's */
 } BikeWorld;
 
 extern BikeWorld g_bikeworld;
