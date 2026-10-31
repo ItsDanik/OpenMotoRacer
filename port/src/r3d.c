@@ -671,8 +671,20 @@ static int wrap(long long v)    /* a 32-bit register's sum or product */
 
 static int see_through(int kind)
 {
-    return kind == 12 || kind == 37 || kind == 38 || kind == 39 || kind == 44 || kind == 50
-           || kind == 51 || kind == 53 || kind == 54 || kind == 62 || kind == 68;
+    return kind == 2 || kind == 4 || kind == 8 || kind == 9 || kind == 12 || kind == 0x13
+           || kind == 0x14 || kind == 37 || kind == 38 || kind == 39 || kind == 44 || kind == 50
+           || kind == 51 || kind == 53 || kind == 54 || kind == 62 || kind == 68 || kind == 69;
+}
+
+/* kind table 0x4f1a70: a span that is only a `ret`. The opaque ones (3, 0x12, 0x1d, and 1 once
+   `face` has made it 3: here 1 is the palette's opaque face) still close their free pieces, so
+   what lies behind them is not drawn; the see-through ones take pieces only. In the game 3, 4,
+   9, 0x12 and 0x1d go through sub 5 and 7 (0x49fa10, 0x4a2630) where 1 goes through sub 4;
+   nothing reaches them, so `triangle` stands in for all */
+static int no_paint(int kind)
+{
+    return kind == 2 || kind == 3 || kind == 4 || kind == 8 || kind == 9 || kind == 0x12
+           || kind == 0x13 || kind == 0x1d;
 }
 
 static int sub6(int kind)       /* kind table 0x4f1a70: sub 6, the perspective-correct ones */
@@ -709,6 +721,8 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
         u += (top - x0) * du, v += (top - x0) * dv;
         x0 = top;
     }
+    if (no_paint(kind))
+        return;
     if (kind == 12) {                                   /* 0x4a4110: half the screen + colour */
         for (x = x0; x < x1; x++)
             o[x] = (uint16_t)(((o[x] >> 1) & HALF) + colour);
@@ -733,11 +747,16 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
                 o[x] = (uint16_t)(((o[x] >> 1) & HALF) + ((c >> 1) & HALF));
             continue;
         }
-        if (kind == 68) {                               /* 0x4a4dc0 */
+        if (kind == 68 || kind == 69) {                 /* 0x4a4dc0, 0x4a4f30 (no blue) */
             unsigned s = o[x], a = c & 0x1f;            /* each channel towards white by a/32 */
             o[x] = (uint16_t)(s + (((31 - (s >> 11)) * a >> 5) << 11)
                               + (((31 - ((s >> 6) & 31)) * a >> 5) << 6)
-                              + ((31 - (s & 31)) * a >> 5));
+                              + (kind == 68 ? (31 - (s & 31)) * a >> 5 : 0));
+            continue;
+        }
+        if (kind == 0x14) {     /* 0x4adbf0: red from the table 0x4f62f0, which nothing writes;
+                                   the palette's colour 0 halves the screen */
+            o[x] = (uint16_t)(c ? c & 0x7ff : (o[x] >> 1) & HALF);
             continue;
         }
         if (kind == 0x15 || kind == 0x27)
@@ -1404,19 +1423,18 @@ static void face(const Entry *e)
             flat_face(f, base, colour);
             return;
         }
-        if (kind != 1 && kind != 2 && kind != 42) {     /* (0x4af100: the others, as 8, draw nothing) */
-            static int told;
-            if ((kind == 3 || kind == 4 || kind == 9) && !told++)
-                fprintf(stderr, "openmotoracer: paletted face kind %d is not written yet\n",
-                        kind);
-            return;
-        }
+        if (kind != 1 && kind != 2 && kind != 3 && kind != 4 && kind != 9 && kind != 42)
+            return;                                     /* (0x4af100: the others, as 8) */
         /* 1: 0x4a7b70, palette[texel] opaque; 2: 0x4ab070, the same put off till last and
            skipping a palette colour of 0, as the kind 0x26; dark, each halved (0x4a8c70,
            0x4ac1f0); 42: 0x4a9df0, the face's colour where the palette's is not 0, as the
-           kind 0x25 */
+           kind 0x25. No model makes 3 (0x4a6a50), 4 (0x4ad410, batch kind 0x13) or 9 (0x4ae730,
+           batch kind 0x14), which take no light: NOTES §4.20 "Paletted path" */
         tex = skin_texels(f->page, e->skin);
-        kind = kind == 42 ? 0x25 : kind == 1 ? (e->dark ? 0x15 : 1) : (e->dark ? 0x27 : 0x26);
+        if (kind == 4 || kind == 9)
+            kind = kind == 4 ? 0x13 : 0x14;
+        else if (kind != 3)
+            kind = kind == 42 ? 0x25 : kind == 1 ? (e->dark ? 0x15 : 1) : (e->dark ? 0x27 : 0x26);
     } else {
         if (kind == 0) {
             flat_face(f, base, f->colour & 0xffdf);    /* (the 5:5:5 form: green loses its low bit) */
@@ -1424,20 +1442,18 @@ static void face(const Entry *e)
         }
         if (kind == 5)                                  /* 0x4a4bc0: ret */
             return;
+        if (kind == 1)                                  /* 0x4a4bf0: ret */
+            kind = 3;
         if (kind == 12) {       /* 0x4a4820: the colour halved, as it adds to half the screen */
             unsigned c = ((f->colour >> 10) & 31) << 11 | ((f->colour >> 5) & 31) << 6
                          | (f->colour & 31);            /* 0x402020 */
             colour = (uint16_t)((((c & 0xffc3) >> 1 | (c & 0x1e)) >> 1) & HALF);
-        } else if (!sub6(kind) && kind != 0x10 && kind != 0x15 && kind != 0x25 && kind != 0x26
-                   && kind != 0x27 && kind != 0x2c && kind != 68) {
-            static int told;
-            if (!told++)
-                fprintf(stderr, "openmotoracer: 3D face kind %d is not written yet (page %d)\n", kind, f->page);
-            return;
-        }
+        } else if (!sub6(kind) && !no_paint(kind) && kind != 0x10 && kind != 0x15 && kind != 0x25
+                   && kind != 0x26 && kind != 0x27 && kind != 0x2c && kind != 68 && kind != 69)
+            return;                                     /* (no row in 0x4f1a70, as 0xd) */
         tex = f->page >= 0 && f->page < R3D_PAGES ? g_texpage[f->page] : 0;
     }
-    if (!tex && kind != 12)
+    if (!tex && kind != 12 && !no_paint(kind))
         return;
     if (sub6(kind)) {
         face6(f, kind, base, tex);

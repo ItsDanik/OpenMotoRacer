@@ -63,7 +63,7 @@ typedef struct {
     int step_global, yscale;    /* 0x4dbfe0, 0x516aa8 */
     int start[3];               /* 0x51bfd8: StartPosition */
     int optimise;               /* 0x5d2eac: ComputeLandOptimise */
-    float detail[9][5];         /* 0x51d1b8: LenBPlane .. gouraudZ, a column per detail */
+    float detail[9][5];         /* in the file's order: LenBPlane (0x51d1bc), LenRLPlane (0x51d1b8), .. gouraudZ; a column per detail */
     float ai[13][3];            /* 0x5427b8..: RATTRAPAGE_SPEED .. SPEED_FACTOR */
     int ncomputer;              /* 0x4dbfcc: NbComputer */
     float computer_speed[32];   /* 0x51be98: ComputerSpeed, NbComputer of them */

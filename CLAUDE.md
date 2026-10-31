@@ -151,6 +151,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   race goes on. `-windowed`, `-fullscreen`, `-NoSound`, Alt+Return (the window starts as CONFIG says). Link stays on page 3.
 - Windows and the soak (NOTES §4.24): `tools/windows.sh` the MinGW build with SDL2.dll in `build/win/`, `tools/windows.sh check` all pictures, replays and
   checks on it under wine (5-6-5: SDL2.dll rounds its BMPs differently); home `%APPDATA%\OpenMotoRacer`. `python3 tools/soak.py` the sanitizers over every track, mode and page.
+- A bike is drawn only near the view and on a section the camera sees (`bike_seen`, 0x458b80), each bike has its own shadow faces; every way of drawing a face in the game's tables is written (`r3d.c`, NOTES §4.24). `build/shots.txt` is the port against itself: compare the race's picture against `build/ref/` too.
 - GO's test uses the seconds of the last clock split (0x4f0d8c): the lap panel's, not the time left (NOTES §4.17 §6; West Way on easy once lost its GO). `OMR_DIFFICULTY` for tests.
 - Test switches: `OMR_PAGE`, `OMR_LIST` (the track list), `OMR_CHOICES="MODE,TRACK,LAPS[,REV,POC]"`, `OMR_TILE=SX,SY` (the chequered tile's scroll, to match a capture;
   `tools/cmpshot.py` finds it), `OMR_INPUT="F:key F:hold:key F:release:key F:move:X,Y F:click F:down F:up"` (input at frame F),

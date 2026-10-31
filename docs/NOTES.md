@@ -11016,9 +11016,9 @@ No span routine the bikes reach uses the light level itself. Each one draws eith
 | 0 | 0x4a3cf0 → 0x4a34f0 | flat: colour < 256 → palette[colour], else the RGB565 value as is | **average of corners 0,1,2 (integer /3) < 0x3e000 → half** |
 | 1 | vertex 0's word ≥ 0x3e000 ? 0x4a7b70 : **0x4a8c70** | 0x4a8c70 → triangle 0x4a85e0 → span 0x4a83d0 → pixel 0x4a8340: **half(palette[texel])**, opaque | the vertex tested is **vertex 0 of the whole transformed array** (bucket +0x0c), not a corner of the face |
 | 2 | ≥ 0x3e000 ? 0x4ab070 : **0x4ac1f0** | both hold the pieces back in deferred batches (0x625790, 0x24 bytes), drawn by 0x4af130 after all buckets. Unlit: batch kind **40** → span 0x4aa6c0, palette[texel], skipped when the palette colour is 0. Lit: batch kind **41** → 0x4ab840: same, but **half(palette[texel])** | same test |
-| 3 | 0x4a6a50 → 0x4a62d0 → 0x4a6080 | the span is **0x4a6070 = `ret`**: draws nothing | — |
-| 4 | 0x4ad410 | batch kind **19** → span **0x4ac9c0 = `ret`**: draws nothing | — |
-| 9 | 0x4ae730 | batch kind **20** → 0x4adbf0: shades along the span (step 0x655d30). Palette colour 0 → screen halved. Otherwise the red channel comes from table 0x4f62f0[red][level] (in BSS: built at run time, or zero) and green and blue are kept | interpolated |
+| 3 | 0x4a6a50 → 0x4a62d0 → 0x4a6080 | the span is **0x4a6070 = `ret`**: paints nothing, but opaque: it closes its free pieces, so the clear colour shows through it | — |
+| 4 | 0x4ad410 | batch kind **19** (0x13) → span **0x4ac9c0 = `ret`**: paints nothing, closes nothing | — |
+| 9 | 0x4ae730 | batch kind **20** → 0x4adbf0: shades along the span (step 0x655d30). Palette colour 0 → screen halved. Otherwise the red channel comes from table 0x4f62f0[red][level] (in BSS, no writer: read from the running program, 4100 bytes of zero but for the next variable's 4 at its end, so red is simply gone: c & 0x7ff) and green and blue are kept | interpolated |
 | 42 | 0x4a9df0 | batch kind **42** → 0x4a9440: **flat colour wherever palette[texel] ≠ 0** (a silhouette of a see-through face), deferred | colour halved when the 3-corner average < 0x3e000 |
 
 The kind table 0x4f1a70 is rearranged at start-up by 0x4a2ea0 → 0x4a2e00 so that row = kind id (0x47 rows, unused rows −1) [decomp]. That is why the batch kinds above index it directly through `0x4f1a7c + kind·16` (its span field).
@@ -11162,7 +11162,7 @@ post-step 0x466d70 (so: tyre marks laid while braking/sliding [guess, strong]).
 
 ##### 4.9 Open points (bike drawer)
 1. Which track sections have +0xe0 ≠ 0 (tunnels? [guess]). A capture in one would confirm the skeleton/LOD halving and that RGB-page faces stay full.
-2. Table 0x4f62f0 (kind 9's red table) has no writer found by its exact address. It does not matter for bikes (kind 9 never reaches them).
+2. Table 0x4f62f0 (kind 9's red table) has no writer found by its exact address, and is zero in the running program (§4.4 above). It does not matter for bikes (kind 9 never reaches them).
 3. 0x422540's a0 and pos arguments: pushed, no use found in the formula. Worth one more read if the exact levels are ever needed (they do not reach pixels).
 4. Decor lighting 0x4036a0 → 0x422810 (also gated by 0x4dc130) was not followed. It could darken decor the same way.
 5. The detail value 0x4dc098 during a race (from Options) decides the flat (0/1) vs textured bikes and the near-perspective threshold. Confirm the default in the original.
@@ -11406,7 +11406,7 @@ y = sy - font height (+0xa18) - 0x5d893c - the text's height (0x492b10, one line
 The recolouring 0x490a90 has no effect here: fonts 1 and 5 use their own palette.
 The port asks `race_label_place`: 0x46e8b0 (no further than 2 x LenBPlane; forward plane, far plane and the
 two side planes of 0x46e320 with a margin of 2048) and the section on 0x40ce60's list (`land_section_seen`).
-The bikes themselves are still all drawn in the port, unculled: the label is the only thing asking.
+The bikes ask the same (`bike_seen`, 2026-10-31; until then all were drawn, the label alone asking, see §4.24 below).
 
 **The end** 0x412a50 (asm 0x412d42..0x412dd0): mode 0, time attack, R(1) place 0x5873a6 == 0: 0x52c100 =
 (float)R(1)'s time 0x5871fe, copy 0x4190d0 (run -> ghost), 0xc0 bytes R(1)+0x2f89 -> 0x581025, strcpy
@@ -11549,9 +11549,15 @@ What it found, each fixed at the game's address with every check unchanged (pict
 3. **0x4b3048** (`ftol.h`). The C library's float to int is `fistp` into 64 bits, low half kept; past 2^63 and NaN, 0. `r3d.c` and `race_sound.c` took 0x80000000 for everything out of int's range, `triangle` and `land.c`'s corners a plain C cast, which is undefined (x86 and ARM differ). Those now share `ftol.h`.
    `hud.c` and `horizon.c` keep their own copies for the moment (being rewritten for the screen sizes); nothing out of range has come through them.
 4. **Page 21, button 9** (`page_champ.c`). Continue's neighbour on an arrow key is 9 (0x1ffff09, as 0x450f40 has it), which doesn't exist; Return then presses it and `pressed < 10` holds. The game saves to Champ8.sav, which nothing lists, and copies the title past its eight (0x451323) over the variables at 0x540ad0. The file is written still, the title not.
-5. Not a bug but a false alarm: a paletted face of kind 8 (Pocket bikes) said "not written yet". The table 0x4af100 sends it to the plain return: it draws nothing. Only 3, 4, 9 are unwritten.
+5. Not a bug but a false alarm: a paletted face of kind 8 (Pocket bikes) said "not written yet". The table 0x4af100 sends it to the plain return: it draws nothing.
 
 Noted, left as they are: pressing **Play Link** ends the program with "The page 2 (network) is not written yet" (scope: no network; Danik to say if it should do nothing instead). Pages 2, 7, 8, 19, 22 and such end the same way, reached only through `OMR_PAGE`. `OMR_PODIUM` above 4 overruns; the game clamps its place to 4 and only the switch can.
+**The rest of the kinds written, and what checking them found (2026-10-31).** `r3d.c` now has every row of 0x4f1a70 and 0x4af100: paletted 3, 4, 9 and unpaletted 2, 3, 4, 8, 9, 0x12, 0x13, 0x14, 0x1d (`no_paint`: those that paint nothing, which of them close their pieces as `see_through` says) and 69 (68 without blue, from the code's run-time patches: 0x624b04 = 0x7c0, 0x624af8 = 0xf800, 0x625770 = 0x1f0000). None is met in play: 0x420a50 and 0x462c30 can't make them (§4.15), and a census of 48 runs (both lists, normal, reversed, pocket, 1500 pictures on autopilot) saw paletted 0, 1, 2, 8 and plain 0, 12, 16, 21, 31, 32, 38, 39, 44, 53, 54, 62, 68. Checked by forcing them in both programs: the original with its tables poked (0x4af101, 0x4af102 = 5, 3, 4; kind 38's span 0x4f1cdc = kind 69's), the port built likewise; equal but for what moves. The sub-5 and sub-7 ones go through the ordinary triangle as a stand-in, which paints nothing either way; the free pieces they close were not compared.
+
+Comparing those pictures found two faults of the port's in every race, neither seen by a check, because `build/shots.txt` is the port against itself:
+1. **The shadows' faces were one pair for all bikes** (since b8d650c, when the kind drawn moved into the face, §4.13.4: right for models' copies). The game's are each rider's own (0x45bf70, obj+0x2ef1). The last bike queued is far away, kind 44, so the nearest bike's shadow lost its kind 62 (perspective): 358 pixels at Speed Bay's start. Now `g_pair[RIDERS]`, `g_crash[RIDERS]`.
+2. **All bikes were drawn**, wherever they were: far ones showed as specks over the hills past the road's end (they have no road there to stand behind). 0x458b80 asks 0x46e8b0 and the list of 0x40ce60 (§4.1 of the bike drawer). The port had this test for the race's labels, but had the wrong distance: the file's order is LenBPlane (0x51d1bc) first, then LenRLPlane (0x51d1b8), so `detail[1]` was 3500, the side planes', not 18000. In the original at Speed Bay's start riders 1..13 have +0 set, 14..24 not (read from its memory, 0x584421 + k x 0x3209): rider 14 is 20457 ahead, 2457 past the far plane, rider 13 18912. With `detail[0]` the port draws the same. The labels (Link, time attack) had the same wrong distance.
+
 Memory: demos in a row hold 56 MB at most from 16000 to 128000 pictures; the leak checker finds nothing over 12000 pictures.
 
 

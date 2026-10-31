@@ -1124,13 +1124,13 @@ static int near_the_view(const float c[3][3], const float eye[3], const float p[
     int i;
     for (i = 0; i < 3; i++)
         v[i] = (double)p[i] - eye[i];
-    if (sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) > g_land.detail[1][g_detail] * 2.0)
+    if (sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) > g_land.detail[0][g_detail] * 2.0)
         return 0;
     for (i = 0; i < 3; i++) {
         ahead += v[i] * c[i][2];
         across += v[i] * c[i][0];
     }
-    if (ahead <= -2048.0 || ahead - g_land.detail[1][g_detail] >= 2048.0)
+    if (ahead <= -2048.0 || ahead - g_land.detail[0][g_detail] >= 2048.0)
         return 0;
     x = 0.6 * camera_zoom();
     len = sqrt(1.0 + x * x);
@@ -1141,6 +1141,12 @@ static int near_the_view(const float c[3][3], const float eye[3], const float p[
     return y > -2048.0;
 }
 
+/* 0x458b80: a bike is drawn only near the view and on a section the camera sees */
+static int bike_seen(const float c[3][3], const float eye[3], const Rider *r)
+{
+    return near_the_view(c, eye, r->pos) && land_section_seen(g_eye_sec, c, r->sec);
+}
+
 /* Rider k's label: is the bike drawn (+0, set by 0x458b80) and where does the point above
    it fall (0x4818a0)? In the camera's coordinates, 125 up (0x4d1a20). */
 int race_label_place(int k, int *sx, int *sy)
@@ -1148,8 +1154,7 @@ int race_label_place(int k, int *sx, int *sy)
     const Rider *r = &g_shown[k];
     float c[3][3], eye[3], v[3], x, y, z, focal = FOCAL * camera_zoom();
     r3d_get_camera(c, eye);
-    if (!near_the_view((const float (*)[3])c, eye, r->pos)
-        || !land_section_seen(g_eye_sec, (const float (*)[3])c, r->sec))
+    if (!bike_seen(c, eye, r))
         return 0;
     v[0] = r->pos[0] - eye[0];
     v[1] = r->pos[1] - eye[1] + 125.0f;
@@ -1233,9 +1238,9 @@ void race_frame(void)
         if (i == g_follow && onboard_now()) {
             if (cockpit_shown())
                 bike3d_cockpit(&g_shown[i], g_shown[g_follow].lean);
-        } else if (g_racer[i].loaded) {
+        } else if (g_racer[i].loaded && bike_seen((const float (*)[3])c, eye, &g_shown[i])) {
             bike3d_draw_rider(&g_shown[i], g_shown[i].lod);   /* +0x638: the step's, 0x45f160 */
-            shadow_draw(&g_shown[i]);
+            shadow_draw(&g_shown[i], i);
         }
     bike3d_lighting(0);
     effects_draw(g_detail, a);

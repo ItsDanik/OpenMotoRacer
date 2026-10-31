@@ -6,12 +6,13 @@
 #include "bikes.h"
 #include "land.h"
 #include "r3d.h"
+#include "race.h"
 #include <math.h>
 #include <string.h>
 
 /* 0x45bf70 with 0x422de0: the top view's left half (from the front) on points 0 1 2 5, its
    right half on 5 2 3 4; the rear of the bike is at u = 1 */
-static Face g_pair[2], g_crash[2];
+static Face g_pair[RIDERS][2], g_crash[RIDERS][2];     /* each bike's own: its kind drawn too */
 static int g_made;
 
 static void corner(Face *f, int k, int idx, int u, int v)
@@ -33,19 +34,20 @@ static void make_faces(void)
         { { 0, 114, 1 }, { 1, 114, 35 }, { 2, 1, 35 } },
         { { 0, 114, 1 }, { 2, 1, 35 }, { 3, 1, 1 } },
     };
-    int i, k;
+    int b, i, k;
     memset(g_pair, 0, sizeof g_pair);
     memset(g_crash, 0, sizeof g_crash);
-    for (i = 0; i < 2; i++) {
-        g_pair[i].kind = g_crash[i].kind = 0x2c;
-        g_pair[i].page = g_crash[i].page = 1;
-        g_pair[i].n = 4;
-        g_crash[i].n = 3;
-        for (k = 0; k < 4; k++)
-            corner(&g_pair[i], k, quad[i][k][0], quad[i][k][1], quad[i][k][2]);
-        for (k = 0; k < 3; k++)
-            corner(&g_crash[i], k, tri[i][k][0], tri[i][k][1], tri[i][k][2]);
-    }
+    for (b = 0; b < RIDERS; b++)
+        for (i = 0; i < 2; i++) {
+            g_pair[b][i].kind = g_crash[b][i].kind = 0x2c;
+            g_pair[b][i].page = g_crash[b][i].page = 1;
+            g_pair[b][i].n = 4;
+            g_crash[b][i].n = 3;
+            for (k = 0; k < 4; k++)
+                corner(&g_pair[b][i], k, quad[i][k][0], quad[i][k][1], quad[i][k][2]);
+            for (k = 0; k < 3; k++)
+                corner(&g_crash[b][i], k, tri[i][k][0], tri[i][k][1], tri[i][k][2]);
+        }
     g_made = 1;
 }
 
@@ -117,7 +119,7 @@ void shadow_step(BikePhys *b)
     }
 }
 
-void shadow_draw(const Rider *r)
+void shadow_draw(const Rider *r, int k)
 {
     static const float I[3][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } };
     static const float zero[3];
@@ -128,10 +130,10 @@ void shadow_draw(const Rider *r)
     r3d_place(n, t, I, zero);
     base = r3d_points(6, (const float (*)[3])r->shadow, (const float (*)[3])n, t);
     if (base >= 0)                      /* detail 3 for these faces: always the texture */
-        r3d_faces_detail(base, 2, g_pair, 3);
+        r3d_faces_detail(base, 2, g_pair[k], 3);
     if (r->crashed) {
         base = r3d_points(4, (const float (*)[3])r->crash_shadow, (const float (*)[3])n, t);
         if (base >= 0)
-            r3d_faces_detail(base, 2, g_crash, 3);
+            r3d_faces_detail(base, 2, g_crash[k], 3);
     }
 }

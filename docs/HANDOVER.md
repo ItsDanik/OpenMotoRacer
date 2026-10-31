@@ -155,9 +155,13 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   won't give them.
 - **The kind drawn lives in the model's face** (NOTES §4.13.4): the palm at Speed Bay now 0 pixels different. Found by
   reading the original's tables of see-through pieces (a way to check any later drawing question).
-- Every track's start against the original, the locked ones with 0x4dc058 poked: on road tracks only what moves differs,
-  and two thin lines of 24 pixels on Track 4's roof (a texel row's rounding, not chased). On dirt bikes the standing bike
-  rocks in both, so no pixel compare there.
+- Every track's start of the first list against the original, the locked ones with 0x4dc058 poked, compared again on
+  2026-10-31 after two faults of the port were found (the near bike's shadow, far bikes drawn; NOTES §4.24): at Speed Bay
+  outside the big LAPS text 95 pixels differ, the boat, a gull and 7 single ones. On the other road tracks riders' idle
+  movement and a line or so of rounding: West Way's roof (the 24 pixels), Lost Ruins' rock, under 30-80 pixels a track.
+  Dirt bikes rock in both, the helicopter flies; there what differs is those. The second list (Fun Fair and so on) has
+  not been compared since. **`build/shots.txt` is the port against itself: it cannot see a fault like these two; only
+  `build/ref/` and fresh captures can. After a change of the race's picture, compare against one.**
 - F9 the map, numpad detail and volumes, Ctrl+F, Ctrl+U, Shift+F1, focus, `-windowed`, `-fullscreen`, `-NoSound`, Alt+Return,
   Link stays on the menu (NOTES §4.20 §2.6, §5b, §4.10.5.3). A demo has 23 riders as the original.
 - The Windows build (`tools/windows.sh`, checks under wine; never run on real Windows) and the soak (`tools/soak.py`,
@@ -183,3 +187,8 @@ detail 2, a real dark section, later signs of a ride, the CD's pages past the ma
 joystick, a real full screen. Left in the code: T and Ctrl+H don't show their messages (they change nothing here).
 The helpers' worktrees in `.claude/worktrees/` are merged and empty of anything unique (one holds a 690 MB private wine
 prefix; `git worktree remove -f -f` once the session has ended, its `dosdevices` links first).
+
+## 2026-10-31: the rare ways of drawing written; two real faults found by comparing them
+Every way of drawing a face in the game's tables is in `r3d.c` (no model reaches 3, 4, 9 and the like; checked by forcing
+them in both programs, NOTES §4.24). That comparison showed the near bike's shadow wrong since b8d650c and all 24 bikes
+drawn, whatever their distance. Both fixed; every check passes; `build/shots.txt` remade (9 + 15 race pictures changed).
