@@ -11696,17 +11696,29 @@ All of it behind `MISTER_HYBRID` (`port/src/mister.c`, `mister.h`); the PC's pic
   `g_pocket_unlocked2` only when moved, typing them still works; No Time Limit; Slow Rivals, latched at the
   race's start, not in demos.
 
-**Speed, measured on the real MiSTer** (Speed Bay, 24 riders, autopilot; the time to make a picture without the wait):
+**Speed, measured on the real MiSTer** (Speed Bay, 24 riders, autopilot, the settings of a new player; the time to make a picture without the wait; stretches of 300 pictures, 2026-11-01):
 
-| Mode | Pictures a second | ms a picture | Slowest |
-|---|---|---|---|
-| 320x240 | 57-60 | 12-16 | 21-29 |
-| 640x240 | 33-45 | 18-25 | 29-41 |
-| 640x240, Limit to 30 FPS | 29.8 | 19-22 | 30-32 |
-| 640x480i | 24-29 (a frame every 2 fields at most) | 26-33 | 40-54 |
+| Mode | Pictures a second | ms a picture | Slowest | Of 300: never shown / shown twice |
+|---|---|---|---|---|
+| 320x240 | 59.5-59.8 | 10-14 | 16-23 | 0/0 in 6 stretches of 7, 1/1 in the other |
+| 640x240 | 52.8-60 | 14-19 | 21-27 | 0-10 / 0-29 |
+| 640x480i | 28.5-29.9 (a frame every 2 fields at most) | 23-33 | 33-48 | frames: 30-43 / 34-46 |
 
-`-O3 -marm` over `-O2` changes little. Splitting the two busiest loops (`span6` kind 31, `span` kind 0x10) by
-hand gained nothing: the compiler already does it (undone). The texture reads are the cost.
+Before this work: 320x240 57-60, 640x240 33-45, 640x480i 24-29. So 320x240 is a steady 60 (the field rate, 59.64); 640x240 is near it and drops in the heaviest
+stretches, not a solid 60; its Limit to 30 FPS stays for those who want no drops. A picture may take up to about two fields as long as the average stays under 16.7 ms, which is what drawing ahead buys.
+
+What the profile showed and what was done (`-DOMR_PROF=ON`: 1 kHz sampling and marks per stage, `tools/prof.py`; slower than the release, so compare stages only between profile runs and take the real numbers from a release):
+- **The sound's lock.** The game thread waited up to 8-20 ms for the device lock, held by the mixer through a whole callback (1024 slots a sample, with 64-bit division). `sound.c` has its own lock, taken per block of 256 samples (`MIX_BLOCK`), and `mix_voice()` runs voice by voice into float arrays. The WAV's sum is unchanged.
+- **The music's file reads** on the game thread: now `music_thread` on CPU1 (`MH_PinThreadToCPU1`). Without a thread (`OMR_WAV`) it fills directly as before.
+- **Drawing straight into the core's next buffer** (`SDL_MISTER_DIRECT`) in place of a copy a picture.
+- **640x240's 2D rows only as needed.** The sample of the 3D and the merge took every row; now `VIDEO_ROWS(y0,y1)` says which rows a writer touches (`font.c`, `bitmap.c`, `sprite.c`, `dialog.c`, `pointer.c`), only those are taken and merged. `OMR_ROWS_CHECK` in the profile build compares and prints any row drawn on without saying; 0 through help, map, dialogs, F7, pause and the winner's credits.
+- **The horizon's clear**: only its strip's rows and the last one (`horizon.c`), not the whole screen a picture.
+- **The drawing loops split by kind**: `span` and `span6` chose the kind per pixel through a jump table the compiler did not lift out of the loop. `TEXELS` writes a loop for each kind. `row6`'s common cases return early; a prefetch of the next face in `r3d_render`; `span`'s kind 0x10 in assembler on the ARM.
+- **The build**: Thumb's smaller code stays in the Cortex-A9's cache and gave the best pacing, with `-O3 -flto -flto-partition=none` (`port/CMakeLists.txt`, also in `tools/arm.sh`'s build). Measured against ARM mode with the same sources, in turns.
+
+What did not help: prefetching textures (no gain, undone); profile-guided optimisation about 2%, not worth keeping counts files in the repository; whole-program optimisation alone little. An earlier remark here, that splitting the loops gained nothing, was wrong: that first try split only two kinds.
+
+Checked after all of it: `tools/shots.sh` 91 of 91, `tools/arm.sh check` 91 pictures and 3 replays, all the same; on the real core the audio ring never empty (`MISTER_HYBRID_STATS`, at least 1408 frames in it).
 
 **Drawing ahead** (`DRAW_AHEAD`, hybrid/CLAUDE.md's rule), pictures of 300 shown never / twice, two runs each in turns:
 
@@ -11715,7 +11727,7 @@ hand gained nothing: the compiler already does it (undone). The texture reads ar
 | 320x240 | 2/5, 0/0, 4/6, 13/22, 0/0, 11/24 | 39/39, 51/51, 35/36, 29/42, 54/53, 25/39 |
 | 640x240 | 0/131, 0/120, 0/190, 0/152, 0/117 | 0/108, 0/132, 3/156, 1/142 |
 
-So `DRAW_AHEAD` 1: a clear gain at 320x240, nothing lost at 640x240. Not in an interlaced race (the framework's rule).
+So `DRAW_AHEAD` 1: a clear gain at 320x240, nothing lost at 640x240. Not in an interlaced race (the framework's rule). (Those two tables' runs are from before the speed work above.)
 
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):

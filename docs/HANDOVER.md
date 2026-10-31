@@ -135,8 +135,8 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
 - The CD (`exe.c`, NOTES §3.5a): the port runs on the CD's files alone, every track started. MOTO.EXE itself runs
   under wine (how: NOTES): title and main menu differ in the pointer only; Solo can't be pressed there, so no race
   or later page compared. It is GOG's logic with plain colours on the CD's data. No music from the CD yet.
-- The ARM build (`tools/arm.sh`, NOTES §4.23): pictures and physics the same as the PC's under qemu; `OMR_PERF=1`. Speed on a
-  real MiSTer still to measure (Danik: the command is in the NOTES); nothing made faster yet.
+- The ARM build (`tools/arm.sh`, NOTES §4.23): pictures and physics the same as the PC's under qemu; `OMR_PERF=1`. Speed on the
+  real core: NOTES §4.25 (320x240 a steady 60, 640x240 53-60, 640x480i 28-30, after the profile's work).
 - The glass after a race (the old question of its page 2 against the level's pages 2..19): a race, back through the menus,
   Options: the glass whole, no track picture in it (seen in the port).
 
@@ -176,10 +176,8 @@ The port now saves the track list as the game does (it never had, so unlocks wer
 track unlocked on both discs to test them: `tools/unlock_all.sh` did it in his folder, `--undo` goes back to the game's lists.
 
 ## Next, in order
-1. Speed on a real MiSTer: Danik runs the command in NOTES §4.23 (the program: `build/arm/openmotoracer`; not reachable
-   from here without the MiSTer's address). If it is too slow, make the painters faster with the pictures' check (span6, row).
-2. The MiSTer core (`new-hybrid-core`; id `MotoRacer`) and the releases: need Danik's word. The core's step 3 pushes to
-   the shared Hybrid_MiSTer, its testing needs the MiSTer, and "local git only" still stands.
+1. The MiSTer core is built and tested on the real MiSTer (`~/MiSTer-openmotoracer`, this branch `mister`, NOTES §4.25); `~/GAMEDATA/OpenMotoRacer.tar.zst` holds the data. Waiting: Danik's playing on a CRT (rumble, triggers, flicker), his OLED verdict, his word on publishing. Nothing pushed to GitHub.
+2. Merging `mister` into `master`: not done; the PC's pictures are unchanged by it.
 3. **Last: the split screen** for two players on one PC (the original has none). Danik, 2026-10-30: leave it for last and
    **stop before starting work on it**.
 Not compared with the original, for want of a way to run both in step: computer riders' marks, the crash's debris, spray at
