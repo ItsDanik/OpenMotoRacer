@@ -3,6 +3,7 @@
    rewrite after it do. */
 #include "video.h"
 #include "config.h"
+#include "mister.h"
 #include "exe.h"
 #include "trackmap.h"
 #include "video.h"
@@ -150,6 +151,13 @@ void config_load(void)
         g_binding[i][0] = g_cfg[CFG_ACTION0_KEY + 2 * i];
         g_binding[i][1] = g_cfg[CFG_ACTION0_BTN + 2 * i];
     }
+#ifdef MISTER_HYBRID
+    if (!own)
+        mister_default_bindings();
+    g_input_device = 4;         /* the core's pad, always (a keyboard works beside it) */
+    g_joy_type = 4;
+    g_mode169 = 0;              /* no 16:9 here: the core's screen is 4:3 */
+#endif
     g_enum_session = g_cfg[CFG_ENUM_SESSION];
     g_small_fonts = g_cfg[CFG_SMALL_FONTS];
     g_show_counter = g_cfg[CFG_SHOW_COUNTER];

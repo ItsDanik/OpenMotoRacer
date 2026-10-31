@@ -123,6 +123,38 @@ static void typing(void)
     g_menu_char = 0;
 }
 
+/* The port's own: a pad, which has no letters. The arrows while a new name is being typed: up
+   and down turn the last letter, right adds one, left takes one away; then A is Return. */
+int page_top5_typing(void)
+{
+    return g_menu.page == 9 && (g_new || g_new_lap);
+}
+
+void page_top5_letter(int vk)
+{
+    int c = 0, i;
+    g_menu.mouse_mode = 0;
+    if (vk == VK_LEFT) {
+        g_menu_char = 8;
+        return;
+    }
+    if (vk == VK_RIGHT || g_cursor == 0) {
+        if (g_cursor < 3)
+            g_menu_char = 'a';
+        return;
+    }
+    for (i = 0; i < 5; i++)
+        if (g_new & 1u << i)
+            c = g_scores[i].b[9 + g_cursor - 1];
+    if (g_new_lap)
+        c = g_best_lap.b[9 + g_cursor - 1];
+    c = c < 'A' || c > 'Z' ? 'A' : c + (vk == VK_UP ? 1 : -1);
+    c = c > 'Z' ? 'A' : c < 'A' ? 'Z' : c;
+    g_cursor--;
+    put_letter(c);
+    g_cursor++;
+}
+
 /* "MM'SS''HH" */
 static void format_time(char *out, size_t size, unsigned ms)
 {

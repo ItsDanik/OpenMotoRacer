@@ -11,6 +11,7 @@
 #include "choices.h"
 #include "clock.h"
 #include "config.h"
+#include "mister.h"
 #include "cpu.h"
 #include "dialog.h"
 #include "effects.h"
@@ -107,6 +108,9 @@ static void screen_set(void)
 {
     static const int w[3] = { 320, 512, 640 }, h[3] = { 240, 384, 480 };
     int m = g_race_screen;
+#ifdef MISTER_HYBRID
+    video_set_half(g_mister_res == MR_640x240);
+#endif
     g_new_screen = 0;
     g_screen_mode = m;
     video_set_size(w[m], h[m], g_mode169 ? w[m] / 16 * 9 : h[m]);
@@ -116,14 +120,32 @@ static void screen_set(void)
     dialog_screen();
 }
 
+#ifdef MISTER_HYBRID
+/* the OSD's Resolution, F2, F3, Options and the F12 column: the game's 320x240 or 640x480 */
+void race_set_resolution(int r)
+{
+    g_mister_res = r;
+    g_race_screen = r == MR_640x480 ? 2 : 0;
+    if (g_racing)
+        g_new_screen = 1;
+}
+#endif
+
 void race_ask_screen(int mode)   /* 0x43a2d0, 0x43a300, 0x43a320: L, M, H */
 {
+#ifdef MISTER_HYBRID
+    race_set_resolution(mode);
+    return;
+#endif
     g_race_screen = mode;
     g_new_screen = 1;
 }
 
 void race_ask_169(void)         /* 0x43a370: B */
 {
+#ifdef MISTER_HYBRID
+    return;
+#endif
     g_mode169 ^= 1;
     g_new_screen = 1;
 }
@@ -223,6 +245,11 @@ void race_key(int vk, int down)
     }
     if (vk >= 0x71 && vk <= 0x73) {             /* F2, F3 the screen's size, F4 16:9 (0x431250) */
         if (down) {
+#ifdef MISTER_HYBRID
+            if (vk != 0x73)
+                race_set_resolution((g_mister_res + (vk == 0x71 ? 2 : 1)) % MR_COUNT);
+            return;
+#endif
             if (vk == 0x73)
                 g_mode169 ^= 1;
             else
@@ -510,6 +537,10 @@ static void step(int ms)
     rules_time(ms);
     if (g_test_win && !g_counting)
         g_time_left = 60000;
+#ifdef MISTER_HYBRID
+    if (mister_cheat(MISTER_NO_TIME_LIMIT) && !g_counting && g_race_kind != 2)
+        g_time_left = 60000;
+#endif
     /* 0x4dc150, the frame time smoothed by an eighth */
     g_bikeworld.frame_ms = (float)((ms - (double)g_bikeworld.frame_ms) * 0.125
                                    + g_bikeworld.frame_ms);
@@ -824,6 +855,16 @@ static void start(void)
     if (getenv("OMR_AUTOPILOT") && strcmp(getenv("OMR_AUTOPILOT"), "win") == 0)
         for (k = 2, g_test_win = 1; k < g_riders; k++)  /* the test's way to the winner's lap */
             g_phys[k].top *= 0.3f;
+#ifdef MISTER_HYBRID
+    {
+        static int slow;                /* a replay of the race as the race was */
+        if (g_race_kind == 0)
+            slow = mister_cheat(MISTER_SLOW_RIVALS);
+        if (slow && g_race_kind != 2)
+            for (k = 2; k < g_riders; k++)
+                g_phys[k].top *= 0.3f;
+    }
+#endif
     /* 0x411010 */
     if (g_race_kind == 0)
         replay_clear();
@@ -1109,6 +1150,9 @@ void race_unload(void)
     r3d_race(-1);
     r3d_focal(1911.0f);
     g_screen_mode = 2;                          /* 0x409f70: the menus' screen */
+#ifdef MISTER_HYBRID
+    video_set_half(0);
+#endif
     video_set_size(640, 480, 480);
     r3d_screen();
     g_racing = 0;
@@ -1230,6 +1274,9 @@ int race_label_place(int k, int *sx, int *sy)
 
 void race_frame(void)
 {
+#ifdef MISTER_HYBRID
+    int small = 0;
+#endif
     const Rider *me = &g_shown[g_follow];
     const BikePhys *b = &g_phys[g_follow];
     float eye[3], c[3][3], a, focal;
@@ -1287,8 +1334,18 @@ void race_frame(void)
     sec = land_section(eye, (g_race_kind || g_playback || g_winner_lap) && g_land.ncam > 0
                        ? -1 : me->sec);
     g_eye_sec = sec;
+#ifdef MISTER_HYBRID
+    /* the 3D at 640x480, its dials and horizon that screen's */
+    if (g_half_rows) {
+        video_half_3d(1);
+        g_screen_mode = 2;
+        small = g_small_fonts, g_small_fonts = 0;
+        g_hud_top *= 2, g_hud_bottom *= 2;
+        r3d_screen();
+    }
+#endif
     focal = FOCAL * camera_zoom();
-    for (y = 0; y < g_scr_h; y++)
+    for (y = 0; y < g_scr_h; y += 1 + (g_half_rows != 0))
         memset(g_screen + y * g_pitch, 0, sizeof(uint16_t) * (size_t)g_scr_w);
     horizon_draw((const float (*)[3])c, zero, eye[1], g_land.horizon_offset,
                  g_land.horizon_scale, focal);
@@ -1313,12 +1370,27 @@ void race_frame(void)
             trackmap_draw(g_shown, g_follow, FOCAL);
             r3d_focal(focal);
         }
+#ifdef MISTER_HYBRID
+        r3d_screen_down(g_hud_top);             /* (the top margin takes the 3D HUD along) */
+#endif
         signs_draw();
         r3d_focal(FOCAL);                       /* 0x47b7a0: the zoom 1.0 */
         figure_draw();
         r3d_focal(focal);
+#ifdef MISTER_HYBRID
+        r3d_screen();
+#endif
     }
     r3d_render();
+#ifdef MISTER_HYBRID
+    if (g_half_rows) {
+        video_half_3d(0);
+        g_screen_mode = 0;
+        g_small_fonts = small;
+        g_hud_top /= 2, g_hud_bottom /= 2;
+        r3d_screen();
+    }
+#endif
     if (!(flags & RACE_DRAW_HUD)) {
         text_update();
         if (flags & RACE_DRAW_LIST1)

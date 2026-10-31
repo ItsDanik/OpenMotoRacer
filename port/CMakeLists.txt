@@ -38,7 +38,22 @@ set(OMR_SOURCES
   src/text.c
 )
 
-add_executable(openmotoracer ${OMR_SOURCES})
-target_include_directories(openmotoracer PRIVATE ${SDL2_INCLUDE_DIRS})
-target_compile_options(openmotoracer PRIVATE ${SDL2_CFLAGS_OTHER})
-target_link_libraries(openmotoracer PRIVATE ${SDL2_LDFLAGS} m)
+# MISTER_HYBRID (branch mister): the MiSTer hybrid core (~/MiSTer-openmotoracer). SDL is the
+# framework's, linked statically with its "mister" drivers; src/mister.c is what the core adds.
+# The sums stay exact (no -ffast-math): the races and replays must be the PC's.
+option(MISTER_HYBRID "Build for the MiSTer hybrid core (needs SDL2 with the MiSTer drivers)" OFF)
+if(MISTER_HYBRID)
+  add_executable(openmotoracer ${OMR_SOURCES} src/mister.c)
+  target_compile_definitions(openmotoracer PRIVATE MISTER_HYBRID=1)
+  target_include_directories(openmotoracer PRIVATE ${SDL2_STATIC_INCLUDE_DIRS})
+  target_compile_options(openmotoracer PRIVATE ${SDL2_STATIC_CFLAGS_OTHER})
+  target_link_libraries(openmotoracer PRIVATE ${SDL2_STATIC_LDFLAGS} m)
+  if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
+    target_compile_options(openmotoracer PRIVATE -O3 -marm)
+  endif()
+else()
+  add_executable(openmotoracer ${OMR_SOURCES})
+  target_include_directories(openmotoracer PRIVATE ${SDL2_INCLUDE_DIRS})
+  target_compile_options(openmotoracer PRIVATE ${SDL2_CFLAGS_OTHER})
+  target_link_libraries(openmotoracer PRIVATE ${SDL2_LDFLAGS} m)
+endif()

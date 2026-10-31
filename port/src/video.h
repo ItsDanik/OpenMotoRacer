@@ -30,4 +30,17 @@ extern int g_draw_2d;                   /* 0x4f1824: texts and pictures are draw
 int video_fullscreen_kept(void);        /* what is saved as FullScreen */
 extern int g_alt_return;                /* 0x4e8934: Alt+Return works (not on the podium) */
 
+#ifdef MISTER_HYBRID
+/* 640x240: the game takes itself for 320x240 (its texts, dials' digits, dialogs, each of their
+   pixels shown twice as wide) and only the 3D is drawn at 640x480, its even rows */
+extern int g_half_rows;
+void video_set_half(int on);
+void video_half_3d(int on);             /* the 3D's part of a picture begins, ends */
+extern int g_hud_top, g_hud_bottom;     /* the OSD's HUD margins, in this screen's rows */
+#else
+#define g_half_rows 0
+#define g_hud_top 0
+#define g_hud_bottom 0
+#endif
+
 #endif

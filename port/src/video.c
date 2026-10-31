@@ -1,5 +1,6 @@
 /* The window: the 16-bit screen handed to SDL as an RGB565 texture, kept 4:3. */
 #include "video.h"
+#include "mister.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <string.h>
@@ -29,6 +30,18 @@ int video_init(int headless, char *err, int errsize)
     g_screen = g_pixels;
     if (headless)
         return 1;
+#ifdef MISTER_HYBRID
+    if (mister_on()) {
+        /* the window is the core's screen, the surface its next picture */
+        SDL_SetHint("SDL_MISTER_DIRECT", "1");
+        g_win = SDL_CreateWindow("OpenMotoRacer", 0, 0, 640, 480, 0);
+        if (!g_win) {
+            snprintf(err, errsize, "No window: %s", SDL_GetError());
+            return 0;
+        }
+        return 1;
+    }
+#endif
     g_win = SDL_CreateWindow("OpenMotoRacer", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                              g_scr_w * 2, g_scr_h * 2, SDL_WINDOW_RESIZABLE);
     if (g_win)
@@ -61,8 +74,78 @@ void video_mouse(int *x, int *y)
     *y = *y * g_surf_h / SCREEN_MAX_H;
 }
 
+#ifdef MISTER_HYBRID
+static uint16_t g_small[320 * 240], g_small_3d[320 * 240];
+
+void video_set_half(int on)
+{
+    g_half_rows = on;
+    g_screen = on ? g_small : g_pixels;
+    g_pitch = on ? 320 : SCREEN_MAX_W;
+}
+
+void video_half_3d(int on)
+{
+    int x, y;
+    if (on) {
+        g_screen = g_pixels, g_pitch = SCREEN_MAX_W, g_scr_w = 640, g_scr_h = 480;
+        return;
+    }
+    /* what the 2D sees under it: every second pixel of the even rows */
+    for (y = 0; y < 240; y++) {
+        const uint16_t *from = g_pixels + 2 * y * SCREEN_MAX_W;
+        uint16_t *to = g_small + y * 320;
+        for (x = 0; x < 320; x++)
+            to[x] = from[2 * x];
+    }
+    memcpy(g_small_3d, g_small, sizeof g_small);
+    g_screen = g_small, g_pitch = 320, g_scr_w = 320, g_scr_h = 240;
+}
+
+/* what the 2D changed goes over the 3D, each pixel twice as wide */
+static void half_merge(void)
+{
+    int i;
+    for (i = 0; i < 320 * 240; i++)
+        if (g_small[i] != g_small_3d[i]) {
+            uint16_t *o = g_pixels + 2 * (i / 320) * SCREEN_MAX_W + 2 * (i % 320);
+            o[0] = o[1] = g_small[i];
+        }
+}
+
+/* the rows of the screen to the core: every row, or the even ones of 640x240 */
+static void present_mister(void)
+{
+    static int shown_w, shown_h;
+    const uint16_t *from = g_screen;
+    int w = g_scr_w, h = g_surf_h, step = g_pitch, y;
+    SDL_Surface *s;
+    if (g_half_rows) {
+        half_merge();
+        from = g_pixels, w = 640, h = 240, step = 2 * SCREEN_MAX_W;
+    }
+    if (w != shown_w || h != shown_h) {
+        SDL_SetWindowSize(g_win, w, h);
+        shown_w = w, shown_h = h;
+    }
+    s = SDL_GetWindowSurface(g_win);
+    if (s) {
+        for (y = 0; y < h; y++)
+            memcpy((char *)s->pixels + y * s->pitch, from + y * step, (size_t)w * 2);
+        SDL_UpdateWindowSurface(g_win);
+    }
+    mister_wait();
+}
+#endif
+
 void video_present(void)
 {
+#ifdef MISTER_HYBRID
+    if (g_win && mister_on()) {
+        present_mister();
+        return;
+    }
+#endif
     if (!g_tex)
         return;
     SDL_Rect r = { 0, 0, g_scr_w, g_surf_h };
@@ -91,6 +174,9 @@ int video_shot(const char *file)
 
 void video_toggle_fullscreen(void)
 {
+#ifdef MISTER_HYBRID
+    return;                     /* the core's screen is the only one */
+#endif
     g_fullscreen ^= 1;
     if (g_win)
         SDL_SetWindowFullscreen(g_win, g_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);

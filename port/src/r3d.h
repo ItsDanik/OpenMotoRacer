@@ -95,6 +95,9 @@ void r3d_render(void);                          /* 0x49ad90 */
 void r3d_race(int detail);
 void r3d_focal(float f);                        /* 0x49a0e0 + 0x49a100 */
 void r3d_screen(void);                          /* 0x499ba0: the centre of the screen's size */
+#ifdef MISTER_HYBRID
+void r3d_screen_down(int y);                    /* what is drawn next, y rows lower: until r3d_screen */
+#endif
 
 /* the menu's 3D objects (0x479eb0) and their camera (0x47af50, the object 0x504bc8) */
 void r3d_menu_matrix(float m[3][3], const float ang[3]);

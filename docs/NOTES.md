@@ -11664,6 +11664,59 @@ Comparing those pictures found two faults of the port's in every race, neither s
 Memory: demos in a row hold 56 MB at most from 16000 to 128000 pictures; the leak checker finds nothing over 12000 pictures.
 
 
+### 4.25 The MiSTer hybrid core (2026-10-31, branch `mister`, the core `~/MiSTer-openmotoracer`)
+
+All of it behind `MISTER_HYBRID` (`port/src/mister.c`, `mister.h`); the PC's pictures are unchanged
+(`tools/shots.sh`, 91 of 91). The game runs on the ARM, the core shows it and has the sound and input.
+
+- **Which copy**: one menu entry. `Moto Racer/` holds GOG's or the CD's, `Moto Racer CD/` the CD's; GOG's
+  first when both are there, known by what is in the folder (`game.EXE`, `DISK1/data.z`). Game Behaviour stays.
+  `MH_PickGame()`'s message takes `%s` once only: a second `%s` is garbage or a crash.
+- **Resolutions** (Danik: no 200-line modes, the original has none): the race at 320x240 (default),
+  640x240, 640x480 (480i at 15 kHz); menus always 640x480, taking a frame each field
+  (`MH_SetFieldRate`), races not. No 512x384 (the core has no such mode) and no 16:9. F2, F3, the F12
+  column and the Options row cycle the three; the OSD wins when it is moved.
+- **640x240**: the game believes it is at 320x240 (texts, dials' digits, dialogs at low resolution), and only
+  the 3D phase is drawn at 640x480 on the even rows (`g_half_rows`: `r3d.c`, `horizon.c`). The 2D is drawn into
+  a 320x240 side buffer over a sample of the 3D, and the pixels it changed are merged doubled across. The
+  first try, the 640x480 HUD with rows dropped, had unreadable small fonts.
+- **Time**: `g_now` from the core's field counter (59.64 Hz), 1000 + fields x 100000/5964.
+- **Input**: the core's joystick 1 becomes the game's pretend gamepad (`joy_fake_pad`). The stick steers by
+  degrees, `MH_StickDpad` drops the d-pad bits the stick causes. In menus Menu OK and Menu Back are the
+  MiSTer menu's (hybrid/CLAUDE.md), with no mapping the bottom button is OK, the right one Back. A
+  first press where nothing is selected does what the game's Return does: nothing without a Return
+  button on the page, an arrow selects first.
+- **A pad alone**: name entry page 15 takes A as Space (picks the letter under the cursor,
+  `page_name_picks`), the record's name on TOP 5: up and down turn the last letter, right adds one, left takes one
+  away, OK ends (`page_top5_letter`). A demo's dialog does not hold the race (`dialog_holds()` is 0), so the pad
+  counts it as a menu through `dialog_open()`: before that a pad could not leave a demo.
+- **HUD margins**: `g_hud_top` moves the top texts, `g_hud_bottom` the dials and bottom texts up; the signs and the
+  place's 3D figure go down through `r3d_screen_down()`.
+- **Cheats on the OSD**: the game's three follow `g_island_unlocked`, `g_reverse_unlocked2`,
+  `g_pocket_unlocked2` only when moved, typing them still works; No Time Limit; Slow Rivals, latched at the
+  race's start, not in demos.
+
+**Speed, measured on the real MiSTer** (Speed Bay, 24 riders, autopilot; the time to make a picture without the wait):
+
+| Mode | Pictures a second | ms a picture | Slowest |
+|---|---|---|---|
+| 320x240 | 57-60 | 12-16 | 21-29 |
+| 640x240 | 33-45 | 18-25 | 29-41 |
+| 640x240, Limit to 30 FPS | 29.8 | 19-22 | 30-32 |
+| 640x480i | 24-29 (a frame every 2 fields at most) | 26-33 | 40-54 |
+
+`-O3 -marm` over `-O2` changes little. Splitting the two busiest loops (`span6` kind 31, `span` kind 0x10) by
+hand gained nothing: the compiler already does it (undone). The texture reads are the cost.
+
+**Drawing ahead** (`DRAW_AHEAD`, hybrid/CLAUDE.md's rule), pictures of 300 shown never / twice, two runs each in turns:
+
+| Mode | Ahead | Without (`MISTER_HYBRID_AHEAD=0`) |
+|---|---|---|
+| 320x240 | 2/5, 0/0, 4/6, 13/22, 0/0, 11/24 | 39/39, 51/51, 35/36, 29/42, 54/53, 25/39 |
+| 640x240 | 0/131, 0/120, 0/190, 0/152, 0/117 | 0/108, 0/132, 3/156, 1/142 |
+
+So `DRAW_AHEAD` 1: a clear gain at 320x240, nothing lost at 640x240. Not in an interlaced race (the framework's rule).
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and

@@ -8,6 +8,7 @@
 #include "input.h"
 #include "joy.h"
 #include "menu.h"
+#include "pages.h"
 #include "race.h"
 #include "video.h"
 
@@ -63,16 +64,25 @@ static void press(int down)
             g_a_mouse = 1;
             mouse_left(1);
         } else {
-            g_a_key = 1;
-            key(VK_RETURN, 1);
+            /* the name page takes the letter under its cursor from Space */
+            g_a_key = !g_racing && page_name_picks() ? VK_SPACE : VK_RETURN;
+            key(g_a_key, 1);
         }
     } else if (g_a_mouse) {
         g_a_mouse = 0;
         mouse_left(0);
     } else if (g_a_key) {
+        key(g_a_key, 0);
         g_a_key = 0;
-        key(VK_RETURN, 0);
     }
+}
+
+static void arrow(int vk)
+{
+    if (page_top5_typing())
+        page_top5_letter(vk);
+    else
+        tap(vk);
 }
 
 static void cross(unsigned now)
@@ -82,7 +92,7 @@ static void cross(unsigned now)
     int i;
     for (i = 0; i < 4; i++)
         if (hit & (1u << i)) {
-            tap(vk[i]);
+            arrow(vk[i]);
             g_on_pointer = 0;
             g_repeat_vk = vk[i];
             g_repeat_at = g_now + REPEAT_FIRST;
@@ -90,7 +100,7 @@ static void cross(unsigned now)
     if (!now)
         g_repeat_vk = 0;
     else if (g_repeat_vk && g_now >= g_repeat_at) {
-        tap(g_repeat_vk);
+        arrow(g_repeat_vk);
         g_repeat_at = g_now + REPEAT_NEXT;
     }
 }
@@ -137,7 +147,7 @@ void pad_frame(void)
     } else if (g_quiet)
         g_quiet = !resting;
     else {
-        menus = !g_racing || dialog_holds();
+        menus = !g_racing || dialog_holds() || dialog_open();   /* (a demo goes on under its own) */
         if (hit & 1u << PAD_START)
             if (g_racing)
                 tap(VK_ESCAPE);

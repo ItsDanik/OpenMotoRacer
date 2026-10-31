@@ -11,6 +11,7 @@
 #include "rand.h"
 #include "sound.h"
 #include "config.h"
+#include "mister.h"
 #include "land.h"
 #include "horizon.h"
 #include "saves.h"
@@ -122,6 +123,12 @@ static void perf_frame(Uint64 start, Uint64 drawn)
 static void fail(const char *msg, int headless)
 {
     fprintf(stderr, "openmotoracer: %s\n", msg);
+#ifdef MISTER_HYBRID
+    if (!headless && mister_on()) {
+        mister_fatal(msg);
+        exit(mister_exit_code());
+    }
+#endif
     if (!headless)
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "OpenMotoRacer", msg, 0);
     exit(1);
@@ -378,6 +385,15 @@ int main(int argc, char **argv)
         page = 25;
     if (shot)
         SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
+#ifdef MISTER_HYBRID
+    /* the pick and its logo; the message saying what goes where, if the game isn't there */
+    if (!shot && !data && mister_on()) {
+        static char dir[64];
+        if (!mister_start(dir, sizeof dir))
+            return mister_exit_code();
+        data = dir;
+    }
+#endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0)
         fail(SDL_GetError(), 1);
     if (!shot)                          /* (tests read no real joystick) */
@@ -517,6 +533,10 @@ int main(int argc, char **argv)
             }
         }
         scripted_input(script, frame);
+#ifdef MISTER_HYBRID
+        mister_frame();
+        mister_pad();
+#endif
         pad_frame();
         if (g_view_sec >= 0)
             race_view_frame();
@@ -540,6 +560,13 @@ int main(int argc, char **argv)
     config_save();              /* (the game: on WM_DESTROY) */
     sound_quit();
     video_quit();
+#ifdef MISTER_HYBRID
+    {
+        int code = mister_on() ? mister_exit_code() : 0;
+        SDL_Quit();
+        return code;
+    }
+#endif
     SDL_Quit();
     return 0;
 }

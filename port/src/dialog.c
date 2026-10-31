@@ -453,11 +453,21 @@ static void act_box_close(void) /* 0x43cf60's button -1 */
 /* 0x43cf60 -> 0x47ec50: a mode sharing the width or the height with the present one is refused */
 static void act_mode(void)
 {
+    #ifdef MISTER_HYBRID
+    static const int w[3] = { 320, 640, 640 }, h[3] = { 240, 240, 480 };
+#else
     static const int w[3] = { 320, 512, 640 }, h[3] = { 240, 384, 480 };
+#endif
     int m = g_dlg->sel - 2;
     g_dlg->done = 1;
+#ifdef MISTER_HYBRID
+    (void)w, (void)h;
+    if (m >= 0 && m < 3)
+        race_ask_screen(m);
+#else
     if (m >= 0 && m < 3 && w[m] != g_scr_w && h[m] != g_scr_h)
         race_ask_screen(m);
+#endif
 }
 
 /* 0x43c2b0 through 0x43c570: the game's three sizes in place of Windows' list; each a letter
@@ -465,7 +475,11 @@ static void act_mode(void)
 void dialog_modes(void)
 {
     static const unsigned char TITLE_FORE[3] = { 255, 127, 10 }, TITLE_BACK[3] = { 200, 100, 0 };
+    #ifdef MISTER_HYBRID
+    static const int w[3] = { 320, 640, 640 }, h[3] = { 240, 240, 480 };
+#else
     static const int w[3] = { 320, 512, 640 }, h[3] = { 240, 384, 480 };
+#endif
     static char text[3][32];
     int i, a, hh, ww, step, y = 0, letter = 'A';
     Font *f = font_get(32);

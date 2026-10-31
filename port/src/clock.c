@@ -1,4 +1,5 @@
 #include "clock.h"
+#include "mister.h"
 #include <SDL.h>
 
 unsigned g_now = 1000;      /* (never 0: the game takes 0 as "not set yet" in places) */
@@ -23,6 +24,12 @@ void clock_frame(void)
         g_ticks = 1;
         return;
     }
+#ifdef MISTER_HYBRID
+    /* the core's fields are the clock: each picture a whole number of them */
+    if (mister_clock(&g_now))
+        g_now += 1000;
+    else
+#endif
     {
         Uint64 dt = SDL_GetPerformanceCounter() - g_t0;
         g_now = 1000 + (unsigned)(dt / g_freq * 1000 + dt % g_freq * 1000 / g_freq);

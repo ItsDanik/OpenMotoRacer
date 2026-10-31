@@ -160,7 +160,8 @@ static void blit(const int r[4], int x, int y)
     if (!(T < B && L < R))
         return;
     for (yy = T; yy <= B; yy++)
-        memcpy(g_screen + yy * g_pitch + L, g_pix + (st + yy - T) * g_pw + sl,
+        if (!g_half_rows || !(yy & 1))
+            memcpy(g_screen + yy * g_pitch + L, g_pix + (st + yy - T) * g_pw + sl,
                sizeof(uint16_t) * (size_t)(R - L + 1));
 }
 
@@ -168,7 +169,7 @@ static void fill(int y0, int y1, uint16_t c)    /* rows y0 .. y1 - 1 */
 {
     int x, y;
     for (y = y0 < 0 ? 0 : y0; y < y1 && y < g_scr_h; y++)
-        for (x = 0; x < g_scr_w; x++)
+        for (x = 0; x < g_scr_w && (!g_half_rows || !(y & 1)); x++)
             g_screen[y * g_pitch + x] = c;
 }
 

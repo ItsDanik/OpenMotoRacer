@@ -394,6 +394,12 @@ void page_name_frame(void)
         confirm();
 }
 
+/* The pad's A picks, while no question is up */
+int page_name_picks(void)
+{
+    return g_menu.page == 15 && !g_confirm;
+}
+
 void page_name_end(void)
 {
     int i;

@@ -105,6 +105,13 @@ void r3d_screen(void)
     g_cy = (float)(g_scr_h >> 1);
 }
 
+#ifdef MISTER_HYBRID
+void r3d_screen_down(int y)
+{
+    g_cy += (float)y;
+}
+#endif
+
 void r3d_init(void)
 {
     int k;
@@ -898,7 +905,8 @@ static void triangle(Corner c0, Corner c1, Corner c2, int kind, const uint16_t *
         if (cnt > H - y)
             cnt = H - y;
         for (; cnt > 0; cnt--, y++) {
-            row(y, xl >> 13, xr >> 13, ul, vl, du, dv, kind, tex);
+            if (!g_half_rows || !(y & 1))
+                row(y, xl >> 13, xr >> 13, ul, vl, du, dv, kind, tex);
             xl += rows[r].sl, xr += rows[r].sr, ul += rows[r].dul, vl += rows[r].dvl;
         }
     }
@@ -1028,7 +1036,7 @@ static void flat_triangle(Corner c0, Corner c1, Corner c2, uint16_t c)
         if (cnt > H - y)
             cnt = H - y;
         for (; cnt > 0; cnt--, y++) {
-            if (g_nfree[y])
+            if (g_nfree[y] && (!g_half_rows || !(y & 1)))
                 flat_row(y, xl >> 13, xr >> 13, c);
             xl += rows[r].sl, xr += rows[r].sr;
         }
@@ -1236,7 +1244,7 @@ static void rows6(int y, int cnt, int *xl, int sl, int *xr, int sr, float e[3],
     if (see && !g_room)
         return;
     for (; cnt > 0; cnt--, y++) {
-        if (g_nfree[y]) {
+        if (g_nfree[y] && (!g_half_rows || !(y & 1))) {
             if (see)
                 row6s(y, *xl >> 13, *xr >> 13, e, t);
             else
