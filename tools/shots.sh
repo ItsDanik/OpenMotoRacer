@@ -120,6 +120,10 @@ OMR_DEVICE=4 OMR_CHOICES=1,0,3,0,0 fresh pad_pause 1 575 "30:pad:32768,32768,0,0
 OMR_DEVICE=4 fresh pad_spare 11 300 "40:$P0 60:pad:32768,32768,0,0,0,2 64:$P0 70:pad:32768,32768,0,0,0,2 74:$P0 80:pad:32768,32768,0,0,0,8 84:$P0 90:pad:32768,32768,1,0,0,0 94:$P0"
 OMR_DEVICE=4 OMR_CHOICES=1,0,3,0,0 fresh pad_trigger 1 620 "30:pad:32768,32768,0,0,16384,0"
 OMR_DEVICE=4 OMR_CHOICES=1,0,3,0,0 fresh pad_ride 1 620 "30:pad:32768,32768,1,0,0,0 520:pad:45000,32768,1,0,0,0"
+# the Options page: Game Behaviour clicked; a held + goes one, waits, then ten a second
+fresh behaviour_row 11 100 "30:move:355,410 40:click"
+fresh sessions_hold 11 300 "90:move:405,388 100:down 160:up"
+OMR_BEHAVIOUR=cd fresh title_as_cd 14 200
 OMR_CHOICES=0,0,3,0,0 fresh key_map0 1 500 "400:f9"
 OMR_CHOICES=0,0,3,0,0 fresh key_map3 1 500 "400:f9 402:f9 404:f9 406:f9"
 OMR_CHOICES=1,0,4,0,0 fresh key_map_riders 1 150 "60:f9"

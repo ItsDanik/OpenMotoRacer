@@ -43,5 +43,9 @@ void config_save(void);         /* when the program ends */
 extern int g_analog;            /* the port's: a gamepad's stick and triggers by degrees */
 extern int g_rumble;            /* the port's: a gamepad shakes at the knocks */
 extern int g_smooth;            /* pictures between the race's steps (F10) */
+/* Game Behaviour on the Options page: which program the port acts like, whatever copy's
+   files it reads. The player's choice, else what the files are (NOTES §3.5c). */
+int behaviour_cd(void);         /* 1 the 1997 CD's MOTO.EXE, 0 GOG's game.EXE */
+void behaviour_toggle(void);
 
 #endif

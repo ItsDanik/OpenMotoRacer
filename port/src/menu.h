@@ -39,6 +39,7 @@ typedef struct {                /* the menu object, 0xd4c bytes at *0x4dc0c4 */
     int active;                 /* +0 */
     int mouse_mode;             /* +4: the selection follows the pointer */
     unsigned prev_mouse;        /* +8: last frame's mouse buttons */
+    unsigned repeat_at;         /* the port's: when a held repeating button goes on */
     int key;                    /* +0xc: the last key pressed */
     int sel, prev_sel;          /* +0x10, +0x14 */
     int pressed;                /* +0x18: the button pressed, -1 none */

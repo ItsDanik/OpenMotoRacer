@@ -3,6 +3,7 @@
    picture that gains each one as it lands. */
 #include "exe.h"
 #include "clock.h"
+#include "config.h"
 #include "font.h"
 #include "menu.h"
 #include "pages.h"
@@ -201,7 +202,7 @@ void page_title_frame(void)
         /* "FULL D3D VERSION" is added on frames 11 to 20 of every 21 (here 60ths of a
            second): each copy blinks 500 ms on, 500 off from its own start, and the copies
            pile up (48 at most). The patch's: the 1997 program has no such text. */
-        for (i = 0; !exe_is_cd() && i < g_ticks; i++) {
+        for (i = 0; !behaviour_cd() && i < g_ticks; i++) {
             if (++g_mr_frames > 10) {
                 Font *f = font_get(31);
                 TextArgs a;

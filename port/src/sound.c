@@ -5,6 +5,7 @@
    beside game.EXE, read ahead a piece a picture. */
 #include "sound.h"
 #include "clock.h"
+#include "config.h"
 #include "cdaudio.h"
 #include "exe.h"
 #include "files.h"
@@ -771,7 +772,9 @@ void sound_update(void)
 /* ------------------------------------------------------------------ the music */
 
 /* GOG's winmm.dll: MCI_PLAY of track n is PlaySound("0n.wav" or "n.wav", SND_LOOP), so
-   every track goes round and round (NOTES §4.10.5); the CD's own come from its image */
+   every track goes round and round (NOTES §4.10.5); a copy without them has the music in
+   the CD's image. Where the music comes from is what the player has; how it is played,
+   the Game Behaviour setting. */
 static int music_open(int track)
 {
     char name[16], path[1024];
@@ -779,7 +782,9 @@ static int music_open(int track)
     if (g_mus)
         fclose(g_mus);
     g_mus = 0;
-    if (exe_is_cd() && cdaudio_track(track, path, sizeof path, &g_mus_data, &g_mus_len)) {
+    snprintf(name, sizeof name, track < 10 ? "0%d.wav" : "%d.wav", track);
+    if (!files_find(name, path, sizeof path)
+        && cdaudio_track(track, path, sizeof path, &g_mus_data, &g_mus_len)) {
         if (!(g_mus = fopen(path, "rb")) || fseek(g_mus, g_mus_data, SEEK_SET)) {
             if (g_mus)
                 fclose(g_mus);
@@ -790,7 +795,6 @@ static int music_open(int track)
         g_mus_pos = 0;
         return 1;
     }
-    snprintf(name, sizeof name, track < 10 ? "0%d.wav" : "%d.wav", track);
     if (!files_find(name, path, sizeof path) || !(g_mus = fopen(path, "rb")))
         return 0;
     if (fread(h, 1, 12, g_mus) != 12 || memcmp(h, "RIFF", 4) || memcmp(h + 8, "WAVE", 4))
@@ -834,7 +838,7 @@ static void music_fill(unsigned want)
         if (n > sizeof buf / 4)
             n = sizeof buf / 4;
         if (g_mus_pos >= g_mus_len) {
-            if (exe_is_cd()) {                  /* a real disc comes to the track's end */
+            if (behaviour_cd()) {               /* a real disc comes to the track's end */
                 fclose(g_mus);
                 g_mus = 0;
                 g_mus_ended = 1;
@@ -891,7 +895,7 @@ void music_play(int track, int mode)
 static void music_timer(void)
 {
     static unsigned next;
-    if (!exe_is_cd())
+    if (!behaviour_cd())
         return;
     if (g_mus_ended) {
         unsigned left;
@@ -923,14 +927,21 @@ void music_stop(void)
     unlock();
 }
 
-/* 0x4096e0 -> 0x4b1660: the music holds, and goes on from there */
-void music_pause(int on)
+static void music_hold(int on)
 {
     if (!g_cd_on)
         return;
     lock();
     g_mus_paused = on;
     unlock();
+}
+
+/* 0x4096e0 -> 0x4b1660: a disc holds, and goes on from there. GOG's winmm.dll never hears
+   the request, so on its program the music runs straight through a pause (NOTES §4.10.5.3) */
+void music_pause(int on)
+{
+    if (behaviour_cd())
+        music_hold(on);
 }
 
 /* 0x409670, on WM_ACTIVATEAPP: the music that plays holds while another program has the focus
@@ -942,10 +953,10 @@ void music_focus(int gained)
     g_fx_silent = !gained;      /* DirectSound: buffers with no GLOBALFOCUS are not heard */
     unlock();
     if (!gained && g_mus_playing && !g_mus_paused) {
-        music_pause(1);
+        music_hold(1);
         held = 1;
     } else if (gained && held) {
-        music_pause(0);
+        music_hold(0);
         held = 0;
     }
 }

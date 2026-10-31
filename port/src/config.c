@@ -3,6 +3,7 @@
    rewrite after it do. */
 #include "video.h"
 #include "config.h"
+#include "exe.h"
 #include "trackmap.h"
 #include "video.h"
 #include "choices.h"
@@ -27,6 +28,21 @@ int g_show_counter = 1, g_counter_type = 1, g_speed_unit;
 int g_display_signal = 1;
 int g_smooth = 1;
 int g_analog = 1, g_rumble = 1;
+static int g_behaviour = -1;    /* the player's choice: -1 none, so what the files are */
+
+int behaviour_cd(void)
+{
+    const char *e;
+    if ((e = getenv("OMR_BEHAVIOUR")) != 0)
+        return strcmp(e, "gog") != 0;
+    return g_behaviour >= 0 ? g_behaviour : exe_is_cd();
+}
+
+void behaviour_toggle(void)
+{
+    g_behaviour = !behaviour_cd();
+}
+
 
 static void port_load(void)
 {
@@ -42,6 +58,8 @@ static void port_load(void)
             g_analog = v != 0;
         else if (sscanf(line, "rumble=%d", &v) == 1)
             g_rumble = v != 0;
+        else if (sscanf(line, "behaviour=%d", &v) == 1)
+            g_behaviour = v != 0;
     fclose(f);
 }
 
@@ -57,6 +75,9 @@ static void port_save(void)
             "analog=%d\n"
             "# rumble: 1 a gamepad shakes at hits, bumps, crashes and landings (the settings page)\n"
             "rumble=%d\n", g_smooth, g_analog, g_rumble);
+    if (g_behaviour >= 0)
+        fprintf(f, "# behaviour: 1 the game acts as the 1997 CD's program, 0 as GOG's (Options)\n"
+                "behaviour=%d\n", g_behaviour);
     fclose(f);
 }
 int g_binding[ACTIONS][2];

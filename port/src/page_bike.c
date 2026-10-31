@@ -149,24 +149,14 @@ static uint32_t bits(float f)
     return u;
 }
 
-/* the camera goes round, or, during a change, the point it looks at slides sideways
-   (a frame's step, whatever the frame's length: the original's own), the bike goes out
-   on one side and the next comes in from the other */
-static void turntable(void)
+/* a frame of the game's during a change: the point it looks at slides sideways, the bike
+   goes out on one side and the next comes in from the other */
+static void slide_step(float c, float s)
 {
-    float c = (float)cos(g_turn), s = (float)sin(g_turn);
     float a = (float)(250.0 * c), b = (float)(100.0 * c);
     int cpos = (int32_t)bits(c) > 0, cneg = bits(c) > 0x80000000u;
     float *t = &g_target[0], *z = &g_target[2];
-    bike3d_menu_camera(g_turn, g_target);
-    if (g_dir == 0) {
-        int dt = (int)(g_now - g_turn_last);
-        if (dt > 1000)
-            dt = 1000;
-        g_turn_last = g_now;
-        if (!g_turn_held)
-            g_turn = (float)(dt * 0.0006135923151542565 + g_turn);
-    } else if ((g_dir == -1 && cpos) || (g_dir == 1 && cneg)) {
+    if ((g_dir == -1 && cpos) || (g_dir == 1 && cneg)) {
         if (fabsf(a) > *t) {
             *t = (float)((double)*t + fabsf(b));
             *z = (float)((double)fabsf(b) / -c * s + *z);
@@ -185,15 +175,34 @@ static void turntable(void)
             g_shown_offset = 0;
         }
     }
-    g_shown_bike = (g_bike + g_shown_offset) & 7;
-    bike3d_draw(g_shown_bike, g_shown_bike);
     /* the change is over when the new bike has come back to the middle */
     if (g_shown_offset == 0
-        && ((((g_dir == 1 && cpos) || (g_dir == -1 && cneg)) && (int32_t)bits(*t) <= 0)
-            || (((g_dir == -1 && cpos) || (g_dir == 1 && cneg)) && bits(*t) <= 0x80000000u))) {
+        && (((((g_dir == 1 && cpos) || (g_dir == -1 && cneg)) && (int32_t)bits(*t) <= 0)
+             || (((g_dir == -1 && cpos) || (g_dir == 1 && cneg)) && bits(*t) <= 0x80000000u)))) {
         g_target[0] = g_target[1] = g_target[2] = 0.0f;
         g_dir = 0;
     }
+}
+
+/* the camera goes round, or, during a change, slides: a step a frame in the game, whatever
+   the frame's length, so here a step each 60th of a second, at any refresh rate */
+static void turntable(void)
+{
+    float c = (float)cos(g_turn), s = (float)sin(g_turn);
+    int i;
+    bike3d_menu_camera(g_turn, g_target);
+    if (g_dir == 0) {
+        int dt = (int)(g_now - g_turn_last);
+        if (dt > 1000)
+            dt = 1000;
+        g_turn_last = g_now;
+        if (!g_turn_held)
+            g_turn = (float)(dt * 0.0006135923151542565 + g_turn);
+    } else
+        for (i = 0; g_dir != 0 && i < g_ticks; i++)
+            slide_step(c, s);
+    g_shown_bike = (g_bike + g_shown_offset) & 7;
+    bike3d_draw(g_shown_bike, g_shown_bike);
 }
 
 static void change_bike(int dir)

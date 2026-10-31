@@ -318,12 +318,18 @@ void menu_frame(void)
     if (page == 14 && g_menu.active && race_demos_exist() && g_now - g_menu.last_input > 30000
         && !race_demo_start())
         race_demos_off();
-    /* a held left button presses a repeating button every frame */
+    /* a held left button presses a repeating button again: every frame in the game, which
+       no one can stop on the number wanted; the port's a click is one step, and only after
+       a third of a second held it goes on, ten a second */
     if ((g_mouse & 2) && (g_menu.prev_mouse & 2)) {
         g_menu.last_input = g_now;
-        if (g_menu.mouse_mode && g_menu.sel != -1 && (g_menu.b[g_menu.sel].flags & 1))
+        if (g_menu.mouse_mode && g_menu.sel != -1 && (g_menu.b[g_menu.sel].flags & 1)
+            && (int)(g_now - g_menu.repeat_at) >= 0) {
             g_menu.pressed = g_menu.sel;
-    }
+            g_menu.repeat_at = g_now + 100;
+        }
+    } else
+        g_menu.repeat_at = g_now + 333;
     g_menu.prev_mouse = g_mouse;
 }
 

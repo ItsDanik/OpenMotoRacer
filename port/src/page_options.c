@@ -160,13 +160,17 @@ void page_options_frame(void)
     else
         snprintf(buf, sizeof buf, "%d %s", g_enum_session, T(191));
     font_draw(f12, buf, 312, 380, 0, 0);
+    /* the port's own row: which program the game acts like */
+    label(400, "GAME BEHAVIOUR :", sel == 20);
+    menu_add_text_button(300, 400, behaviour_cd() ? "1997 CD" : "GOG RELEASE", 12, 0x1215ffffu,
+                         0, -1, 0);
 
-    menu_add_button(PIC(P_ACCEPT), 0, 0x12ffff15u, -1, -1, 0, 0, 0, -1, -1, 0);
+    menu_add_button(PIC(P_ACCEPT), 0, 0x14ffff16u, -1, -1, 0, 0, 0, -1, -1, 0);
     if (g_nlists > 1) {
-        menu_add_button(PIC(P_INFO), 0, 0x12ff1416u, -1, -1, 0, 0, 0, -1, -1, 0);
-        menu_add_button(PIC(P_DATADISK), 0, 0x12ff14ffu, -1, -1, 0, 0, 0, -1, -1, 0);
+        menu_add_button(PIC(P_INFO), 0, 0x14ff1517u, -1, -1, 0, 0, 0, -1, -1, 0);
+        menu_add_button(PIC(P_DATADISK), 0, 0x14ff15ffu, -1, -1, 0, 0, 0, -1, -1, 0);
     } else
-        menu_add_button(PIC(P_INFO), 0, 0x12ff14ffu, -1, -1, 0, 0, 0, -1, -1, 0);
+        menu_add_button(PIC(P_INFO), 0, 0x14ff15ffu, -1, -1, 0, 0, 0, -1, -1, 0);
     /* a joypad or joystick asked for and none there: the keyboard again (after the button
        was made, so the other name shows for one picture) */
     if ((g_ctrl == 1 || g_ctrl == 2) && !joystick_known())
@@ -236,13 +240,16 @@ void page_options_frame(void)
             g_enum_session = 30;
         break;
     case 20:
+        behaviour_toggle();
+        break;
+    case 21:
         controller_setup();
         page = 3;
         break;
-    case 21:
+    case 22:
         page = 13;
         break;
-    case 22:
+    case 23:
         page = 23;
         break;
     }
