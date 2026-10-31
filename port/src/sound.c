@@ -42,6 +42,8 @@ static SDL_AudioDeviceID g_dev;
 static FILE *g_wav;
 static unsigned long g_wav_frames, g_frames;
 static int g_ok;
+static int g_fx_silent;             /* another program has the focus */
+static int g_no_effects;            /* -NoSound (0x4dc1a8): the mixing goes on for the music */
 
 static Buffer g_slot[SLOTS];
 static int g_top;               /* +0x1030 */
@@ -106,8 +108,8 @@ static void mix(int16_t *out, int frames)
             r += a * b->gr;
             b->pos += ((uint64_t)b->freq << 32) / RATE;
         }
-        l *= g_fx_gain;
-        r *= g_fx_gain;
+        l *= g_fx_silent ? 0.0f : g_fx_gain;
+        r *= g_fx_silent ? 0.0f : g_fx_gain;
         if (!g_mus_paused && g_ring_r != g_ring_w) {
             l += g_ring[g_ring_r % MUSIC_RING][0] * g_mus_gain;
             r += g_ring[g_ring_r % MUSIC_RING][1] * g_mus_gain;
@@ -304,11 +306,12 @@ static void load_table(int which, int count, const char *folder)
 
 /* ------------------------------------------------------------------ the game's calls */
 
-int sound_init(const char *wav)
+int sound_init(const char *wav, int no_effects)
 {
     int k;
     for (k = 0; k < 256; k++)
         g_handle[k] = -1;
+    g_no_effects = no_effects;
     g_ok = 1;
     if (wav) {
         static const unsigned char head[44] = {
@@ -372,7 +375,7 @@ void sound_quit(void)
 
 void sound_menu_load(void)
 {
-    if (!g_ok)
+    if (!sound_running())
         return;
     lock();
     if (g_handle[0x29] < 0)     /* (the game frees them before a race) */
@@ -405,7 +408,7 @@ static void free_all(void)
    the voices if they are on */
 void sound_race_load(int ktm)
 {
-    if (!g_ok)
+    if (!sound_running())
         return;
     free_all();
     lock();
@@ -423,7 +426,7 @@ void sound_race_load(int ktm)
 /* the race's end: its set freed; the menu loads its own as it comes back */
 void sound_podium_load(void)
 {
-    if (!g_ok)
+    if (!sound_running())
         return;
     lock();
     if (g_handle[4] < 0)
@@ -434,7 +437,7 @@ void sound_podium_load(void)
 void sound_podium_free(void)
 {
     int i;
-    if (!g_ok)
+    if (!sound_running())
         return;
     lock();
     for (i = 4; i <= 5; i++)
@@ -447,13 +450,18 @@ void sound_podium_free(void)
 
 void sound_race_free(void)
 {
-    if (!g_ok)
+    if (!sound_running())
         return;
     free_all();
     g_race_set = 0;
 }
 
 int sound_running(void)
+{
+    return g_ok && !g_no_effects;
+}
+
+int sound_mixing(void)
 {
     return g_ok;
 }
@@ -488,7 +496,7 @@ void sound_toggle_voices(void)
         return;
     if (!g_race_set)
         sound_menu_load();
-    else if (g_ok && g_handle[0x30] < 0) {
+    else if (sound_running() && g_handle[0x30] < 0) {
         lock();
         load_table(X_SFX_VOICES, 30, "Voices\\");
         unlock();
@@ -874,6 +882,23 @@ void music_pause(int on)
     unlock();
 }
 
+/* 0x409670, on WM_ACTIVATEAPP: the music that plays holds while another program has the focus
+   (0x4db678). A pause of its own stays as it was. */
+void music_focus(int gained)
+{
+    static int held;
+    lock();
+    g_fx_silent = !gained;      /* DirectSound: buffers with no GLOBALFOCUS are not heard */
+    unlock();
+    if (!gained && g_mus_playing && !g_mus_paused) {
+        music_pause(1);
+        held = 1;
+    } else if (gained && held) {
+        music_pause(0);
+        held = 0;
+    }
+}
+
 void sound_frame(void)
 {
     if (!g_ok)
@@ -905,7 +930,7 @@ int sound_voices_on(void)
 void sound_load_named(int id, const char *name)
 {
     char path[256];
-    if (!g_ok || id < 0 || id > 255 || g_handle[id] >= 0)
+    if (!sound_running() || id < 0 || id > 255 || g_handle[id] >= 0)
         return;
     snprintf(path, sizeof path, "data\\sfx\\16_Bits\\Divers\\%s.wav", name);
     lock();

@@ -256,6 +256,8 @@ static void draw_tile(const Bitmap *b)
 
 void bitmap_draw(const Bitmap *b, int mode, int pct_h, int pct_w)
 {
+    if (!g_draw_2d)             /* 0x43edf3 */
+        return;
     int x, y, rows, cols, skip, k;
     const uint16_t *src;
     uint16_t *dst;

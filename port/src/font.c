@@ -370,6 +370,8 @@ void font_place(const Font *f, const char *text, int *x, int *y, int flags, int 
 
 void font_draw(Font *f, const char *text, int x, int y, int flags, int level)
 {
+    if (!g_draw_2d)             /* 0x493d49 */
+        return;
     int bw, left, lw, lh;
     const unsigned char *s = (const unsigned char *)text;
     if (!f || !f->loaded || !*s)

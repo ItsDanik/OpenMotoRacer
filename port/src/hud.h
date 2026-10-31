@@ -12,6 +12,9 @@ void hud_game_over(void);       /* 0x482120(0): the time ran out */
 struct BikePhys;
 void hud_bike(const struct BikePhys *b);        /* the shown bike (0x508834) */
 void hud_key(int vk);                           /* F7: dials, digits, none (0x432107) */
+/* 0x4188b0: the object holding *id replaced, red on black */
+void hud_say(int *id, const char *s, int life, int align, int x, int y, int effect, int font,
+             int blink);
 void hud_notice(int slot, const char *s);       /* a controller change, 3 s */
 void hud_sound_notice(const char *s, int trouble);      /* a sound switched, 2 s (0x4e98ec) */
 void hud_dials_3d(void);        /* the dial and needles, before the 3D is drawn */

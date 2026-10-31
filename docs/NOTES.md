@@ -17,6 +17,10 @@ Every claim carries its address and its proof. Dead ends are written down too.
 - Command-line switches (strings): `-NoD3D`, `-windowed`, `-fullscreen`, `-NoSound`,
   `-Pal16`, `-ZBuffer`, `-Alpha`, `-SnapShot`, `-saverecord`, `-savpath`, `-frameratemax`,
   `-nbcomp`, `-Modem`, `-fr -gr -it -sp -sw -us` (language), and many Direct3D tuning ones.
+  In the port: `-windowed`, `-fullscreen` (0x4dc1f0: over the settings' FullScreen, 0x42b0d9, and then
+  saved like any other value), `-NoSound` (0x4dc1a8, any case, §4.10), each also `OMR_WINDOWED`,
+  `OMR_FULLSCREEN`, `OMR_NOSOUND`. The port's window now starts as the settings say: GOG's CONFIG has 1,
+  so a first run is on the full screen, like the game's.
 - GOG adds: `MotoRacer.exe` (Delphi launcher: `motoracer.ini` → switches for `game.EXE`),
   `DDraw.dll`/`D3DImm.dll`/`dgVoodooCpl.exe` (dgVoodoo 2), `winmm.dll` (CD audio from
   `NN.wav`), `goggame-*.dll`.
@@ -1963,7 +1967,10 @@ DSERR_... 0x88780000a (log "Warning normal cooperative level used"). GetCaps: +0
 PRIMARY16BIT, +0x14 = PRIMARYSTEREO, +0x18 = !CERTIFIED?(0x20 bit), +0x10 = has hw mixing.
 Primary buffer (DSBCAPS_PRIMARYBUFFER), and with PRIORITY: SetFormat **22050 Hz (0x5622),
 stereo if the card can, 16-bit if the card can**. Then 0x4413b0 reads the actual primary
-format back: +0x24 rate, +0x28 bits, +0x2c stereo. `-NoSound` (0x4dc1a8) disables it all.
+format back: +0x24 rate, +0x28 bits, +0x2c stereo. `-NoSound` (0x4dc1a8) disables it all: the effects and voices. **Not the music**, which is
+MCI's, nor the mixer: run under wine, the race still gave rms 2200 to 3650 (the music alone) and the volume keys still
+worked; Ctrl+S and Ctrl+A say texts 134, 135 (0x408b30, 0x408f30). In the port `sound_running()` is 0 and the mixing runs on for
+the music (rms 3249 against 5363 with the effects, the same picture).
 At start 0x408720 then calls **0x4414c0(stereo=Stereo setting 0x503530, bits16=Wave16Bits,
 rate=ReplayRate 0x504568)** = 22050 in both known configs. 0x409570 (options) toggles
 quality: 22050 ↔ 11025 (0x2b11), 16/8-bit, stereo/mono.
@@ -2135,6 +2142,31 @@ sees "stopped"; the music volume is the wave volume.
 four places: the Pause key and Ctrl+P (0x431250, Solo only), F1 open and shut (0x43cf90, 0x43e040),
 the file dialog 0x457bf0, and on losing the window's focus 0x409670. The pause menu 0x436420 does
 not ask (0x424090 only).
+
+**Losing the window's focus: WM_ACTIVATEAPP in 0x4329a5** [asm 0x43336b..0x433474; tested under wine 2026-10-31, another
+wine program (notepad) taking the focus, memory reads, captures]. **The race does not stand still**: the picture counter went
+on at about 30 a second with no focus, and the race clock with it (0x4e981c 442, 621, 711 at 0, 6, 9 s). The older remark that
+the game only moves while it has the focus does not hold for the game's code (nothing in App_OnIdle or 0x47d660 tests it);
+what makes it look so on a menu is the below.
+- Lost, wParam 0 [0x509b98 is written and read by nobody else]: 0x409670(0): the music that plays is paused (0x4db678 = 1; under GOG
+  not heard, above). **0x4e8940 = 0, 0x4f1824 = 0**. If 0x4e893c == 0: 0x470fc0, the player's keys let go (`race_release_keys`);
+  0x4e8954 = 1 or 0, the FullScreen to come back to; and if on the full screen: FullScreen 0, 0x4e9ce4 = 1, **0x4e893c = 1**.
+- **0x4f1824 = 0: no text (0x493d49, 0x493820) and no picture (0x43edf3, 0x43f0f0) is drawn**, the 3D is. Captured: the race goes
+  on with its dials but no LAP TIME, TIME, messages; the port's picture is the same but for the palm's movement. A menu has
+  nothing else, so it stands frozen: 0 pixels different between two captures 2 s apart. That was the "standing still".
+- 0x4e893c = 1 or 0x4e8940 = 1: 0x49ad90 draws no 3D (only full-screen, not tested in the original: under the hidden display
+  the game was run in a window).
+- Back, wParam != 0: 0x409670(1); 0x4e893c = 0, **0x4e8940 = 1** (one picture without 3D); 0x49b1c0 at the next: 0x4e8940 = 0,
+  0x4f1824 = 1; FullScreen from 0x4e8954, 0x4e8954 = -1. Memory read: 0x509b98, 0x4f1824, 0x4db678, 0x4e8954 all back after a click.
+- WM_DESTROY puts FullScreen back from 0x4e8954 before saving (0x432fda): what is saved is what the player chose.
+- The sounds: the game's code asks nothing of them. The buffers (flags 0xe2) have no GLOBALFOCUS, which on Windows means they are
+  not heard while another program has the focus [DirectSound's documented rule, not measured]; **under wine they stay audible** (rms
+  4554 with no focus and the music switched off, 2906 before).
+
+The port (`main.c` app_focus, `video.c` video_focus, `sound.c` music_focus): all the above, with the music held
+as for the Pause key (the game's request, not GOG's deafness) and the effects' mixing silent while another program has the focus
+(the Windows rule, the one choice here not measured: one line to take out). `OMR_INPUT` `F:blur`, `F:focus` for tests. Picture compared with
+the capture: all 2498 different pixels are the palm's and the gull's, none on the dashboard.
 
 Measured (a run under wine, 2026-10-30, track 04 of Speed Bay, effects and voices off with Ctrl+S
 and Ctrl+V, the sound recorded from the null sink and each 1.5 s found in 04.wav by correlation,
@@ -5672,8 +5704,9 @@ Colour of each face at load [asm 0x4634b8–0x46367b]:
   colour = 0x402020 of the texel byte at page 0 [v·256 + u] taken as an RGB555 value –
   which works out as **texel & 0xDF** (bit 5 lost; the drawer then uses it as a palette
   index). A bug of the original that the port must copy for exact colours.
-- else, paletted page 0: index of the 555→565 colour in palette 0 (0 if none) – unused by
-  textured kinds.
+- else, paletted page 0: index in palette 0 of the file's colour put through
+  `(c & 0xffc1) >> 1 | (c & 0x1f)` and then 0x402020 (0 if none) – read at details 0 and 1, where
+  0x49ca70 makes these faces flat (the rider's yellow and green; a test at those details showed it).
 - then 0x4232e0 (u, v × 1/256).
 In the last (extra group) loop the flat-uv case stores the **raw texel** (no 0x402020, so
 no & 0xDF) [asm 0x4639cb–0x463a2d, px: 19–25 such faces per skeleton; with the mask the
@@ -10003,8 +10036,12 @@ What the port leaves: **L, M, H do nothing**, the screen being the game's 640x48
 original starts a re-init through 0x4e9ce4); **B does nothing** (no 16:9 band in the port's
 picture) and its tick stays off; **FS** is SDL's desktop full screen, its tick now from the port's
 state: off at the start, as a window under wine shows it. **Shift+F12** (the list of Windows'
-modes) is not written. The original keeps a column open across races; the port's goes with the
-race (`dialog_free`).
+modes) is not written.
+
+A column open across races [tested 2026-10-31, memory reads of 0x4e8908 and pictures]: **a restart keeps
+it, leaving the race closes it, in the original and the port alike.** RESTART (0x411010, no unload): the slot
+stays, the column shown (0 pixels different in x 0..40, y 200..300 sixteen seconds on). QUIT RACE: 0x47d620 ->
+0x4113c0 -> 0x435770 frees it, the slot 0 at the Top 5. This note used to say the port differs: it never did.
 
 Compared with the original (F11, F12, the pointer on MOTO, on MEDIUM; a run under wine,
 2026-10-30, again after merging the roadside objects): **the tags and long texts to the pixel**:
@@ -10178,6 +10215,9 @@ the windows, then present.
   - It is placed in camera space, easing toward (−2000, −1200, 4000) for modes 0 and 2 (−500 instead of −1200 in 16:9), or (0, 0, 2000 or 2500) for modes 1 and 3.
   - Modes 0 and 1 turn with the player's heading.
   - It is inserted with 0x49c590 at key 15.0 (0x40f710: pushes 0, 2, verts, 15.0, face). The 2 is the fourth argument, which only Direct3D reads; the fifth is 0, so in software it goes in the bucket of its key, not bucket 0x1f3f as this note said before.
+  - **Made by 0x40ed10** at the race's load (0x40e147) and at each set-up of the screen (0x4592a0, which also puts the place back): one piece for every 4th section, a ribbon 1024 either side along the section's axis 0, flat (map y = the world's z), the last pair of points the first again, centred on its box and scaled by 1280 / the box's half diagonal. Kind 12: half of what is behind + the colour (`rgb` 0x45a2e0), which is why it looks see-through and teal.
+  - The riders are triangles (0x40f7cd) from their heading (0x40fd40), red and orange by twos at key 10, the followed one yellow at key 0. Not drawn under the winner's credits (0x504eac).
+  - In the port: `trackmap.c`, drawn after the dials as here. F9 is read before the pause test, as the game has no such test. The mode is saved. **Compared with the original** (Practice, Speed Bay, 3 laps; the bike standing): y >= 225 has 0 pixels different in all five modes (mode 3's map crosses the middle of the screen, what differs above is the palm, the gull and the digits). A Single race during the countdown (F9 at a picture not the same as the capture's), modes 0, 1, 2: 65, 262 and 1375 pixels different for y >= 225, of which the count's digit is one second off in modes 1 and 2 and "4 LAPS" has dropped in mode 2; the riders' marks and their colours are the same by eye, not counted one by one. Under F2/F3/F4 `trackmap_build()` must be called again (`racekeys_new_screen()`).
 - **0x486310, dial face and turn signs:**
   - The face is described in 3b.
   - Signs: slots 1..6 hold the six sign models, flat-coloured, centred near (319,79) at 640x480.
@@ -10396,7 +10436,71 @@ all chase captures have a level horizon].
 | F11 / F12 | the in-race windows |
 | numpad + / − | detail [0x4dc098] 0..4 |
 | numpad * and / | 0x409720(1) / 0x409720(0) |
-| F1 | [0x4dc124] debug (0x483e90) / 0x484380 info ('[ %dX%d]', '[ VIDEO %4.2fM TXT %4.2fM]', seen in q14) |
+| F1 | the help (`generic.c`, §5a) |
+| Ctrl+F1, Ctrl+Shift+F1 | the debug lines [0x4dc124] and [0x4dc128], only with a command-line switch (0x4dc1a4, set at 0x414888), off in a normal game: left out |
+| Shift+F1 | 0x484380: the screen's size for 6 s, or if showing, it slides away (below) |
+| Ctrl+F | 0x4866d0: SmallFonts toggled, the screen set up again (below) |
+| Ctrl+U | [0x4f0dd0] mph or km/h, no message (not with Shift) |
+| T | [0x4e895c] toggled and "ON" / "OFF" for 2 s: **nobody reads it**, left out |
+| A, Shift+A | [0x4e8958], [0x4dc0f4] (1, 2, 4): **nobody reads them**, left out |
+| Ctrl+H | Direct3D's antialias (0x53bb2c, 0x53e014, 0x41a0a0); says "No antialias!" under -NoD3D: left out |
+| Ctrl+D, Ctrl+L | only under Direct3D; Ctrl+T, Insert: only under -SnapShot: left out |
+
+All of these after the seven control keys, which are looked at first and whatever else the key
+does (0x43129a); also during a pause: the handler has no pause test but where a row says so. The
+port had the control keys last and after its pause test, so a key let go during a pause stayed
+held; moved first (`race_key`). While a dialog is open it asks first: Ctrl+F is eaten by every
+dialog (0x433ec0: `vk == 0x46` with Ctrl) and does nothing then, which makes 0x4866d0's laying
+out of open dialogs (0x4348f0) dead from this key.
+
+Read by nobody [asm: the addresses appear only in 0x431250]: 0x4e8958, 0x4dc0f4 (0x47b420 sets it
+to 1), 0x4e895c. T's words in the original (captured): "ON", "OFF", font 12, y 20, fading, the id
+0x4e98f0 F8's message has, so one replaces the other.
+
+**Numpad + and −** [asm 0x431c70, 0x431cca]: 0x4dc098 ± 1 within 0..4, not with Shift, on the
+software path always. Its readers and where the port has them, each checked by running: the kinds
+(`r3d.c` remap, below), LenBPlane for the riders (`race.c`), decor off at 0 (`land.c`), the
+smoke's one in 8 (`effects.c`), the ambience stopping at 0 and coming back (`race_sound.c`,
+0x405f30). The port's remap had three holes that only show below 3: flag 8 at detail 2 lost its
+perspective twin (the road's zigzag), 38/39 went to 37 even near (0x28: **51**), 44 stayed textured
+(far **12**, near 0). It now works from the table itself, 0x4995a0's properties and "the first kind
+with those properties". And the rider's flat faces were black at 0 and 1: 0x462c60 turns the file's
+colour with `(c & 0xffc1) >> 1 | (c & 0x1f)` before 0x402020 and only then looks in palette 0 (the
+note in §4.15.3 called this "unused by textured kinds"; at detail 0, 1 they are flat, 0x49ca70).
+Compared with the original at Speed Bay, a Practice, the bike standing, y >= 225 (no time digits
+or waving palms there): detail 4: 0 pixels different; 3: 30; 2: 30; 1: 0; 0: 0. The 30 are in the
+box's right-hand part and were not looked into further than that they are not the road or the bike.
+
+**Numpad * and /: 0x409720** [asm]: the line by the modifiers (Shift wave, Ctrl CD, neither master),
+step ±1 in 0..32 (no change out of range), then `[` + label (texts 77, 78, 76) + 0x82 + value x 0x81 +
+(32 - value) x 0x80 + 0x83 + space + `]` through 0x4188b0: id 0x4e98ec, 2 s, align 0x22, y 30, font 32,
+blink 4. No mixer (0x5d2958 == 0): text 75, blinking. A missing line: label + text 72 (captured under
+wine: "CD AUDIO VOLUME NOT AVAILABLE"); the port's three lines all exist. `racekeys.c`. Compared:
+the wave's bar at 32, 0 pixels different in x 200..440, y 28..40.
+
+**Shift+F1: 0x484380** [decomp]: the first text (129, id 0x4e98f4) only with Link (0x4dbffc == 0): out.
+The second (id 0x4e98f0, list 0x53b8e8): `[  %dX%d]`, `\n[` text 143 (LETTER BOXED FORMAT) if 0x5d93c0,
+`\n[` text 148 (FULL SCREEN) if 0x5d43a8, then the memory line `\n[  VIDEO %4.2fM TXT %4.2fM]` and its
+forms. Font 6, 6 s, x 2, y 2, align 0x81, motion 4, dodge 5,5, vx -1, k 1. Pressed while it shows:
+0x417780, its time made up at once, so that it drifts off left. The memory line is DirectDraw's free
+video and texture memory (under GOG: dgVoodoo's setting, "VIDEO 256.00M TXT 252.41M"): **the port has
+no such thing and leaves the line out**. Compared with it put in for the test: 0 pixels different
+(x 0..240, y 455..480), so the text object is right and only the line is missing.
+0x4592a0 calls it too, at each set-up of the screen: at a race's load (gone before the race is seen,
+captured) and at Ctrl+F, F2, F3, F4: `racekeys_new_screen()` is that part for the race.
+
+**Ctrl+F: 0x4866d0** [asm]: 0x4f0e08 ^= 1, all three text lists emptied, fonts swapped (0x474f10),
+0x4e9ce4 = 1: 0x4592a0 at the end of the frame (lists again, the map again 0x40ed10, the text above).
+So "3 LAPS", the countdown's words and the like vanish and do not come back: captured. Compared with the
+original, with the memory line in for the test: 0 pixels different for y >= 225 at big fonts.
+
+**Ctrl+U**: g_speed_unit, already read by the dials and saved. Standing still the picture does not change
+(0 pixels different); the dial's mph conversion is §3b's.
+
+**Alt+Return** [asm 0x43355f]: WM_SYSKEYDOWN, so no Alt+key reaches 0x431250 or the menus: only Return
+does anything, 0x4dbff0 ^= 1 and 0x4e9ce4 = 1, unless 0x4e8934 != 1 (-1 on the podium, 0x452240,
+back at 0x452eb0). The port: `main.c`, `g_alt_return`. It takes no account of a held key's repeats,
+which in the original would flip it over and over.
 
 0x46d750 sets [0x4dc138] = 1 (the per-frame 0x467b30 pass).
 

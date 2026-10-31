@@ -434,30 +434,34 @@ void r3d_begin(void)
     }
 }
 
-/* 0x49c590's remap in the race (*0x4dc0c4 == 0), by the detail row (CurrentDetail): at 3
-   and 4 the near faces take the perspective-correct twins (16 -> 31, 21 -> 32, 38 -> 53,
-   39 -> 54, 44 -> 62), below 2 the textures go (16, 21 -> 0 flat; 38, 39 -> 37 the stencil) but at 2
-   for faces with flag 8 */
+/* 0x49c590's remap in the race (*0x4dc0c4 == 0), by the detail row (CurrentDetail): the near
+   textured faces take the perspective-correct twins (16 -> 31, 21 -> 32, 38 -> 53, 39 -> 54,
+   44 -> 62: nearer than 6144 at 4, than 3072 below), below 2, and at 2 without flag 8, the
+   textures go (16, 21 -> 0 flat; 38, 39 -> 37 the stencil or near 51; 44 -> 12 or near 0) */
 static int remap(int kind, float key, int flags)
 {
-    static const int twin[5][2] = { { 16, 31 }, { 21, 32 }, { 38, 53 }, { 39, 54 }, { 44, 62 } };
-    int i;
-    if (g_detail < 0)
+    /* the properties of the kinds, made in 0x4995a0 (as far as 0x45): 1 textured, 2 half
+       the texel's brightness, 4 RGB page?, 8 stencil, 0x10 see-through, 0x20 perspective,
+       0x40 left alone, 0x80 16 bits; the kind of a set of properties is the first with it */
+    static const unsigned char prop[0x46] = {
+        0x20, 0x01, 0x09, 0x03, 0x0b, 0x02, 0x40, 0x40, 0x11, 0x13, 0x40, 0x40, 0x10, 0x40,
+        0x40, 0x40, 0x81, 0x50, 0x03, 0x0b, 0x13, 0x85, 0x00, 0x02, 0x01, 0x03, 0x03, 0x22,
+        0x21, 0x23, 0x23, 0xa1, 0xa5, 0x22, 0x21, 0x23, 0x23, 0x08, 0x89, 0x8d, 0x09, 0x09,
+        0x08, 0x13, 0x91, 0x95, 0x10, 0x12, 0x11, 0x13, 0x29, 0x28, 0x2b, 0xa9, 0xad, 0x29,
+        0x2b, 0x28, 0x32, 0x31, 0x33, 0x33, 0xb1, 0xb5, 0x32, 0x31, 0x31, 0x33, 0x40, 0x40
+    };
+    int p, i;
+    if (g_detail < 0 || kind < 0 || kind >= 0x46 || prop[kind] & 0x40)
         return kind;
-    if (g_detail >= 3) {
-        if (key < (g_detail >= 4 ? 6144.0f : 3072.0f))
-            for (i = 0; i < 5; i++)
-                if (kind == twin[i][0])
-                    return twin[i][1];
-        return kind;
-    }
-    if (g_detail == 2 && flags & 8)
-        return kind;
-    if (kind == 16 || kind == 21 || kind == 31 || kind == 32)
-        return 0;
-    if (kind == 38 || kind == 39)
-        return 37;
-    return kind;
+    p = prop[kind];
+    if (p & 1 && key < (g_detail >= 4 ? 6144.0f : 3072.0f))
+        p |= 0x20;
+    if (g_detail < 2 || (g_detail == 2 && !(flags & 8)))
+        p &= ~0x85;
+    for (i = 0; p && i < 0x46; i++)
+        if (prop[i] == p)
+            return i;
+    return 0;
 }
 
 /* 0x49c590 (skin < 0) and 0x49ca70: into the bucket of its depth, the newest first */
@@ -1456,6 +1460,10 @@ static void face(const Entry *e)
 void r3d_render(void)
 {
     int b, e, i, n = 0;
+    if (video_no_3d()) {                                /* 0x49ad90: another program in front */
+        r3d_begin();
+        return;
+    }
     for (b = 0; b < BUCKETS; b++)                       /* nearest first */
         for (e = g_head[b]; e >= 0; e = g_entry[e].next)
             if (n++ <= FACES_MAX)

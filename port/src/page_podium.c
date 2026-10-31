@@ -149,6 +149,7 @@ void page_podium_start(void)
 {
     float base, ground;
     int i;
+    g_alt_return = 0;           /* 0x4e8934 = -1 */
     if (g_bike < 0)
         g_bike = 0;
     if (getenv("OMR_PODIUM")) {         /* the test's way in: the player's place, three riders */
@@ -224,6 +225,7 @@ void page_podium_start(void)
 /* 0x452eb0 */
 void page_podium_end(void)
 {
+    g_alt_return = 1;
     podium_sound_stop();
     sound_podium_free();
     model_free(&g_stand);

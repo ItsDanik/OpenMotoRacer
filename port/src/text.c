@@ -307,6 +307,18 @@ void text_remove(int id)
             delete_text(i);
 }
 
+/* 0x417780: the object's time is up now, so that a waiting one goes on its way */
+void text_leave(int id)
+{
+    int i;
+    for (i = 0; i < TEXTS; i++)
+        if (id && g_texts[i] && g_texts[i]->id == id) {
+            g_texts[i]->lifetime = 1000;
+            g_texts[i]->start = g_clock - 2000;
+            return;
+        }
+}
+
 void text_update(void)
 {
     int i;

@@ -102,6 +102,20 @@ OMR_CHOICES=2,0,4 run champ_pocket 17 30
 OMR_CHOICES=2,0,4 run champ_won 18 30
 OMR_PODIUM=1 OMR_CHOICES=2,0,4 run podium_first 24 500
 OMR_PODIUM=4 OMR_CHOICES=2,0,4 run podium_fourth 24 500
+# the race's small keys, each with an empty home: they change what is saved. Practice, Speed Bay
+fresh() {
+    rm -rf "$PWD/build/shots/home1"
+    OMR_HOME=$PWD/build/shots/home1 run "$@"
+}
+OMR_CHOICES=0,0,3,0,0 fresh key_map0 1 500 "400:f9"
+OMR_CHOICES=0,0,3,0,0 fresh key_map3 1 500 "400:f9 402:f9 404:f9 406:f9"
+OMR_CHOICES=1,0,4,0,0 fresh key_map_riders 1 150 "60:f9"
+OMR_CHOICES=0,0,3,0,0 fresh key_detail2 1 500 "400:minus 402:minus"
+OMR_CHOICES=0,0,3,0,0 fresh key_detail0 1 500 "400:minus 402:minus 404:minus 406:minus"
+OMR_CHOICES=0,0,3,0,0 fresh key_info 1 500 "490:hold:shift 491:f1 492:release:shift"
+OMR_CHOICES=0,0,3,0,0 fresh key_bigfont 1 500 "490:hold:ctrl 491:f 492:release:ctrl"
+OMR_CHOICES=0,0,3,0,0 fresh key_blur 1 700 "650:blur"
+fresh key_link 3 300 "100:left 110:right 120:return"
 # the 1997 CD's files with its own MOTO.EXE, read from the installer archive (where the CD is here)
 if [ -d "Moto Racer CD" ]; then
     export OMR_DATA="$PWD/Moto Racer CD"

@@ -7,7 +7,8 @@
 
 /* wav: 0 plays through the sound card; a path writes what would be heard to that WAV file
    instead, 1/60 s a frame (the headless checks) */
-int sound_init(const char *wav);
+/* no_effects: -NoSound, the music alone */
+int sound_init(const char *wav, int no_effects);
 void sound_quit(void);
 void sound_frame(void);                 /* once a picture: the music read ahead, the file */
 
@@ -48,6 +49,7 @@ void music_play(int track, int mode);   /* 0x404990: 0 once, 1 once unless playi
                                            2 repeat, 3 repeat unless playing */
 void music_stop(void);                  /* 0x4049e0 */
 int sound_running(void);                /* the sound came up (the server 0x516aa0) */
+int sound_mixing(void);                 /* the mixer's there (0x5d2958): also under -NoSound */
 /* CONFIG's SoundState, VoicesState, AudioState, and the options page's toggles */
 void sound_set_switches(int effects, int voices, int music);
 void sound_get_switches(int *effects, int *voices, int *music);
@@ -55,6 +57,7 @@ void sound_toggle_effects(void);        /* 0x408b30 */
 void sound_toggle_voices(void);         /* 0x408f30 */
 void music_toggle(void);                /* 0x409410 */
 void music_pause(int on);               /* 0x4096e0: the Pause key and the help */
+void music_focus(int gained);           /* 0x409670 */
 void sound_set_volumes(const int v[3]); /* master, CD, wave: 0..32 */
 
 #endif

@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 static void usage(void)
 {
@@ -37,12 +38,18 @@ static void usage(void)
          "                     4 Spanish, 5 Swedish (OMR_LANG)\n"
          "  -jN                the joystick's dead zone, 0..0xffff (the game's own switch;\n"
          "                     OMR_JOYDEAD; default 2048)\n"
+         "  -windowed          start in a window, whatever the settings say (the game's\n"
+         "                     own switch; OMR_WINDOWED=1)\n"
+         "  -fullscreen        start on the full screen (the game's own; OMR_FULLSCREEN=1)\n"
+         "  -NoSound           no sound effects or voices; the music stays, as the CD's did\n"
+         "                     (the game's own; OMR_NOSOUND=1)\n"
          "  --shot FILE N      no window: run N frames, save the screen as a BMP, quit\n"
          "                     (OMR_SHOT=\"FILE N\")\n"
          "test switches (environment):\n"
          "  OMR_PAGE=N         start on the menu page N (the game's numbers; 25 the logo)\n"
          "  OMR_PODIUM=N       page 24: the player's place, 1..4\n"
-         "  OMR_INPUT=\"F:WHAT ...\"  at frame F: a key (return, escape, space, tab,\n"
+         "  OMR_INPUT=\"F:WHAT ...\"  at frame F: blur, focus (another program has it, or\n"
+         "                     not), a key (return, escape, space, tab,\n"
          "                     backspace, left, right, up, down, shift, ctrl, minus, plus,\n"
          "                     a letter),\n"
          "                     move:X,Y (the mouse), click (left button down and up),\n"
@@ -211,8 +218,20 @@ static int vk_of(SDL_Keycode k)
     case SDLK_KP_0: return 0x60;
     case SDLK_KP_PLUS: return VK_ADD;
     case SDLK_KP_MINUS: return VK_SUBTRACT;
+    case SDLK_KP_MULTIPLY: return 0x6a;
+    case SDLK_KP_DIVIDE: return 0x6f;
     }
     return 0;
+}
+
+/* WM_ACTIVATEAPP (0x43336b): the music holds, the bike's keys go, the texts and pictures are
+   not drawn and the full screen gives way. Nothing stops the race (NOTES §4.4) */
+static void app_focus(int gained)
+{
+    music_focus(gained);
+    video_focus(gained);
+    if (!gained && g_racing)
+        race_release_keys();
 }
 
 /* OMR_INPUT: what happens at this frame */
@@ -224,9 +243,9 @@ static void scripted_input(const char *script, int frame)
         { "right", VK_RIGHT }, { "up", VK_UP }, { "down", VK_DOWN }, { "shift", VK_SHIFT },
         { "ctrl", VK_CONTROL },
         { "minus", VK_SUBTRACT }, { "plus", VK_ADD }, { "f5", 0x74 }, { "f6", 0x75 },
-        { "f7", 0x76 }, { "f10", 0x79 }, { "pause", 0x13 }, { "f1", 0x70 }, { "f11", 0x7a },
+        { "f7", 0x76 }, { "f8", 0x77 }, { "f9", 0x78 }, { "f10", 0x79 }, { "pause", 0x13 }, { "f1", 0x70 }, { "f11", 0x7a },
         { "f12", 0x7b }, { "pgup", VK_PRIOR }, { "pgdn", VK_NEXT }, { "home", VK_HOME },
-        { "end", VK_END },
+        { "end", VK_END }, { "star", 0x6a }, { "slash", 0x6f },
     };
     const char *s = script;
     while (s && *s) {
@@ -245,6 +264,8 @@ static void scripted_input(const char *script, int frame)
         }
         else if (sscanf(what, "joy:%d,%d,%u", &x, &y, &jb) == 3)
             joy_fake(x, y, jb);
+        else if (strcmp(what, "blur") == 0 || strcmp(what, "focus") == 0)
+            app_focus(what[0] == 'f');
         else if (strcmp(what, "click") == 0) {
             menu_mouse_button(1, 1);
             dialog_mouse_button(1, 1);
@@ -287,9 +308,14 @@ int main(int argc, char **argv)
     int perf;
     const char *data = getenv("OMR_DATA"), *home = getenv("OMR_HOME"), *shot = 0, *env, *script = getenv("OMR_INPUT");
     char err[512], shotbuf[512];
-    int shot_frames = 0, frame, i, page = 25;
+    int shot_frames = 0, frame, i, page = 25, forced_screen = -1, no_sound;
 
     perf = getenv("OMR_PERF") != 0;
+    no_sound = getenv("OMR_NOSOUND") != 0;
+    if (getenv("OMR_FULLSCREEN"))
+        forced_screen = 1;
+    if (getenv("OMR_WINDOWED"))
+        forced_screen = 0;
     if ((env = getenv("OMR_LANG")))
         g_lang = atoi(env);
     if ((env = getenv("OMR_SHOT")) && sscanf(env, "%511s %d", shotbuf, &shot_frames) == 2)
@@ -305,6 +331,12 @@ int main(int argc, char **argv)
             g_lang = atoi(argv[++i]);
         else if (strncmp(argv[i], "-j", 2) == 0 && argv[i][2])  /* the game's own */
             g_joy_dead = atoi(argv[i] + 2);
+        else if (strcasecmp(argv[i], "-windowed") == 0)         /* 0x414080: any case */
+            forced_screen = 0;
+        else if (strcasecmp(argv[i], "-fullscreen") == 0)
+            forced_screen = 1;
+        else if (strcasecmp(argv[i], "-NoSound") == 0)
+            no_sound = 1;
         else if (strcmp(argv[i], "--shot") == 0 && i + 2 < argc) {
             shot = argv[++i];
             shot_frames = atoi(argv[++i]);
@@ -348,9 +380,11 @@ int main(int argc, char **argv)
     race_demos_load();
     if (!video_init(shot != 0, err, sizeof err))
         fail(err, shot != 0);
+    /* FullScreen from the settings, unless a switch forced it (0x42b0d9) */
+    video_set_fullscreen(forced_screen >= 0 ? forced_screen : config_fullscreen());
     SDL_ShowCursor(SDL_DISABLE);        /* the game draws its own pointer */
     if (!shot || getenv("OMR_WAV"))     /* (--shot is silent unless asked for a file) */
-        sound_init(getenv("OMR_WAV"));
+        sound_init(getenv("OMR_WAV"), no_sound);
 
     clock_start(!shot);
     if ((env = getenv("OMR_RACEVIEW"))) {
@@ -384,7 +418,20 @@ int main(int argc, char **argv)
             case SDL_QUIT:
                 g_quit = 1;
                 break;
+            case SDL_WINDOWEVENT:
+                if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST
+                    || e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
+                    app_focus(e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED);
+                break;
             case SDL_KEYDOWN:
+                if (e.key.keysym.mod & KMOD_ALT) {
+                    /* WM_SYSKEYDOWN, not a key to the game: only Return, the full screen
+                       (0x43355f); not on the podium (0x4e8934) */
+                    if ((e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER)
+                        && !e.key.repeat && g_alt_return)
+                        video_toggle_fullscreen();
+                    break;
+                }
                 if (vk_of(e.key.keysym.sym)) {
                     input_key(vk_of(e.key.keysym.sym), 1);
                     race_key(vk_of(e.key.keysym.sym), 1);
@@ -437,6 +484,7 @@ int main(int argc, char **argv)
             break;
         }
         video_present();
+        video_frame_end();
         sound_frame();
         clock_frame();
     }
