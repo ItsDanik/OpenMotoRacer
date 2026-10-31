@@ -1,5 +1,6 @@
 /* mister.c - see mister.h */
 #include "mister.h"
+#include "pad.h"
 #include "config.h"
 #include "dialog.h"
 #include "input.h"
@@ -260,9 +261,10 @@ void mister_pad(void)
         unsigned out = 0;
         if (b & 1u << B_PAUSE)
             out |= 1u << PAD_START;
-        if (driving) {
+        /* the settings page waiting for a button hears them as a race does */
+        if (driving || g_pad_listen) {
             static const struct { int from, to; } map[] = {
-                { B_ACCEL, PAD_A }, { B_BRAKE, PAD_B }, { B_TURBO, PAD_X },
+                { B_ACCEL, PAD_A }, { B_BRAKE, PAD_B }, { B_TURBO, PAD_X }, { B_CAMERA, PAD_Y },
                 { B_GEAR_DOWN, PAD_LB }, { B_GEAR_UP, PAD_RB },
             };
             for (i = 0; i < (int)(sizeof map / sizeof map[0]); i++)
@@ -284,7 +286,10 @@ void mister_pad(void)
         joy_fake_pad(x + 0x8000, y + 0x8000, out, lt < 0 ? 0 : lt, rt < 0 ? 0 : rt, (unsigned)cross);
     }
     if (driving) {
-        if (pressed & 1u << B_CAMERA)
+        int y_bound = 0;
+        for (i = 0; i < ACTIONS; i++)
+            y_bound |= g_binding[i][1] == PAD_Y;
+        if ((pressed & 1u << B_CAMERA) && !y_bound)
             tap(0x75);                  /* F6: the chase camera or on board */
         if (pressed & 1u << B_L3)
             tap(0x76);                  /* F7: the dashboard */
