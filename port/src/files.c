@@ -7,12 +7,16 @@
    install folder, then on the CD. A bank (NOTES §3.1): u32 count, records of 0x2c bytes
    (name[0x24], u32 offset, u32 size). */
 #include "files.h"
+#include <SDL.h>
 #include <ctype.h>
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #define MAX_BANKS 32
 
@@ -30,10 +34,50 @@ static int g_nbanks;
 
 const char *files_data(void) { return g_data; }
 
+/* the program's own folder, ending in its separator; "" if not known. SDL says it in UTF-8;
+   Windows' fopen and opendir, which everything here goes through, want the ANSI code page */
+static void program_folder(char *out, size_t size)
+{
+    char *base = SDL_GetBasePath();
+    out[0] = 0;
+    if (!base)
+        return;
+#ifdef _WIN32
+    {
+        WCHAR wide[1024];
+        if (!MultiByteToWideChar(CP_UTF8, 0, base, -1, wide, 1024)
+            || !WideCharToMultiByte(CP_ACP, 0, wide, -1, out, (int)size, 0, 0))
+            out[0] = 0;
+    }
+#else
+    snprintf(out, size, "%s", base);
+#endif
+    SDL_free(base);
+}
+
 int files_init(const char *data)
 {
-    snprintf(g_data, sizeof g_data, "%s", data);
-    return files_find("data", 0, 0);
+    char dir[768];
+    if (data) {
+        snprintf(g_data, sizeof g_data, "%s", data);
+        return files_find("data", 0, 0);
+    }
+    /* not told: "Moto Racer" here, or beside the program, or the program's own folder when
+       it was put in with game.EXE */
+    snprintf(g_data, sizeof g_data, "Moto Racer");
+    if (files_find("data", 0, 0))
+        return 1;
+    program_folder(dir, sizeof dir);
+    if (!dir[0])
+        return 0;
+    snprintf(g_data, sizeof g_data, "%sMoto Racer", dir);
+    if (files_find("data", 0, 0))
+        return 1;
+    snprintf(g_data, sizeof g_data, "%s", dir);
+    if (files_find("data", 0, 0))
+        return 1;
+    snprintf(g_data, sizeof g_data, "%sMoto Racer", dir);
+    return 0;
 }
 
 /* dir/name, with name's real case in dir; 0 if not there */

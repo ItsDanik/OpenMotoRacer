@@ -2,6 +2,7 @@
    (start 0x450d20, frame 0x450f40): eight slots, Data\Champ<n>.sav, each starting with its
    title (30 bytes) followed by the championship's state. Load comes from SELECT RACE in a
    championship, Save from TOP 5 between two races. The files are kept where saves.h says. */
+#include "video.h"
 #include "choices.h"
 #include "config.h"
 #include "font.h"
@@ -137,7 +138,11 @@ static void save_slot(int i)
     }
     strcat(title, ")");
     title[0x1f] = 0;
-    memcpy(g_slot[i], title, 0x20);
+    /* Continue's neighbour on the arrows is a button 9 that does not exist (0x1ffff09, as in
+       0x450f40), and Return presses it: the game then saves to Champ8.sav, which nothing lists,
+       and its title lands past the eight (0x451323), over the variables at 0x540ad0 */
+    if (i < SLOTS)
+        memcpy(g_slot[i], title, 0x20);
 
     put_u32(b + 4 * F_REVERSE, (unsigned)g_reverse);
     put_u32(b + 4 * F_POCKET, (unsigned)g_pocket);
@@ -148,7 +153,9 @@ static void save_slot(int i)
     put_u32(b + 4 * F_RIDERS, (unsigned)g_riders);
     slot_file(name, sizeof name, i);
     if (!(f = save_open(name, "wb"))) {
-        fprintf(stderr, "openmotoracer: %s/%s could not be written\n", saves_home(), name);
+        char msg[700];
+        snprintf(msg, sizeof msg, "%s/%s could not be written.", saves_home(), name);
+        video_error(msg);
         return;
     }
     fwrite(title, 1, TITLE_LEN, f);

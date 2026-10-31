@@ -11490,6 +11490,49 @@ and the skill's Step 8 starts from that measurement. The command, on the MiSTer'
 `SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy OMR_PERF=1 OMR_HOME=/tmp/omr OMR_PAGE=1 OMR_CHOICES=1,0,4,0,0 OMR_AUTOPILOT=1 ./openmotoracer -data "Moto Racer" --shot /tmp/x.bmp 6000`.
 
 
+### 4.24 The Windows build and the crash soak (2026-10-31)
+**Windows.** `tools/windows.sh` builds `build/win/openmotoracer.exe` with MinGW-w64 (x86-64, this machine's toolchain links
+the UCRT: Windows 10 has it, older Windows needs Microsoft's redistributable), SDL2.dll beside it, SDL's own package for MinGW
+(2.32.10) from ReNFS's download or from GitHub. A window program (`-mwindows`, SDL2main), no terminal. Not a release: no
+packaging. The differences: `saves.c` home in `%APPDATA%\OpenMotoRacer`; `files.c` the program's folder through
+SDL_GetBasePath, turned from UTF-8 to the ANSI code page that fopen and opendir take (a folder named outside the
+machine's code page cannot be opened, the message says where it looked); `page_options.c` page 13's CPU from CPUID and its speed
+from the TSC over 50 ms, in place of /proc/cpuinfo; `main.c` `--help` in a message window. `video_error` (`video.c`) is what a player must
+see: stderr, and a message window when there is a window. On every system the game's folder, if not told, is `Moto Racer` here,
+else beside the program, else the program's own folder. `long` being 32 bits matters nowhere (lengths of files only);
+no libc `rand` or `qsort` in the game's logic.
+`tools/windows.sh check` under wine, its own prefix, no window or sound, against the native build. Result (wine 11.20):
+**all 59 pictures 0 pixels different in 5-6-5**; the sums all differ, because SDL2.dll's RGB565 to 24-bit in the BMP rounds
+differently from the system's SDL (by at most 1 in a channel, as on ARM), so 5-6-5 is the comparison (`tools/shotdiff.py`). The three replays the same as themselves, and their race logs the same as
+the native ones line for line (3246, 5121 and 3871 lines) so the physics and the riders are bit-exact on Windows' libm; the physics and riders' check reports (`physcheck`, `cpucheck` compiled
+for Windows) the same as the native reports. A race's sound recorded (OMR_WAV) the same byte for byte. By hand under wine on a private Xvfb: every SDL render driver
+draws the window, keys work, a race rides, the "no data folder" message window shows, a folder named in Greek under a Greek
+code page works, `C:\...` paths for -data and -home work. **Not run: real Windows, a real joystick, real sound output.**
+
+**The soak.** `python3 tools/soak.py` builds with `-fsanitize=address,undefined,float-cast-overflow` in `build/asan` and runs, no window,
+each in its own home folder, sound recorded to a file so the mixer runs: all ten tracks (both lists, new switch `OMR_LIST`) in the four shapes (plain, reverse,
+Pocket, both) ridden by the computer and won (`OMR_AUTOPILOT=win`) to the winner's lap, results and replay; practice and championship on each track; riding with random keys; every page
+0..26 in the three modes plain and with random keys and clicks; the languages; 40 monkeys from the logo; the demos in a row; the CD's files the same way; the dialogs' other answers, a record typed in, the race's Ctrl keys and a pretend joystick (`extra_*`, added after
+a gcov build showed they had not run). `-fwrapv` is the port's on purpose, so signed overflow is not checked. Uninitialised values: clang's MemorySanitizer with a do-nothing SDL (`--msan`, `tools/sdlstub.c`: the real library's
+memory can't be followed) over the pages, the riding, the monkeys and the won races: 335 runs, 2.09 million pictures asked for, nothing.
+**Result on the fixed code: 510 runs + 72 `extra_*`, 3.77 million pictures asked for (a run that quits ends early): no sanitizer complaint, none ended otherwise than 0.** A gcov build over the same runs: 92% of the lines. What has not run: binding a joystick on page 12
+(`joy_bind`, `joy_code`), the pause menu's row 111 (`act_quit_replay`, shown only with `g_race_kind` 1 in a championship, not in playback), the sound column's engine row and its row on to the display column (`race_sound_toggle_engine`, `act_side_display`), and what only a window has (`vk_of`, the fullscreen key, the real event loop): `--shot` never opens one.
+What it found, each fixed at the game's address with every check unchanged (pictures, replays, physics, riders):
+1. **Writes past and before the screen, in ordinary races** (`r3d.c`; Speed Bay, Rock Forest and Red City had them). 0x4a04d0 stores a see-through piece's end in 16 bits (`mov [edx+0xa],si`): an edge far off to the
+   left, -54887, comes back as an end at 10649. The game's painter then runs on over the following rows and off its surface; the port's went past `g_pixels` over the globals behind it (`g_screen` among them). And a reversed row
+   splits a free piece so that it starts left of the row (`row6`, `flat_row`, 0x4a0260, 0x4a2f10), which paints the row above, and on row 0 what lies before the screen. The rows on the screen are painted as before; `span6`, `span`, `flat_row` stop at the screen's ends.
+   This is the game's own behaviour bounded, not altered.
+2. **0x46d270's unordered compare** (`bikephys.c` `angles`). A matrix's m[6] a little past 1 makes the sqrt a NaN; `fcom` + `test ah,0x41` falls into the "not above 1e-5" branch (the straight-up case), the port's `c <= 1e-5f` did not, and went on with NaN angles: index 0 of the
+   cosine table, a computer rider's heading jumping (Fun Fair reversed). Now `!(c > 1e-5f)`. A divergence from the original that no recording had met.
+3. **0x4b3048** (`ftol.h`). The C library's float to int is `fistp` into 64 bits, low half kept; past 2^63 and NaN, 0. `r3d.c` and `race_sound.c` took 0x80000000 for everything out of int's range, `triangle` and `land.c`'s corners a plain C cast, which is undefined (x86 and ARM differ). Those now share `ftol.h`.
+   `hud.c` and `horizon.c` keep their own copies for the moment (being rewritten for the screen sizes); nothing out of range has come through them.
+4. **Page 21, button 9** (`page_champ.c`). Continue's neighbour on an arrow key is 9 (0x1ffff09, as 0x450f40 has it), which doesn't exist; Return then presses it and `pressed < 10` holds. The game saves to Champ8.sav, which nothing lists, and copies the title past its eight (0x451323) over the variables at 0x540ad0. The file is written still, the title not.
+5. Not a bug but a false alarm: a paletted face of kind 8 (Pocket bikes) said "not written yet". The table 0x4af100 sends it to the plain return: it draws nothing. Only 3, 4, 9 are unwritten.
+
+Noted, left as they are: pressing **Play Link** ends the program with "The page 2 (network) is not written yet" (scope: no network; Danik to say if it should do nothing instead). Pages 2, 7, 8, 19, 22 and such end the same way, reached only through `OMR_PAGE`. `OMR_PODIUM` above 4 overruns; the game clamps its place to 4 and only the switch can.
+Memory: demos in a row hold 56 MB at most from 16000 to 128000 pictures; the leak checker finds nothing over 12000 pictures.
+
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and

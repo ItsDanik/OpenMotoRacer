@@ -284,8 +284,9 @@ void menu_frame(void)
     int page = g_menu.page;
     text_clock(g_now);          /* 0x409c70 */
     if (!pages[page].frame && !pages[page].start && page != 0) {
-        fprintf(stderr, "openmotoracer: the page %d (%s) is not written yet\n", page,
-                page_names[page]);
+        char msg[100];
+        snprintf(msg, sizeof msg, "The page %d (%s) is not written yet.", page, page_names[page]);
+        video_error(msg);
         g_quit = 1;
         return;
     }

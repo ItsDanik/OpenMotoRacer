@@ -15,6 +15,7 @@ void video_set_size(int w, int h, int view_h);  /* 0x4592a0's screen: w x h, the
 int video_surface_h(void);       /* 0x4dbffc: the screen's height, also under a 16:9 picture */
 void video_mouse(int *x, int *y);       /* the window's 640x480 to the screen's own places */
 void video_present(void);
+void video_error(const char *msg);     /* a message window as well, when there is a window */
 int video_shot(const char *file);   /* the screen as a BMP */
 void video_quit(void);
 

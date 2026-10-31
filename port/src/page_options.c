@@ -13,11 +13,13 @@
 #include "pages.h"
 #include "r3d.h"
 #include "sound.h"
+#include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
-#include <unistd.h>
+#ifdef _WIN32
+#include <cpuid.h>
+#include <x86intrin.h>
 #endif
 
 #define PIC(id) (&g_pics[id])
@@ -429,13 +431,30 @@ static void sysinfo(void)
     FILE *f;
     char line[256], vendor[32] = "", *v;
     int family = -1, mhz = 0;
-    long pages, size;
+    int ram;
     g_os[0] = g_cpu[0] = g_speed[0] = g_mem[0] = 0;
     g_mmx = 0;
 #if defined(_WIN32)
     snprintf(g_os, sizeof g_os, "Windows(R)");
 #elif defined(__linux__)
     snprintf(g_os, sizeof g_os, "Linux");
+#endif
+#ifdef _WIN32
+    {   /* no /proc/cpuinfo: the same facts from the CPU itself, its speed by the clock */
+        unsigned a, b, c, d;
+        unsigned long long t;
+        if (__get_cpuid(0, &a, &b, &c, &d)) {
+            memcpy(vendor, &b, 4), memcpy(vendor + 4, &d, 4), memcpy(vendor + 8, &c, 4);
+            vendor[12] = 0;
+        }
+        if (__get_cpuid(1, &a, &b, &c, &d)) {
+            family = (a >> 8 & 15) + (a >> 20 & 255);
+            g_mmx = d >> 23 & 1;
+        }
+        t = __rdtsc();
+        SDL_Delay(50);
+        mhz = (int)((__rdtsc() - t) / 50000);
+    }
 #endif
     if ((f = fopen("/proc/cpuinfo", "r"))) {
         while (fgets(line, sizeof line, f)) {
@@ -469,15 +488,9 @@ static void sysinfo(void)
         if (mhz)
             snprintf(g_speed, sizeof g_speed, "%d Mhz", mhz);
     }
-#if defined(_SC_PHYS_PAGES) && defined(_SC_PAGESIZE)
-    pages = sysconf(_SC_PHYS_PAGES);
-    size = sysconf(_SC_PAGESIZE);
-    if (pages > 0 && size > 0)
-        snprintf(g_mem, sizeof g_mem, T(188),
-                 (int)(((unsigned long long)pages * (unsigned long long)size + 0xfffff) >> 20));
-#else
-    (void)pages, (void)size;
-#endif
+    ram = SDL_GetSystemRAM();
+    if (ram > 0)
+        snprintf(g_mem, sizeof g_mem, T(188), ram);
 }
 
 void page_diag_start(void)

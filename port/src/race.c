@@ -761,7 +761,9 @@ static void start(void)
         g_onboard = 0;
     else
         g_seed = g_now;
-    cpu_start(g_bikeworld.rider, g_riders, g_difficulty, g_pocket, g_seed, !g_playback);
+    /* (0x542874 stays 23 in a demo, rider 1 not among them) */
+    cpu_start(g_bikeworld.rider, g_riders + (g_race_kind == 2), g_difficulty, g_pocket, g_seed,
+              !g_playback);
     if (getenv("OMR_AUTOPILOT") && strcmp(getenv("OMR_AUTOPILOT"), "win") == 0)
         for (k = 2, g_test_win = 1; k < g_riders; k++)  /* the test's way to the winner's lap */
             g_phys[k].top *= 0.3f;

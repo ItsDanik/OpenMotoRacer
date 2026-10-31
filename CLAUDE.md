@@ -148,7 +148,9 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - The race's small keys (NOTES §4.20 §2.6): F9 the map (`trackmap.c`), numpad + and − the detail, * and / the volumes, Ctrl+F the
   fonts, Shift+F1 the size (`racekeys.c`), Ctrl+U; T, A, Shift+A, Ctrl+H left out. Losing the focus (§4.10.5.3): music held, no texts,
   race goes on. `-windowed`, `-fullscreen`, `-NoSound`, Alt+Return (the window starts as CONFIG says). Link stays on page 3.
-- Test switches: `OMR_PAGE`, `OMR_CHOICES="MODE,TRACK,LAPS[,REV,POC]"`, `OMR_TILE=SX,SY` (the chequered tile's scroll, to match a capture;
+- Windows and the soak (NOTES §4.24): `tools/windows.sh` the MinGW build with SDL2.dll in `build/win/`, `tools/windows.sh check` all pictures, replays and
+  checks on it under wine (5-6-5: SDL2.dll rounds its BMPs differently); home `%APPDATA%\OpenMotoRacer`. `python3 tools/soak.py` the sanitizers over every track, mode and page.
+- Test switches: `OMR_PAGE`, `OMR_LIST` (the track list), `OMR_CHOICES="MODE,TRACK,LAPS[,REV,POC]"`, `OMR_TILE=SX,SY` (the chequered tile's scroll, to match a capture;
   `tools/cmpshot.py` finds it), `OMR_INPUT="F:key F:hold:key F:release:key F:move:X,Y F:click F:down F:up"` (input at frame F),
   `OMR_TEXT="FONT,X,Y,ALIGN,EFFECT,BLINK,FORE,BACK,TEXT"` (one text object).
 - Progress tracker for Danik: https://claude.ai/artifact/CCupuhZmsCRgz7FA5eFMxz

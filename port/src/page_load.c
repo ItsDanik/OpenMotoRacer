@@ -4,6 +4,7 @@
    (0x4470d0) with the Moto Racer logo on every other step and the Pocket and Reverse
    badges (NOTES §4.12.10). Then the race takes over (race.c); if it cannot be loaded,
    the main menu comes back, as in the original. */
+#include "video.h"
 #include "choices.h"
 #include "clock.h"
 #include "menu.h"
@@ -62,7 +63,7 @@ void page_load_frame(void)
         loading_progress();
         g_step = 0;
         if (!race_load(err, sizeof err)) {
-            fprintf(stderr, "openmotoracer: %s\n", err);
+            video_error(err);
             bitmap_free(&g_load);
             menu_change_page(3);
             return;

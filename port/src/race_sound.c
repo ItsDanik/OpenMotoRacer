@@ -8,6 +8,7 @@
    sound_pan, sound_frequency), as the game's do, with every volume, pan and frequency an
    integer computed as the game's x87 computes it (doubles, __ftol truncating). */
 #include "race_sound.h"
+#include "ftol.h"
 #include "hud.h"
 #include "bikes.h"
 #include "choices.h"
@@ -74,14 +75,6 @@ static int g_air_on, g_air_said;        /* 0x5034a0, 0x5028b4 */
 static unsigned g_air_t, g_air_last;    /* 0x504560, 0x503540 */
 static int g_flat_on, g_flat_said;      /* 0x5034a4, 0x50352c */
 static unsigned g_flat_t;               /* 0x503558 */
-
-/* __ftol: truncation; out of range gives 0x80000000 */
-static int ftol(double v)
-{
-    if (!(v > -2147483649.0 && v < 2147483648.0))
-        return (int)0x80000000u;
-    return (int)v;
-}
 
 static unsigned fbits(float f)
 {
