@@ -5,6 +5,7 @@
 #include "script.h"
 #include "files.h"
 #include "rand.h"
+#include "saves.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,6 +39,24 @@ void script_open_mem(Script *s, unsigned char *d, long len)
     s->d = d;
     s->len = len;
     s->seed = 0x1a2b3c4d;
+}
+
+int script_open_own(Script *s, const char *name)
+{
+    FILE *f = save_open_own(name, "rb");
+    unsigned char *d = 0;
+    long len;
+    int ok = 0;
+    if (!f)
+        return 0;
+    if (fseek(f, 0, SEEK_END) == 0 && (len = ftell(f)) > 0 && fseek(f, 0, SEEK_SET) == 0
+        && (d = malloc((size_t)len)) && fread(d, 1, (size_t)len, f) == (size_t)len) {
+        script_open_mem(s, d, len);
+        ok = 1;
+    } else
+        free(d);
+    fclose(f);
+    return ok;
 }
 
 void script_close(Script *s)

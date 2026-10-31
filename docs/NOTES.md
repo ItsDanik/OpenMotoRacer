@@ -5381,6 +5381,17 @@ In the window procedure on **WM_DESTROY (2)**, if the config was read successful
 So the lasting file is CONFIG.BPT (NOTES §3.4 format: values only, strings as u32 length +
 enciphered characters, numbers as 4 enciphered bytes).
 
+**The list in the port** (written 2026-10-31; until then it was never saved, so a championship's
+unlocks and Reverse/Pocket were lost when the program ended): `tracks_save` 0x4291f0 writes the
+list in use to the player's folder when the program ends (`LIST.BPT`, `LIST<nn>.BPT`: ListName,
+Pocket 0x4dc03c, Reverse 0x4dc040, count, then name, folder, ON/OFF, laps); `tracks_load` reads
+that copy first, else the game's, and a damaged copy falls back to the game's. Only the list in use
+is written, as the game: unlocks won and not yet saved go when page 23 reads another list. Written
+with nothing unlocked, both files equal the game's byte for byte. The cheats' flags (CDNALSI...) are
+apart and are not saved. `tools/unlock_all.sh` (`OMR_UNLOCK_ALL`) makes both lists all ON; `--undo`
+goes back to the game's. The CD's LIST.BPT holds the same tracks as GOG's, so one copy serves both.
+Not run from end to end: a real championship win reaching the file.
+
 ##### 4.14.5.2 The text written by 0x42c4c0 [asm]
 One line per field: the key (written "%s"), the value "%32d" (right-aligned in 32
 characters) — the name "%8s" — then "\n". Keys and sources, in order (= the CONFIG.BPT

@@ -168,6 +168,9 @@ Danik then found West Way on easy never said GO and kept GET READY blinking: the
 variable holds the lap panel's clock by then (NOTES, "s here is not the time left"). Fixed, compared with the original on that
 track and difficulty; `race_go`, `race_after_go` in the pictures. The tests had never run on easy: `OMR_DIFFICULTY` now.
 
+The port now saves the track list as the game does (it never had, so unlocks were lost on quitting); Danik asked for every
+track unlocked on both discs to test them: `tools/unlock_all.sh` did it in his folder, `--undo` goes back to the game's lists.
+
 ## Next, in order
 1. Speed on a real MiSTer: Danik runs the command in NOTES §4.23 (the program: `build/arm/openmotoracer`; not reachable
    from here without the MiSTer's address). If it is too slow, make the painters faster with the pictures' check (span6, row).

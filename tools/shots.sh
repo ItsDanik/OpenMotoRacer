@@ -120,6 +120,10 @@ OMR_CHOICES=0,0,3,0,0 fresh key_detail2 1 500 "400:minus 402:minus"
 # later neither GO nor GET READY
 OMR_DIFFICULTY=0 OMR_SHOT_STEP=384 OMR_CHOICES=1,4,3,0,0 fresh race_go 1 800
 OMR_DIFFICULTY=0 OMR_SHOT_STEP=500 OMR_CHOICES=1,4,3,0,0 fresh race_after_go 1 800
+# the track list kept in the player's folder: everything unlocked by one run, and the next run's
+# track page goes to Rock Forest, locked in the game's own list
+OMR_UNLOCK_ALL=1 fresh list_unlocked 3 1
+OMR_HOME=$PWD/build/shots/home1 OMR_TILE=69,127 run track_unlocked 5 300 "80:move:320,250 90:click 200:move:630,10 210:right 240:right"
 OMR_CHOICES=0,0,3,0,0 fresh key_detail0 1 500 "400:minus 402:minus 404:minus 406:minus"
 OMR_CHOICES=0,0,3,0,0 fresh key_info 1 500 "490:hold:shift 491:f1 492:release:shift"
 OMR_CHOICES=0,0,3,0,0 fresh key_bigfont 1 500 "490:hold:ctrl 491:f 492:release:ctrl"

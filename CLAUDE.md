@@ -102,6 +102,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   program with a message. Starts on 25, as the game.
 - Settings: `config.c` reads CONFIG.BPT (the player's home copy first, else the game's)
   and writes it to the home folder when the program ends, as the game does (NOTES §4.14.5).
+  The track list too (`choices.c`: LIST.BPT, LIST01.BPT, what's unlocked); `tools/unlock_all.sh` every track on, `--undo` back.
 - 3D (NOTES §4.9): `r3d.c` the software renderer (float transform, depth buckets, s-buffer,
   affine triangles; the kind drawn lives in the model's face, shared by its copies, §4.13.4), `model.c` 3DF+MAP, `rand.c` the game's random streams (seeds from
   game.EXE). The glass transition is `menu.c`'s.

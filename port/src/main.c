@@ -81,6 +81,8 @@ static void usage(void)
          "  OMR_SHOT_STEP=N    with --shot: the picture when the race has run N steps\n"
          "  OMR_SCREEN=MODE[,WIDE]  the race's screen: 0 320x240, 1 512x384, 2 640x480; WIDE 1: 16:9\n"
          "  OMR_DIFFICULTY=N   0 easy, 1 medium, 2 hard (and saved so, as the Options page does)\n"
+         "  OMR_UNLOCK_ALL=1   every track of the list in use available (and saved so when the\n"
+         "                     program ends; tools/unlock_all.sh does it for every list)\n"
          "  OMR_PERF=1         every 5 seconds: pictures a second, the time to make one, the slowest";
 #ifdef _WIN32
     /* (a windowed program has no terminal to print on) */
@@ -397,6 +399,9 @@ int main(int argc, char **argv)
     /* the track list and the championship (0x472c40: the game stops without them) */
     if (!tracks_load() || !champ_load())
         fail("The track lists (data\\LIST.BPT, CHAMPA.BPT...) could not be read.", shot != 0);
+    if (getenv("OMR_UNLOCK_ALL"))
+        for (i = 0; i < g_ntracks; i++)
+            g_tracks[i].available = 1;
     if (!font_init(err, sizeof err))
         fail(err, shot != 0);
     r3d_init();

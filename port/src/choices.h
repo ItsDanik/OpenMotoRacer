@@ -43,7 +43,8 @@ extern int g_riders;            /* 0x509bac: riders in the race (the race sets i
 #define CHAMP_ROWS 8
 extern unsigned char g_champ_table[CHAMP_ROWS][0xf9];  /* 0x5d0d58: the standings */       /* 0x4dc048: the data disk's list, 0 none */
 
-int tracks_load(void);          /* 0x428d60 */
+int tracks_load(void);
+int tracks_save(void);          /* 0x428d60 */
 int champ_load(void);           /* 0x429a00, from the script the main menu opens */
 int track_usable(int i);
 void track_legal(int *track);   /* 0x447920 */

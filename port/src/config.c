@@ -73,22 +73,11 @@ static void default_bindings(void)
 void config_load(void)
 {
     Script s;
-    FILE *f;
-    int i, own = 0;
+    int i, own;
     default_bindings();
     port_load();
     /* the player's own copy first (written by the port), else the game's */
-    if ((f = save_open_own("CONFIG.BPT", "rb"))) {
-        long len;
-        unsigned char *d = 0;
-        if (fseek(f, 0, SEEK_END) == 0 && (len = ftell(f)) > 0 && fseek(f, 0, SEEK_SET) == 0
-            && (d = malloc((size_t)len)) && fread(d, 1, (size_t)len, f) == (size_t)len) {
-            script_open_mem(&s, d, len);
-            own = 1;
-        } else
-            free(d);
-        fclose(f);
-    }
+    own = script_open_own(&s, "CONFIG.BPT");
     if (!own && !script_open(&s, "Data\\Config.Spt"))
         return;
     script_str(&s, g_player_name, sizeof g_player_name);        /* 0x42af0d: DefName */
@@ -189,4 +178,6 @@ void config_save(void)
     } else
         video_error("Cannot save config file.");
     script_out_free(&o);
+    if (g_ntracks > 0 && !tracks_save())
+        video_error("Cannot save the track list.");
 }

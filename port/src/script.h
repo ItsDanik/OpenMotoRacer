@@ -20,6 +20,9 @@ int script_at_end(const Script *s);
 /* the same over bytes already read (taken over: freed by script_close) */
 void script_open_mem(Script *s, unsigned char *d, long len);
 
+/* the same over a .BPT in the player's folder, if it has one */
+int script_open_own(Script *s, const char *name);
+
 /* a .BPT written as the game's reader writes one (0x42ee70's mode): values enciphered in
    the order they are put */
 typedef struct {
