@@ -106,7 +106,7 @@ void signs_key(void)
     a.text = exe_text(g_display_signal ? 181 : 180);
     a.lifetime = 2000;
     a.font = 12;
-    a.y = 20;
+    a.y = behaviour_cd() ? 0 : 20;
     a.align = 0x22;
     a.effect = FX_FADE_OUT;
     a.blink = 4;

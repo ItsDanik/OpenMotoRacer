@@ -134,7 +134,7 @@ port doesn't format with either), scripts 0x4e73f0, 0x4e7450; the cursors' resou
 "colours" taken for its arguments were what lay on the stack under them. The table is at **0x4e7790**: GOG's 0x4f0dd4 without its grey,
 10 entries [read from the file and from the running program]; grey is 127 as a number. The two programs colour alike nearly everywhere:
 the only difference with a pixel to it is page 8's grey rows, 128 against 127, and the port has no page 8. So the CD has no look of its own in colours. `font.c` reads the table.
-The port runs **GOG's logic on the CD's data** (the choice left open in §1); what would change that is in build/notes/cd_logic_diff.md, §3.5b.
+Which program's logic the port runs is the Game Behaviour setting, whichever files it reads (§3.5c).
 "FULL D3D VERSION" is the patch's: not on this build. Registry value `Version` 1 makes the program use the
 `title*GP.lez` pictures (0x4d247c) ("Moto Racer GP"); the port doesn't read it and shows the plain title.
 The CD's audio tracks come from its image (§4.10.5.3a).
@@ -157,6 +157,35 @@ Full report in `build/notes/cd_logic_diff.md` (made from the programs, so git-ig
 On the CD: lean by the computer's rule (0x48ad50), about half GOG's; keyboard steering limited to carac+0x28 (0x487043); dirt steering not clamped (0x4978c0); ground covered in turns by |velocity·forward|, not 1−R/|r| (0x41cad0); speed x 0.994 on a big lateral change (0x47ebc2); engine braking one gear off (0x41e510); crash bounce 0.1 not 0.01 (0x4894a0).
 Seen: podium's 3D drawn first, so the panel shows, no Escape, glass to Top 5 (0x476f40, 0x476180); Choose Bike's panels over the bike (0x4730b0; **seen in a capture**); big messages not forced Direct (0x4939ee); 4 flat shadow points (0x487aa0); key messages at y 0, not 20; replay limit 10000, not 20400. Copy check and "ILLEGAL VERS" (0x417660): never in the port.
 None of these is in the port: it runs GOG's logic on the CD's data until Danik says otherwise.
+
+### 3.5c Game Behaviour: the program the port acts like (Danik, 2026-10-31)
+Options, the row under Sessions Refresh Rate: GAME BEHAVIOUR : 1997 CD / GOG RELEASE. `behaviour_cd()` (config.c); `behaviour=` in
+openmotoracer.ini once the player has chosen, until then what the files are (`exe_is_cd`); `OMR_BEHAVIOUR=cd|gog` for tests. Any data with
+either setting; the differences' numbers are written in the port, because the other program may not be there to read them from.
+
+**Follows the files, not the setting:** the colour table's form (font.c, the exe's own), the HUD messages' form and key colour (hud.c: GOG's
+Texts picture holds only GAME OVER, so the 1997 program's sprites cannot come from it), where the music comes from (NN.wav if the
+folder has them, else the CD's image), the sprites' palette test (near-black entries as holes are a mismatch of program and files, not behaviour).
+**Follows the setting, screen and sound:** title's FULL D3D VERSION; music at a track's end (GOG loops, a disc stops, repeats by its timer) and
+at Pause and F1 (GOG plays straight through, its winmm.dll never hears the request; a disc holds). Losing the focus holds it in both: the port's choice.
+Podium: 3D first, results over it (0x47710b), no Escape, the glass on to Top 5, Alt+Return works. Choose Bike: the bike before the panels and buttons
+(0x473479); the title's letters before its buttons (0x46b25e); the other pages named by §3.5b's renders hold no 3D. GameMsg fonts not forced to Direct,
+set again at each race (`font_follow_behaviour`). Shadow: 4 corners on the crash's two faces, one height from the bike's section, raised 2
+(0x487aa0, 0x47d550). Sky: tile size is the rectangle's corner, not +1 (0x41a956), fills from the one corner pixel (0x465a02), palette as it is. Messages at y 0
+(Ctrl+S, V, A, J, K, F8), replay 10000 records, text snap < 3.0, map marker 50 in mode 3, low readout + 1, Shift+F1's VIDEO 8M line, diagnostic's video
+line gone, F12 opens the column with any modifier and no Shift+F12 list, Ctrl+U with Shift, Ctrl+F not with Shift.
+**The player's bike**: `build/notes/cd_physics.md`, below when merged.
+**Left out on purpose:** copy check and page 26 (never in the port); Ctrl+F1's three letters and stats line (0x4a5e50, 0x4a5cb0: DirectDraw flip counters and
+capabilities, nothing they could say here); dialogs' clear to black (A9, drawn over at once); the colour helper's green limit (31) and the raw flat
+colours of models (33): nothing traced them to a face that shows. A replay is keys: it plays as what recorded it, in the same session always; demos are
+computer riders, the same in both programs.
+
+### 3.5d The second list's starts against the original: four faults (2026-10-31)
+build/notes/list2_starts.md. **Road painter** 0x4a5ab0 (also 0x4a4dc0, 0x4a4f30): u, v turned round `ror 13`, added with `adc`: a slope below zero runs 1-2 lowest bits
+above a plain sum (Fun Fair reversed (223,152), the texel of row 18 at v 147455). **Section planes**: +0x40 is rebuilt at load by 0x40e5c0 (the section's Z row through its
+position), differs from the file's on 912 of 919 sections on Red City reversed; `land_walk` used the file's, so rules' walk, the riders' grid headings and what they aim at; a race log parts
+from the old one at step 376-526. tools/cpucheck.sh builds no rules, so could not see it. **First step**: 0x411010's clock, measured from the rear wheel over 33 runs: 1 ms 15 times, 2 ms 3,
+30 ms once. **Camera**: above. The port as committed gives the same 66 pictures, pixel for pixel, as the debug copy these were tested on (4705 outside the clock and countdown).
 
 ## 4. Map of the program
 
@@ -6198,8 +6227,8 @@ The race object 0x52c478 (vtable 0x4d04c8): +0 0x47bf30 defaults, +4 **0x47b420 
   steps, tools/physcheck.sh), stepped in `step()` with bike against bike; the drawing's
   Rider copies the frame's matrix (the tumbling one when crashed), the place, the wheels
   and the section. `camera.c` is the chase 0x46f840 (§4.20 §2.5) with F5's distances, Tab's
-  look back and the finish orbit; it starts at rest [guess: the original's +0xc8 is left
-  from 0x46d760]. The dials take O+0x118, O+0x11c / bike+0x70 x 16000 and the gear. The
+  look back and the finish orbit; it starts as 0x47bf70 sets it, 191 above its place, and drops
+  in at 0.8 a frame [memory of the original; written 2026-10-31, it had started at rest]. The dials take O+0x118, O+0x11c / bike+0x70 x 16000 and the gear. The
   computer riders are bikephys records with driven = 0: they stand on the grid until
   0x46bf80 is written. Not yet: F6 on-board (the cockpit 0x462110), the TV director,
   joysticks. The drawing has the lean, pitch, steering, suspension, spins (§4.15.4).
@@ -10554,8 +10583,8 @@ forms. Font 6, 6 s, x 2, y 2, align 0x81, motion 4, dodge 5,5, vx -1, k 1. Press
 video and texture memory (under GOG: dgVoodoo's setting, "VIDEO 256.00M TXT 252.41M"): **the port has
 no such thing and leaves the line out**. Compared with it put in for the test: 0 pixels different
 (x 0..240, y 455..480), so the text object is right and only the line is missing.
-0x4592a0 calls it too, at each set-up of the screen: at a race's load (gone before the race is seen,
-captured) and at Ctrl+F, F2, F3, F4: `racekeys_new_screen()` is that part for the race.
+0x4592a0 calls it too, at each set-up of the screen: at a race's load (seen for the first 0.3-0.4 s of a race, drifting off to the left: red
+"640X480 / VIDEO 256.00M TXT 252.41M", dgVoodoo's numbers; not in the port, build/notes/list2_starts.md) and at Ctrl+F, F2, F3, F4: `racekeys_new_screen()` is that part for the race.
 
 **Ctrl+F: 0x4866d0** [asm]: 0x4f0e08 ^= 1, all three text lists emptied, fonts swapped (0x474f10),
 0x4e9ce4 = 1: 0x4592a0 at the end of the frame (lists again, the map again 0x40ed10, the text above).

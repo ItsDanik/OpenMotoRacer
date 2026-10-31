@@ -120,6 +120,14 @@ OMR_DEVICE=4 OMR_CHOICES=1,0,3,0,0 fresh pad_pause 1 575 "30:pad:32768,32768,0,0
 OMR_DEVICE=4 fresh pad_spare 11 300 "40:$P0 60:pad:32768,32768,0,0,0,2 64:$P0 70:pad:32768,32768,0,0,0,2 74:$P0 80:pad:32768,32768,0,0,0,8 84:$P0 90:pad:32768,32768,1,0,0,0 94:$P0"
 OMR_DEVICE=4 OMR_CHOICES=1,0,3,0,0 fresh pad_trigger 1 620 "30:pad:32768,32768,0,0,16384,0"
 OMR_DEVICE=4 OMR_CHOICES=1,0,3,0,0 fresh pad_ride 1 620 "30:pad:32768,32768,1,0,0,0 520:pad:45000,32768,1,0,0,0"
+# the 1997 CD's program on GOG's files: podium with the results over it, Choose Bike, a race with
+# the flat shadow and the other sky, Shift+F1, the big message's smooth edges, Shift+F12 the column
+OMR_BEHAVIOUR=cd OMR_PODIUM=1 OMR_CHOICES=2,0,4 run as_cd_podium 24 500
+OMR_BEHAVIOUR=cd run as_cd_bike 10 150
+OMR_BEHAVIOUR=cd OMR_CHOICES=0,0,3,0,0 fresh as_cd_race 1 620
+OMR_BEHAVIOUR=cd OMR_CHOICES=0,0,3,0,0 fresh as_cd_info 1 500 "490:hold:shift 491:f1 492:release:shift"
+OMR_BEHAVIOUR=cd OMR_CHOICES=0,0,3,0,0 fresh as_cd_f12 1 500 "490:hold:shift 491:f12 492:release:shift"
+OMR_BEHAVIOUR=cd OMR_CHOICES=0,0,3,0,0 fresh as_cd_go 1 385
 # the Options page: Game Behaviour clicked; a held + goes one, waits, then ten a second
 fresh behaviour_row 11 100 "30:move:355,410 40:click"
 fresh sessions_hold 11 300 "90:move:405,388 100:down 160:up"
@@ -144,6 +152,7 @@ fresh key_link 3 300 "100:left 110:right 120:return"
 # the 1997 CD's files with its own MOTO.EXE, read from the installer archive (where the CD is here)
 if [ -d "Moto Racer CD" ]; then
     export OMR_DATA="$PWD/Moto Racer CD"
+    OMR_BEHAVIOUR=gog OMR_CHOICES=0,0,3,0,0 fresh as_gog_on_cd 1 620
     run cd_title 14 400
     OMR_TILE=89,89 run cd_main 3 200
     OMR_AUTOPILOT=1 OMR_CHOICES="1,0,1,0,0" run cd_race 1 700

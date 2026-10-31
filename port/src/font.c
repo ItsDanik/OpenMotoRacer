@@ -2,6 +2,7 @@
    (0x490d80), the colour tables (0x490b90, 0x495bd0), measuring (0x492b10) and drawing
    into the 16-bit screen (0x493820, 0x493490 and the classes' DrawChar). The port draws
    the three kinds the script uses for loaded fonts: Direct, AntiAlias8Transp and Pal. */
+#include "config.h"
 #include "font.h"
 #include "exe.h"
 #include "files.h"
@@ -174,6 +175,17 @@ static int type_of(const char *s)
     return 0;
 }
 
+/* 0x426911: these two are Direct whatever the script says; 0x4939ee, the 1997 CD's, leaves
+   them smooth and see-through as it says. Again at each race, the setting may have changed */
+void font_follow_behaviour(void)
+{
+    int i;
+    for (i = 0; i < g_nfonts; i++)
+        if (g_fonts[i] && (strcmp(g_fonts[i]->name, "GameMsgLowRes") == 0
+                           || strcmp(g_fonts[i]->name, "GameMsgHiRes") == 0))
+            g_fonts[i]->type = behaviour_cd() ? g_fonts[i]->script_type : FT_DIRECT;
+}
+
 int font_init(char *err, int errsize)
 {
     Script s;
@@ -196,10 +208,7 @@ int font_init(char *err, int errsize)
         script_str(&s, cond, sizeof cond);
         if (i < 0 || i >= n || !(f = calloc(1, sizeof *f)))
             goto bad;
-        f->type = type_of(type);
-        /* 0x426911: these two are Direct whatever the script says */
-        if (strcmp(name, "GameMsgLowRes") == 0 || strcmp(name, "GameMsgHiRes") == 0)
-            f->type = FT_DIRECT;
+        f->type = f->script_type = type_of(type);
         if (!f->type)
             goto bad;
         snprintf(f->name, sizeof f->name, "%.15s", name);

@@ -1,5 +1,6 @@
 /* The horizon picture (build/notes/track_horizon.md): load 0x410350 / 0x477b30, the fill
    colours 0x4782e0, the draw 0x402960. A picture for each screen size (§4.13.3). */
+#include "config.h"
 #include "horizon.h"
 #include "ftol.h"
 #include "files.h"
@@ -61,6 +62,11 @@ static void fill_colours(Picture *o, const int r[4])
 {
     unsigned acc[3] = { 0, 0, 0 }, c[3];
     int n = r[2] - r[0], i, k;
+    if (behaviour_cd()) {       /* 0x465a02: the one pixel at each corner */
+        o->above = o->pix[r[1] * o->pw + r[0]];
+        o->below = o->pix[r[3] * o->pw + r[2]];
+        return;
+    }
     n = n < 1 ? 1 : n > 10 ? 10 : n;
     for (i = 0; i < n; i++) {
         chans(o->pix[r[1] * o->pw + r[0] + i], c);
@@ -105,12 +111,12 @@ static int load_picture(Picture *o, const char *path, const int r[4])
         unsigned char rgb[3];
         if (npal) {
             int k = d[32 + 3 * npal + i];
-            if (!k) {
+            if (!k && !behaviour_cd()) {
                 o->pix[i] = 0;
                 continue;
             }
             memcpy(rgb, d + 32 + 3 * k, 3);
-            if (rgb[0] < 8 && rgb[1] < 4 && rgb[2] < 8)
+            if (rgb[0] < 8 && rgb[1] < 4 && rgb[2] < 8 && !behaviour_cd())     /* (0x46595a: none) */
                 rgb[0] = 8;
         } else
             memcpy(rgb, d + 32 + 3 * i, 3);
@@ -211,6 +217,8 @@ void horizon_draw(const float c[3][3], const float t[3], float cam_y, int offset
     /* x: the two-tile strip k times around a turn */
     tw = g_rect[0][2] - g_rect[0][0] + 1;
     th = g_rect[0][3] - g_rect[0][1] + 1;
+    if (behaviour_cd())         /* 0x41a956: the corner itself, a pixel less: the tiles overlap */
+        tw = g_rect[0][2], th = g_rect[0][3];
     k = (g_scr_w - 1) * 6 / 640;
     p = TWO_PI / k;
     r = ym - ftol(ym / p) * p;

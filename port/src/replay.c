@@ -2,6 +2,7 @@
    them: dt in the top byte of the first and the key bits below, the two analog values in
    the second. */
 #include "replay.h"
+#include "config.h"
 #include <stdint.h>
 
 #define MAX 0x4fb0              /* 0x4e9838 stops here: 5 min 26 s of 16 ms steps */
@@ -21,7 +22,7 @@ void replay_rewind(void)
 
 void replay_record(int ms, unsigned keys, int held, int pressed, int x, int y)
 {
-    if (g_count >= MAX)
+    if (g_count >= (behaviour_cd() ? 10000 : MAX))      /* 0x479c00 : 0x4577f0 */
         return;
     keys &= ~0xc0u;
     if (held)

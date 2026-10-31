@@ -11,6 +11,7 @@ enum {
 
 typedef struct {
     int type;                       /* +4 */
+    int script_type;                /* (what FONTS.BPT says: font_follow_behaviour) */
     char name[16];                  /* +8 */
     char cond[24];                  /* the script's load condition (not used yet) */
     const unsigned char *glyph[256];/* +0x18 */
@@ -29,6 +30,8 @@ typedef struct {
     const unsigned char *pal;       /* +0x549a */
     int npal;                       /* +0x549e */
 } Font;
+
+void font_follow_behaviour(void);
 
 /* the game's named colours (0x4f0dd4, R,G,B every 4 bytes) */
 enum { COL_WHITE, COL_BLACK, COL_GREY, COL_CYAN, COL_MAGENTA, COL_YELLOW, COL_RED, COL_BLUE,

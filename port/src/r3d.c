@@ -728,12 +728,32 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
             o[x] = (uint16_t)(((o[x] >> 1) & HALF) + colour);
         return;
     }
+    if (kind == 0x10 || kind == 68 || kind == 69) {
+        /* 0x4a5ab0, 0x4a4dc0, 0x4a4f30 keep u and v turned round, the fraction on top, and add
+           with the carry: a slope below zero runs a little above a plain sum, and that shows
+           on a texel's exact edge */
+        uint32_t e = (uint32_t)u >> 13 | (uint32_t)u << 19, f = (uint32_t)v >> 13 | (uint32_t)v << 19;
+        uint32_t de = (uint32_t)du >> 13 | (uint32_t)du << 19;
+        uint32_t df = (uint32_t)dv >> 13 | (uint32_t)dv << 19;
+        unsigned bl = e & 0xff, bh = f & 0xff;
+        for (x = x0; x < x1; x++) {
+            unsigned c = tex[bh << 8 | bl];
+            uint32_t t;
+            if (kind == 0x10)
+                o[x] = (uint16_t)c;
+            else {                                      /* (no blue in 69) */
+                unsigned s = o[x], a = c & 0x1f;        /* each channel towards white by a/32 */
+                o[x] = (uint16_t)(s + (((31 - (s >> 11)) * a >> 5) << 11)
+                                  + (((31 - ((s >> 6) & 31)) * a >> 5) << 6)
+                                  + (kind == 68 ? (31 - (s & 31)) * a >> 5 : 0));
+            }
+            t = e + de, bl = (bl + (de & 0xff) + (t < e)) & 0xff, e = t;
+            t = f + df, bh = (bh + (df & 0xff) + (t < f)) & 0xff, f = t;
+        }
+        return;
+    }
     for (x = x0; x < x1; x++, u += du, v += dv) {
         unsigned c;
-        if (kind == 0x10) {                             /* 0x4a5ab0 */
-            o[x] = tex[((v >> 13) & 0xff) << 8 | ((u >> 13) & 0xff)];
-            continue;
-        }
         c = tex[((v >> 13) * 256 + (u >> 13)) & 0xffff];  /* 0x4a5e10, 0x4a5330, 0x4a5580 */
         if (kind == 0x25) {                             /* 0x4a50c0: the face's colour */
             if (c)
@@ -745,13 +765,6 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
         if (kind == 0x2c) {                             /* 0x4a57f0: half and half */
             if (c)
                 o[x] = (uint16_t)(((o[x] >> 1) & HALF) + ((c >> 1) & HALF));
-            continue;
-        }
-        if (kind == 68 || kind == 69) {                 /* 0x4a4dc0, 0x4a4f30 (no blue) */
-            unsigned s = o[x], a = c & 0x1f;            /* each channel towards white by a/32 */
-            o[x] = (uint16_t)(s + (((31 - (s >> 11)) * a >> 5) << 11)
-                              + (((31 - ((s >> 6) & 31)) * a >> 5) << 6)
-                              + (kind == 68 ? (31 - (s & 31)) * a >> 5 : 0));
             continue;
         }
         if (kind == 0x14) {     /* 0x4adbf0: red from the table 0x4f62f0, which nothing writes;

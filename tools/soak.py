@@ -104,6 +104,23 @@ def runs():
     # from the logo on, anything may be pressed
     for seed in range(40):
         out.append((f"monkey_{seed}", {"OMR_INPUT": monkey(seed, 15000, 45, keys=GOOD + GOOD + tuple(KEYS))}, 15000))
+    # the other program on these files (Game Behaviour): every track ridden, won and its replay;
+    # the pages where it differs
+    other = {"OMR_BEHAVIOUR": "cd"}
+    for lst, t in TRACKS:
+        ride = monkey(t + 500, 5000, 40, ride=True)
+        race(f"ascd_ride_L{lst}T{t}", None, lst, t, 1, SHAPES[t & 3], None, 5000,
+             {**other, "OMR_INPUT": f"10:hold:up {ride}"}, laps=2, manual=t & 1)
+        race(f"ascd_win_L{lst}T{t}", None, lst, t, 1, SHAPES[0], "win", 14000,
+             {**other, "OMR_INPUT": win_keys})
+        race(f"ascd_watch_L{lst}T{t}", None, lst, t, 1, SHAPES[0], "1", 5000,
+             {**other, "OMR_WATCH_AT": "2000"})
+    for page in (10, 11, 13, 14):
+        out.append((f"ascd_p{page}", {**other, "OMR_PAGE": str(page), "OMR_CHOICES": "1,0,2",
+                                      "OMR_INPUT": monkey(page, 1500, 60)}, 1500))
+    for place in (1, 2, 3, 4):
+        out.append((f"ascd_podium_{place}", {**other, "OMR_PAGE": "24", "OMR_PODIUM": str(place),
+                                             "OMR_CHOICES": "2,0,4"}, 1500))
     # the demos, one after the other
     out.append(("demos", {"OMR_PAGE": "14"}, 40000))
     # what the above did not reach (a coverage build tells: gcov): the dialogs' other answers,

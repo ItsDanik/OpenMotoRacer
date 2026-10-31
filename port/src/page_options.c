@@ -610,7 +610,8 @@ void page_diag_frame(void)
     line(140, T(171), g_mem[0] ? g_mem : T(71));
     line(200, T(89), T(73));
     line(220, T(92), T(71));            /* no Direct3D */
-    line(240, "", T(71));               /* (the video board's memory: not known) */
+    if (!behaviour_cd())                /* (0x46a020 has no such line) */
+        line(240, "", T(71));           /* (the video board's memory: not known) */
     if (sound_running()) {              /* SDL's mixing: 16 bits, stereo, no hardware's */
         y = 290;
         snprintf(buf, sizeof buf, "%s%s%s", T(68), T(45), T(61));

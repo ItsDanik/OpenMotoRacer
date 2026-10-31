@@ -390,6 +390,7 @@ int bikephys_track(void)
         mulvec(nz, z1, s->m);
         normalise(nz);
         plane_through(s->p40, nz, s->pos);
+        memcpy(g_land.sec[i].plane[0], s->p40, 16);     /* 0x40e5c0's over the file's */
         point(a, s, 0.0f), point(b, s, -2048.0f);
         line_plane(li, s->p60, a, b);
         point(a, t, 0.0f), point(b, t, -2048.0f);

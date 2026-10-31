@@ -3,6 +3,7 @@
    0x4e4ed0. Also the sprite objects (item type 2, 0x418160: pictures side by side, NOTES
    §4.20 §3.5). The race's two lists (0x53ba68 and 0x53b8e8) share the one array here,
    each object marked with its list, 0x53ba68's drawn first as 0x4806e0 does. */
+#include "config.h"
 #include "text.h"
 #include "clock.h"
 #include "font.h"
@@ -387,7 +388,7 @@ static void fly(Text *t)
     dx = t->tx - t->px;
     dy = (SCREEN_H - t->ty) - t->py;
     dist = sqrt(dx * dx + dy * dy);
-    if (dist <= 1.5) {
+    if (behaviour_cd() ? dist < 3.0 : dist <= 1.5) {    /* 0x4095f0 : 0x416b40 */
         t->x = t->tx;
         t->y = t->ty;
         t->px = t->tx;

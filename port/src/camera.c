@@ -93,12 +93,14 @@ void camera_reset(const BikePhys *b)
     float w[3][3], e[3];
     memset(g_cam.ang, 0, sizeof g_cam.ang);     /* 0x46da40 */
     g_cam.preset = 0;
-    /* where the chase rests ([guess]: 0x46d760 leaves +0xc8 at 0, the race does not
-       set it again; the port starts the camera at rest instead of sweeping in) */
+    /* 0x47bf70: behind the bike on its own height, raised by +0x54, and the chase brings it
+       down into place, 0.8 a frame: about 0.4 s at the start of every race */
     chase_frame(w, b);
     e[0] = 0.0f, e[1] = CHASE_Y, e[2] = OFF_Z + g_extra[g_cam.dist];
-    place(g_cam.lerp, e, (const float (*)[3])w, b->pos);
     place(g_cam.target, g_preset_off[0], (const float (*)[3])w, b->pos);
+    e[1] = 0.0f;
+    place(g_cam.lerp, e, (const float (*)[3])w, b->pos);
+    g_cam.lerp[1] = (float)(g_cam.lerp[1] + OFF_Y);
     memcpy(g_cam.pos, g_cam.lerp, sizeof g_cam.pos);
     camera_step(b, 1.6f, 1, 0, 0);
     g_cam.jumped = 1;

@@ -79,8 +79,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - **The game's tables are read from the player's game.EXE** at their addresses
   (`exe.c`: the PE placed at 0x400000, the build known by its FNV-1a sum; unknown builds
   are refused with a message).
-- The CD: `-data` at the CD's files works alone, `MOTO.EXE` read from `DISK1/data.z` (`exe.c`, NOTES §3.5a): GOG's logic on
-  the CD's data, title and main menu equal to MOTO.EXE's; its music from the CD's image (`cdaudio.c`, §4.10.5.3a), played as the disc did. MOTO.EXE runs a whole race under wine (`-noD3D`, §3.5a); it differs from GOG's in 92 routines (§3.5b), not yet in the port.
+- The CD: `-data` at the CD's files works alone, `MOTO.EXE` read from `DISK1/data.z` (`exe.c`, NOTES §3.5a), the 1997 program's behaviour by default; title and main menu equal to MOTO.EXE's; its music from the CD's image (`cdaudio.c`, §4.10.5.3a). MOTO.EXE runs a whole race under wine (`-noD3D`, §3.5a); it differs from GOG's in 92 routines (§3.5b).
 - The screen is the game's: RGB565 (`video.c`), shown 4:3; menus 640x480, the race also 512x384 and 320x240 and 16:9 at the top (F2, F3, F4, the F12 column, Shift+F12; `OMR_SCREEN=MODE[,WIDE]`; NOTES §4.20 §1b, §4.19 §5b).
 - `--shot FILE N` (`OMR_SHOT`): no window, N frames, the screen as a BMP. `--help` lists
   the test switches (`OMR_*`).
@@ -154,6 +153,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - Windows and the soak (NOTES §4.24): `tools/windows.sh` the MinGW build with SDL2.dll in `build/win/`, `tools/windows.sh check` all pictures, replays and
   checks on it under wine (5-6-5: SDL2.dll rounds its BMPs differently); home `%APPDATA%\OpenMotoRacer`. `python3 tools/soak.py` the sanitizers over every track, mode and page.
 - A bike is drawn only near the view and on a section the camera sees (`bike_seen`, 0x458b80), each bike has its own shadow faces; every way of drawing a face in the game's tables is written (`r3d.c`, NOTES §4.24). `build/shots.txt` is the port against itself: compare the race's picture against `build/ref/` too.
+- Game Behaviour (Options, `behaviour_cd()`, `OMR_BEHAVIOUR=cd|gog`; NOTES §3.5c): which program the port acts like, with any copy's files. What follows the files and what the setting is listed there.
 - GO's test uses the seconds of the last clock split (0x4f0d8c): the lap panel's, not the time left (NOTES §4.17 §6; West Way on easy once lost its GO). `OMR_DIFFICULTY` for tests.
 - Test switches: `OMR_PAGE`, `OMR_LIST` (the track list), `OMR_CHOICES="MODE,TRACK,LAPS[,REV,POC]"`, `OMR_TILE=SX,SY` (the chequered tile's scroll, to match a capture;
   `tools/cmpshot.py` finds it), `OMR_INPUT="F:key F:hold:key F:release:key F:move:X,Y F:click F:down F:up"` (input at frame F),

@@ -55,7 +55,9 @@ void racekeys_info(void)
     if (g_mode169)
         n += snprintf(s + n, sizeof s - (size_t)n, "\n[%s", exe_text(143));
     if (video_fullscreen())
-        snprintf(s + n, sizeof s - (size_t)n, "\n[%s", exe_text(148));
+        n += snprintf(s + n, sizeof s - (size_t)n, "\n[%s", exe_text(148));
+    if (behaviour_cd())                 /* 0x4a5f20: the 1997 CD's, 8M its largest */
+        snprintf(s + n, sizeof s - (size_t)n, "\n[  VIDEO 8M]");
     memset(&a, 0, sizeof a);
     a.text = s;
     a.lifetime = 6000;

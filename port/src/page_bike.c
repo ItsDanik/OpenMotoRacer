@@ -6,6 +6,7 @@
 #include "bikes.h"
 #include "choices.h"
 #include "clock.h"
+#include "config.h"
 #include "menu.h"
 #include "r3d.h"
 #include "sound.h"
@@ -227,6 +228,8 @@ void page_bike_frame(void)
     menu_begin_frame();
     bitmap_draw(PIC(P_BACKGROUND), BM_OWN, 100, 0);
     turntable();
+    if (behaviour_cd())         /* 0x473479: the bike at once, the panels and buttons over it */
+        r3d_render();
     bitmap_step(PIC(P_TITLE), 0, 0);
     bitmap_draw(PIC(P_TITLE), BM_OWN, 100, 0);
     bitmap_step(PIC(P_FEATURES), 0, 0);

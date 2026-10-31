@@ -66,6 +66,7 @@ static int g_winner_sequence;   /* 0x504eac: its credits have begun */
 static float g_winner_top;      /* 0x504ea4 */
 static int g_winner_counter;    /* 0x4dbe38: ShowCounter, off meanwhile */
 static int g_paused;            /* 0x4dc038: Pause, App_OnIdle leaves the race alone */
+static int g_first_step;
 static unsigned g_joy_keys;     /* +0x31ed: the bits from the joystick */
 static int g_joy_y = 0x8000, g_joy_x = 0x8000;  /* +0x31f1, +0x31f5 */
 static int g_joy_turbo;         /* +0x31fd: a turbo binding held */
@@ -178,13 +179,14 @@ void race_key(int vk, int down)
         }
         return;
     }
-    if (g_ctrl_held && vk == 'F') {             /* the small fonts */
+    /* (the 1997 CD's 0x441690 asks a little differently of Ctrl+F, Ctrl+U and F12) */
+    if (g_ctrl_held && vk == 'F' && !(behaviour_cd() && g_shift_held)) {        /* the small fonts */
         if (down)
             racekeys_small_fonts();
         return;
     }
     if (g_ctrl_held && vk == 'U') {             /* the speed in mph or km/h (0x4f0dd0) */
-        if (down && !g_shift_held)
+        if (down && (!g_shift_held || behaviour_cd()))
             g_speed_unit = !g_speed_unit;
         return;
     }
@@ -235,7 +237,9 @@ void race_key(int vk, int down)
         return;
     }
     if (vk == 0x7a || vk == 0x7b) {             /* F11 and F12 (0x432200): the columns */
-        if (down && !g_ctrl_held && g_shift_held && vk == 0x7b)
+        if (down && vk == 0x7b && behaviour_cd())
+            dialog_side(1);
+        else if (down && !g_ctrl_held && g_shift_held && vk == 0x7b)
             dialog_modes();
         else if (down && !g_ctrl_held && !g_shift_held)
             dialog_side(vk == 0x7a ? 3 : 1);
@@ -829,6 +833,7 @@ static void start(void)
     sound_stop_all();
     sound_race_load(g_bikes[g_rider[1].bike].perso != 0);
     race_sound_start(camera_eye(), g_player);   /* 0x4084e0 */
+    font_follow_behaviour();
     music_play(g_land.audio_track, 0);
     memset(g_keys, 0, sizeof g_keys);
     bikephys_key(&g_phys[g_player], &g_keys[g_player], 0, 0, 0);     /* 0x4e8964 = 0 */
@@ -836,6 +841,7 @@ static void start(void)
     hud_restart();
     g_finish_timer = g_timeover_timer = -1;
     g_step_at = g_last_now = g_now;
+    g_first_step = 1;
     g_paused = 0;
     g_joy_turbo = g_ctrl_held = g_shift_held = 0;
     memcpy(g_before, g_rider, sizeof g_before);
@@ -1258,7 +1264,10 @@ void race_frame(void)
         g_step_at += STEP_MS;
         memcpy(g_before, g_rider, sizeof g_before);
         camera_keep();
-        step(STEP_MS);
+        /* 0x411010: the game's first frame takes what the clock says since the start, as a
+           rule a millisecond (the rear wheel's turn, measured on the original) */
+        step(g_first_step ? 1 : STEP_MS);
+        g_first_step = 0;
         if (g_events & EV_DEMO_LOAD)
             return;
         /* what the drawer leaves for a crash (+0x3085, +0x30b5), from the step's state,

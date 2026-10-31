@@ -617,6 +617,8 @@ static void dash_layout(void)
         g_dash.rx[i] = t[6 + 2 * i] - ox, g_dash.ry[i] = t[7 + 2 * i] - oy;
     }
     g_dash.dx = t[14] - ox, g_dash.dy = t[15] - oy;
+    if (t == lo && behaviour_cd())
+        g_dash.dy++;                    /* 0x4a64c5: 0x50 */
     g_dash.gx = t[16], g_dash.gy = t[17];
     g_dash.bx = g_scr_w - t[18];
     g_dash.by = g_scr_h - t[19];
@@ -884,7 +886,7 @@ void hud_sound_notice(const char *s, int trouble)
     if (trouble)                /* 0x4dbb20 with texts 134 and 135, blinking lower down */
         say(&id, s, 2000, 0x22, 0, 0x1e, FX_BLINK, 0x20, 4);
     else
-        say(&id, s, 2000, 0x22, 0, 0x14, FX_FADE_OUT, F_MESSAGES, 4);
+        say(&id, s, 2000, 0x22, 0, behaviour_cd() ? 0 : 0x14, FX_FADE_OUT, F_MESSAGES, 4);
 }
 
 void hud_say(int *id, const char *s, int life, int align, int x, int y, int effect, int font,
@@ -896,7 +898,7 @@ void hud_say(int *id, const char *s, int life, int align, int x, int y, int effe
 void hud_notice(int slot, const char *s)
 {
     static int id[2];
-    say(&id[slot & 1], s, 3000, 0x22, 0, 0x14, FX_FADE_OUT, F_MESSAGES, 4);
+    say(&id[slot & 1], s, 3000, 0x22, 0, behaviour_cd() ? 0 : 0x14, FX_FADE_OUT, F_MESSAGES, 4);
 }
 
 void hud_screen(void)           /* 0x484810: its layout again for a new screen */

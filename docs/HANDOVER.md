@@ -159,8 +159,8 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   2026-10-31 after two faults of the port were found (the near bike's shadow, far bikes drawn; NOTES §4.24): at Speed Bay
   outside the big LAPS text 95 pixels differ, the boat, a gull and 7 single ones. On the other road tracks riders' idle
   movement and a line or so of rounding: West Way's roof (the 24 pixels), Lost Ruins' rock, under 30-80 pixels a track.
-  Dirt bikes rock in both, the helicopter flies; there what differs is those. The second list (Fun Fair and so on) has
-  not been compared since. **`build/shots.txt` is the port against itself: it cannot see a fault like these two; only
+  Dirt bikes rock in both, the helicopter flies; there what differs is those. The second list (Fun Fair and so on) was
+  compared on 2026-10-31, below. **`build/shots.txt` is the port against itself: it cannot see a fault like these two; only
   `build/ref/` and fresh captures can. After a change of the race's picture, compare against one.**
 - F9 the map, numpad detail and volumes, Ctrl+F, Ctrl+U, Shift+F1, focus, `-windowed`, `-fullscreen`, `-NoSound`, Alt+Return,
   Link stays on the menu (NOTES §4.20 §2.6, §5b, §4.10.5.3). A demo has 23 riders as the original.
@@ -198,3 +198,10 @@ Danik's real pad works; he asked for Start to pause, the triggers to be bindable
 the menus. All done (NOTES §4.22), on by default, tried with a pretend pad (`OMR_INPUT` pad:) and a virtual copy of his pad; RT and LT work unset; Danik judges the real one. The
 original has analog steering and throttle only on one stick under JOYSTICK, a brake that is on or off, no triggers.
 
+## 2026-10-31: the second list's starts; Game Behaviour
+- All 8 tracks of LIST01, each four ways, two shots a run, the original under wine against the port (build/notes/list2_starts.md, build/agent_list2/):
+  four real faults, every track, now written. The road painter adds with the carry (r3d.c span: "rounding"); the sections' start planes rebuilt, not the file's
+  (bikephys_track: the walk, so the places and what the computer riders aim at); a race's first step of 1 ms (race.c: what the original's clock says, as a rule);
+  the camera starts above and drops in (camera.c). What is left, 4705 pixels over 66 pictures, mostly the helicopter, gulls and flags that move, and 1-7 pixels under the shadow and single ones not explained.
+  Not in the port: the red "640X480 / VIDEO ..." strip of a race's first 0.3 s (Danik's to decide; the figures are dgVoodoo's).
+- Game Behaviour (NOTES §3.5c): Options, 1997 CD / GOG RELEASE, with any files. Bike browsing's slide counts 60ths; a click on + or - is one step (the port's, menu.c).

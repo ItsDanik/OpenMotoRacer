@@ -257,6 +257,8 @@ void page_title_frame(void)
         if (arrived > g_mr_arrived)
             g_mr_arrived = arrived;
     }
+    if (behaviour_cd())         /* 0x46b25e: the letters before the buttons */
+        r3d_render();
     menu_draw_buttons();
     menu_transition();
     r3d_render();

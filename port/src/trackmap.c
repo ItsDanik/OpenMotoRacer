@@ -214,7 +214,7 @@ void trackmap_draw(const Rider *riders, int follow, float focal)
     base = r3d_points(g_npoints, (const float (*)[3])g_points, (const float (*)[3])n, t);
     r3d_key_faces(base, g_nfaces, g_faces, 15.0f, -1);
     /* the riders: red and orange by twos, the followed one yellow at the very front */
-    size = g_map_mode == 1 || g_map_mode == 3 ? 30.0f : 50.0f;
+    size = g_map_mode == 1 || (g_map_mode == 3 && !behaviour_cd()) ? 30.0f : 50.0f;
     for (i = 0; i < g_riders; i++)
         if (g_racer[i].loaded)
             mark_points(i, &riders[i], size);

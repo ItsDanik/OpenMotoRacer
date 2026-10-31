@@ -149,7 +149,7 @@ void page_podium_start(void)
 {
     float base, ground;
     int i;
-    g_alt_return = 0;           /* 0x4e8934 = -1 */
+    g_alt_return = behaviour_cd();      /* 0x4e8934 = -1; the 1997 CD does not ask */
     if (g_bike < 0)
         g_bike = 0;
     if (getenv("OMR_PODIUM")) {         /* the test's way in: the player's place, three riders */
@@ -192,7 +192,9 @@ void page_podium_start(void)
     bitmap_place(PIC(P_CONTINUE), 496, 429, 0);
     bitmap_place(PIC(P_BEST_RACE), 430, 145, 0);
     menu_clear_buttons();
-    menu_add_button(PIC(P_CONTINUE), 0, 0xffffffffu, VK_ESCAPE, -1, 0, 0, 0, -1, -1, 0);
+    /* 0x452bee: Escape leaves; 0x476b17: on the 1997 CD no key does */
+    menu_add_button(PIC(P_CONTINUE), 0, 0xffffffffu, behaviour_cd() ? -1 : VK_ESCAPE, -1, 0, 0, 0,
+                    -1, -1, 0);
     for (i = 0; i < 4; i++) {
         g_rate[i] = 6.0f;
         g_bounce[i] = (float)(i * 0.2);
@@ -277,6 +279,8 @@ void page_podium_frame(void)
         static const float ang[3] = { 0.0f, 1.5707964f, 0.0f }, at[3] = { 0.0f, 72.0f, -80.0f };
         r3d_object(&g_stand, ang, at);
     }
+    if (behaviour_cd())         /* 0x47710b: the stand first, the results over it */
+        r3d_render();
     rows = g_t < (float)0.6 ? 0 : g_t < 0.7 ? 1 : g_t < 0.8 ? 2 : 3;
     if (rows) {
         bitmap_step(PIC(P_BEST_RACE), 0, 0);
@@ -302,6 +306,8 @@ void page_podium_frame(void)
     podium_sound_frame();
     if (menu_pressed() == 0) {
         menu_press_done();
+        if (behaviour_cd())     /* 0x47733d: on the 1997 CD the glass breaks on the way */
+            menu_capture();
         menu_change_page(9);
     }
 }

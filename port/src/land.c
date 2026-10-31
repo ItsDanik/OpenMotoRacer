@@ -215,7 +215,7 @@ static int read_trk(const unsigned char *d, long len)
         for (k = 0; k < 3; k++)
             rd_f32(&r);                         /* +0x30, always 0 */
         s->block = rd_i32(&r);
-        for (k = 0; k < 16; k++)                /* (0x40e5c0 makes them again, the same) */
+        for (k = 0; k < 16; k++)                /* (0x40e5c0 makes the first again: bikephys_track) */
             s->plane[k / 4][k % 4] = rd_f32(&r);
         s->line = rd_f32(&r);
         if (v > 0) {
