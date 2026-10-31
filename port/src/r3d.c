@@ -65,10 +65,29 @@ typedef struct {                /* 0x625790: what its pieces share */
 static Point g_pt[VERTS];
 static int g_npt;
 static int g_head[BUCKETS];
+static int g_bucket_lo, g_bucket_hi = BUCKETS - 1;   /* the ones in use */
 static Entry g_entry[ENTRIES];
 static int g_nentry;
 static int16_t g_free[SCREEN_MAX_H][2 * FREE_MAX];   /* 0x623bd8: [start, end) pieces a row */
 static int g_nfree[SCREEN_MAX_H];
+/* (int)nearbyintf(x): the ARM has it in one instruction, the library a call */
+static inline int round_int(float x)
+{
+#if defined(__arm__) && defined(__ARM_FP)
+    float r;
+    int i;
+    __asm__("vcvtr.s32.f32 %0, %1" : "=t"(r) : "t"(x));
+    memcpy(&i, &r, sizeof i);
+    return i;
+#else
+    return (int)nearbyintf(x);
+#endif
+}
+
+#ifdef __arm__
+static uint32_t g_reciprocal[1024];     /* the MiSTer's ARM divides in software: small divisors here */
+#endif
+
 static float g_cx = 320.0f, g_cy = 240.0f;      /* 0x60d3c4, 0x624f88: half the view (0x499ba0) */
 static Span g_span[SPANS];
 static int g_nspan;
@@ -115,6 +134,10 @@ void r3d_screen_down(int y)
 void r3d_init(void)
 {
     int k;
+#ifdef __arm__
+    for (k = 1; k < 1024; k++)
+        g_reciprocal[k] = 0xffffffffu / (uint32_t)k;
+#endif
     for (k = 0; k < 16384; k++)                         /* 0x4901e0 */
         g_cos[k] = (float)cos(k * 6.283185307178 * (double)6.103515625e-05f);
     r3d_begin();
@@ -425,7 +448,7 @@ int r3d_menu_project(const float v[3], int *sx, int *sy)
         return 0;
     rz = 1.0f / z;
     *sx = (int)nearbyintf(x * rz + CX);
-    *sy = (int)nearbyintf(CY - y * rz);
+    *sy = round_int(CY - y * rz);
     return 1;
 }
 
@@ -439,8 +462,9 @@ void r3d_begin(void)
     g_nspan = 0;
     g_nbatch = 0;
     g_room = 1;
-    for (y = 0; y < BUCKETS; y++)
+    for (y = g_bucket_lo; y <= g_bucket_hi; y++)
         g_head[y] = -1;
+    g_bucket_lo = BUCKETS, g_bucket_hi = -1;
     for (y = 0; y < H; y++) {
         g_free[y][0] = 0;
         g_free[y][1] = W;
@@ -495,6 +519,10 @@ static void queue_kind(const Face *f, int base, float key, int skin, int kind)
     g_entry[g_nentry].dark = g_dark;
     g_entry[g_nentry].next = g_head[b];
     g_head[b] = g_nentry++;
+    if (b < g_bucket_lo)
+        g_bucket_lo = b;
+    if (b > g_bucket_hi)
+        g_bucket_hi = b;
 }
 
 static void queue(const Face *f, int base, float key, int skin)
@@ -575,8 +603,8 @@ int r3d_points(int nv, const float (*v)[3], const float n[3][3], const float t[3
         p->z = v[i][0] * nz[0] + v[i][1] * nz[1] + v[i][2] * nz[2] + nz[3];
         if (p->z >= g_near) {
             float rz = 1.0f / p->z;
-            p->sx = (int)nearbyintf(p->x * rz + CX);
-            p->sy = (int)nearbyintf(CY - p->y * rz);
+            p->sx = round_int(p->x * rz + CX);
+            p->sy = round_int(CY - p->y * rz);
         }
     }
     return base;
@@ -666,8 +694,17 @@ void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[
 
 /* ---------------------------------------------------------------- drawing */
 
-static int cdiv(int a, int b)   /* C's division, as the game's idiv */
+static inline int cdiv(int a, int b)    /* C's division, as the game's idiv */
 {
+#ifdef __arm__
+    if ((unsigned)(b - 1) < 1023) {
+        uint32_t ua = a < 0 ? 0u - (uint32_t)a : (uint32_t)a, ub = (uint32_t)b;
+        uint32_t q = (uint32_t)(((uint64_t)ua * g_reciprocal[b]) >> 32), r = ua - q * ub;
+        while (r >= ub)
+            q++, r -= ub;
+        return a < 0 ? -(int)q : (int)q;
+    }
+#endif
     return a / b;
 }
 
@@ -676,11 +713,25 @@ static int wrap(long long v)    /* a 32-bit register's sum or product */
     return (int)(uint32_t)v;
 }
 
-static int see_through(int kind)
+enum { K_SEE = 1, K_NO_PAINT = 2, K_SUB6 = 4 };
+
+#define K_TABLE_SIZE 0x100
+static const unsigned char g_kinds[K_TABLE_SIZE] = {
+    [2] = K_SEE | K_NO_PAINT, [3] = K_NO_PAINT, [4] = K_SEE | K_NO_PAINT, [8] = K_SEE | K_NO_PAINT,
+    [9] = K_SEE | K_NO_PAINT, [12] = K_SEE, [0x12] = K_NO_PAINT, [0x13] = K_SEE | K_NO_PAINT,
+    [0x14] = K_SEE, [0x1d] = K_NO_PAINT, [28] = K_SUB6, [31] = K_SUB6, [32] = K_SUB6, [37] = K_SEE,
+    [38] = K_SEE, [39] = K_SEE, [44] = K_SEE, [50] = K_SEE | K_SUB6, [51] = K_SEE | K_SUB6,
+    [53] = K_SEE | K_SUB6, [54] = K_SEE | K_SUB6, [62] = K_SEE | K_SUB6, [68] = K_SEE, [69] = K_SEE,
+};
+
+static inline int kind_is(int kind, int what)
 {
-    return kind == 2 || kind == 4 || kind == 8 || kind == 9 || kind == 12 || kind == 0x13
-           || kind == 0x14 || kind == 37 || kind == 38 || kind == 39 || kind == 44 || kind == 50
-           || kind == 51 || kind == 53 || kind == 54 || kind == 62 || kind == 68 || kind == 69;
+    return (unsigned)kind < K_TABLE_SIZE && g_kinds[kind] & what;
+}
+
+static inline int see_through(int kind)
+{
+    return kind_is(kind, K_SEE);
 }
 
 /* kind table 0x4f1a70: a span that is only a `ret`. The opaque ones (3, 0x12, 0x1d, and 1 once
@@ -688,16 +739,14 @@ static int see_through(int kind)
    what lies behind them is not drawn; the see-through ones take pieces only. In the game 3, 4,
    9, 0x12 and 0x1d go through sub 5 and 7 (0x49fa10, 0x4a2630) where 1 goes through sub 4;
    nothing reaches them, so `triangle` stands in for all */
-static int no_paint(int kind)
+static inline int no_paint(int kind)
 {
-    return kind == 2 || kind == 3 || kind == 4 || kind == 8 || kind == 9 || kind == 0x12
-           || kind == 0x13 || kind == 0x1d;
+    return kind_is(kind, K_NO_PAINT);
 }
 
-static int sub6(int kind)       /* kind table 0x4f1a70: sub 6, the perspective-correct ones */
+static inline int sub6(int kind)        /* kind table 0x4f1a70: sub 6, the perspective-correct ones */
 {
-    return kind == 28 || kind == 31 || kind == 32 || kind == 50 || kind == 51 || kind == 53
-           || kind == 54 || kind == 62;
+    return kind_is(kind, K_SUB6);
 }
 
 /* a batch closed: its pieces are g_span[first..] */
@@ -743,6 +792,32 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
         uint32_t de = (uint32_t)du >> 13 | (uint32_t)du << 19;
         uint32_t df = (uint32_t)dv >> 13 | (uint32_t)dv << 19;
         unsigned bl = e & 0xff, bh = f & 0xff;
+#if defined(__arm__) && !defined(__thumb__)
+        if (kind == 0x10 && x0 < x1) {  /* the ARM adds with the carry as the x86 does */
+            uint16_t *to = o + x0;
+            unsigned dl = de & 0xff, dh = df & 0xff, t0, t1;
+            int count = x1 - x0;
+            __asm__ volatile(
+                "1:\n"
+                "uxtb %[t0], %[bl]\n"
+                "uxtb %[t1], %[bh]\n"
+                "orr %[t0], %[t0], %[t1], lsl #8\n"
+                "add %[t0], %[tex], %[t0], lsl #1\n"
+                "ldrh %[t0], [%[t0]]\n"
+                "adds %[e], %[e], %[de]\n"
+                "adc %[bl], %[bl], %[dl]\n"
+                "adds %[f], %[f], %[df]\n"
+                "adc %[bh], %[bh], %[dh]\n"
+                "strh %[t0], [%[to]], #2\n"
+                "subs %[n], %[n], #1\n"
+                "bne 1b\n"
+                : [e] "+r"(e), [f] "+r"(f), [bl] "+r"(bl), [bh] "+r"(bh), [to] "+r"(to),
+                  [n] "+r"(count), [t0] "=&r"(t0), [t1] "=&r"(t1)
+                : [de] "r"(de), [df] "r"(df), [dl] "r"(dl), [dh] "r"(dh), [tex] "r"(tex)
+                : "cc", "memory");
+            return;
+        }
+#endif
         for (x = x0; x < x1; x++) {
             unsigned c = tex[bh << 8 | bl];
             uint32_t t;
@@ -788,36 +863,48 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
 /* 0x49d9e0 (opaque: draw the free pieces and close them) and 0x49dbf0 (see-through:
    keep the free pieces for the end) */
 static void row(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
-                const uint16_t *tex)
+                const uint16_t *tex, int deferred)
 {
-    int16_t out[2 * FREE_MAX];
-    int i, n = 0, deferred = see_through(kind);
-    for (i = 0; i < g_nfree[y]; i++) {
-        int a = g_free[y][2 * i], b = g_free[y][2 * i + 1];
+    int16_t out[2 * FREE_MAX], *fr = g_free[y];
+    int i, n, nf = g_nfree[y], first;
+    if (deferred) {
+        for (i = 0; i < nf; i++) {
+            int a = fr[2 * i], b = fr[2 * i + 1];
+            int s = a > x0 ? a : x0, e = b < x1 ? b : x1;
+            if (s < e && g_nspan < SPANS) {
+                Span *p = &g_span[g_nspan++];
+                p->y = (int16_t)y, p->x0 = (int16_t)s, p->x1 = (int16_t)e;
+                p->u = u + (s - x0) * du, p->v = v + (s - x0) * dv, p->du = du, p->dv = dv;
+            }
+        }
+        return;
+    }
+    for (first = 0; first < nf; first++) {      /* (most pieces are out of its way, and stay) */
+        int a = fr[2 * first], b = fr[2 * first + 1];
+        if ((a > x0 ? a : x0) < (b < x1 ? b : x1))
+            break;
+    }
+    if (first == nf)
+        return;
+    n = first;
+    for (i = first; i < nf; i++) {
+        int a = fr[2 * i], b = fr[2 * i + 1];
         int s = a > x0 ? a : x0, e = b < x1 ? b : x1;
         if (s < e) {
-            int us = u + (s - x0) * du, vs = v + (s - x0) * dv;
-            if (deferred) {
-                if (g_nspan < SPANS) {
-                    Span *p = &g_span[g_nspan++];
-                    p->y = (int16_t)y, p->x0 = (int16_t)s, p->x1 = (int16_t)e;
-                    p->u = us, p->v = vs, p->du = du, p->dv = dv;
-                }
-            } else {
-                span(y, s, e, us, vs, du, dv, kind, tex, 0);
-                if (n + 2 <= FREE_MAX) {
-                    if (a < s)
-                        out[2 * n] = (int16_t)a, out[2 * n + 1] = (int16_t)s, n++;
-                    if (e < b)
-                        out[2 * n] = (int16_t)e, out[2 * n + 1] = (int16_t)b, n++;
-                }
-                continue;
+            span(y, s, e, u + (s - x0) * du, v + (s - x0) * dv, du, dv, kind, tex, 0);
+            if (n + 2 <= FREE_MAX) {
+                if (a < s)
+                    out[2 * n] = (int16_t)a, out[2 * n + 1] = (int16_t)s, n++;
+                if (e < b)
+                    out[2 * n] = (int16_t)e, out[2 * n + 1] = (int16_t)b, n++;
             }
+            continue;
         }
         if (n < FREE_MAX)
             out[2 * n] = (int16_t)a, out[2 * n + 1] = (int16_t)b, n++;
     }
-    memcpy(g_free[y], out, sizeof(int16_t) * 2 * n);
+    if (n > first)
+        memcpy(fr + 2 * first, out + 2 * first, sizeof(int16_t) * 2 * (size_t)(n - first));
     g_nfree[y] = n;
 }
 
@@ -829,7 +916,7 @@ typedef struct {
 static void triangle(Corner c0, Corner c1, Corner c2, int kind, const uint16_t *tex,
                      uint16_t colour)
 {
-    int x0, y0, u0, v0, x1, y1, u1, v1, x2, y2, u2, v2, A, B, D, du, dv, r, nrow = 0;
+    int x0, y0, u0, v0, x1, y1, u1, v1, x2, y2, u2, v2, A, B, D, du, dv, r, nrow = 0, deferred;
     int first = g_nspan;
     struct { int y, cnt, xl, sl, xr, sr, ul, dul, vl, dvl; } rows[2];
     while (c1.sy < c0.sy || c2.sy < c0.sy) {            /* the top corner first */
@@ -894,6 +981,7 @@ static void triangle(Corner c0, Corner c1, Corner c2, int kind, const uint16_t *
             nrow++;
         }
     }
+    deferred = see_through(kind);
     for (r = 0; r < nrow; r++) {
         int y = rows[r].y, cnt = rows[r].cnt, xl = rows[r].xl, xr = rows[r].xr;
         int ul = rows[r].ul, vl = rows[r].vl;
@@ -905,12 +993,12 @@ static void triangle(Corner c0, Corner c1, Corner c2, int kind, const uint16_t *
         if (cnt > H - y)
             cnt = H - y;
         for (; cnt > 0; cnt--, y++) {
-            if (!g_half_rows || !(y & 1))
-                row(y, xl >> 13, xr >> 13, ul, vl, du, dv, kind, tex);
+            if (g_nfree[y] && (!g_half_rows || !(y & 1)))
+                row(y, xl >> 13, xr >> 13, ul, vl, du, dv, kind, tex, deferred);
             xl += rows[r].sl, xr += rows[r].sr, ul += rows[r].dul, vl += rows[r].dvl;
         }
     }
-    if (see_through(kind))
+    if (deferred)
         batch_end(first, kind, tex, colour, 0);
 }
 
@@ -1516,7 +1604,7 @@ void r3d_render(void)
         r3d_begin();
         return;
     }
-    for (b = 0; b < BUCKETS; b++)                       /* nearest first */
+    for (b = g_bucket_lo; b <= g_bucket_hi; b++)        /* nearest first */
         for (e = g_head[b]; e >= 0; e = g_entry[e].next)
             if (n++ <= FACES_MAX)
                 face(&g_entry[e]);

@@ -36,6 +36,8 @@ extern int g_alt_return;                /* 0x4e8934: Alt+Return works (not on th
 extern int g_half_rows;
 void video_set_half(int on);
 void video_half_3d(int on);             /* the 3D's part of a picture begins, ends */
+void video_direct_begin(void);          /* a race's picture begins: in the core's buffer */
+void video_direct_end(void);            /* the race ends */
 extern int g_hud_top, g_hud_bottom;     /* the OSD's HUD margins, in this screen's rows */
 #else
 #define g_half_rows 0

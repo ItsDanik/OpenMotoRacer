@@ -19,6 +19,10 @@
 #include "input.h"
 #include "joy.h"
 #include "pad.h"
+#include "prof.h"
+#ifdef OMR_PROF
+void prof_frame(void);
+#endif
 #include "dialog.h"
 #include "race.h"
 #include <SDL.h>
@@ -410,6 +414,10 @@ int main(int argc, char **argv)
     config_load();
     if ((env = getenv("OMR_DIFFICULTY")))
         g_difficulty = atoi(env) % 3;
+#ifdef MISTER_HYBRID
+    if ((env = getenv("OMR_MISTER_RES")))       /* (without the core: the OSD's Resolution) */
+        race_set_resolution(atoi(env));
+#endif
     if ((env = getenv("OMR_SCREEN"))) {
         int m = 2, wide = 0;
         sscanf(env, "%d,%d", &m, &wide);
@@ -533,6 +541,10 @@ int main(int argc, char **argv)
             }
         }
         scripted_input(script, frame);
+#ifdef OMR_PROF
+        prof_frame();
+#endif
+        prof_mark(MARK_TOP);
 #ifdef MISTER_HYBRID
         mister_frame();
         mister_pad();
@@ -552,10 +564,12 @@ int main(int argc, char **argv)
                 fail(SDL_GetError(), 1);
             break;
         }
+        prof_mark(MARK_2D);
         video_present();
         video_frame_end();
         sound_frame();
         clock_frame();
+        prof_mark(MARK_WAIT);
     }
     config_save();              /* (the game: on WM_DESTROY) */
     sound_quit();

@@ -13,7 +13,7 @@ docker run --rm $TC -v "$SDLPREFIX:$SDLPREFIX:ro" -v "$HYBRID:$HYBRID:ro" mister
     export PKG_CONFIG_LIBDIR=$SDLPREFIX/lib/pkgconfig
     cmake -S port -B build/arm -DCMAKE_TOOLCHAIN_FILE=$HYBRID/toolchain/mister.cmake \
         -DCMAKE_FIND_ROOT_PATH=$SDLPREFIX -DPKG_CONFIG_EXECUTABLE=/usr/bin/pkg-config \
-        -DCMAKE_EXE_LINKER_FLAGS=-static > build/arm.log 2>&1 &&
+        -DCMAKE_C_FLAGS=-marm -DCMAKE_EXE_LINKER_FLAGS=-static > build/arm.log 2>&1 &&
     cmake --build build/arm -j8 >> build/arm.log 2>&1" || { tail -20 build/arm.log; exit 1; }
 [ "$1" = check ] || exit 0
 

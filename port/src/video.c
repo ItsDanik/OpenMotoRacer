@@ -1,7 +1,11 @@
 /* The window: the 16-bit screen handed to SDL as an RGB565 texture, kept 4:3. */
+#include "prof.h"
 #include "video.h"
 #include "mister.h"
 #include <SDL.h>
+#ifdef __ARM_NEON
+#include <arm_neon.h>
+#endif
 #include <stdio.h>
 #include <string.h>
 
@@ -75,7 +79,16 @@ void video_mouse(int *x, int *y)
 }
 
 #ifdef MISTER_HYBRID
-static uint16_t g_small[320 * 240], g_small_3d[320 * 240];
+static uint16_t g_small[320 * 240];
+/* where 640x240's rows are: each g_half_step pixels from g_half_to */
+static uint16_t *g_half_to = g_pixels;
+static int g_half_step = 2 * SCREEN_MAX_W;
+/* a race's picture is drawn right in the core's next buffer, without a copy: g_direct while it is.
+   The last one stays good for a frame that draws nothing, and for what comes after the race. */
+static SDL_Surface *g_direct;
+static int g_direct_used, g_shown_w, g_shown_h;
+static const uint16_t *g_last;
+static int g_last_step;
 
 void video_set_half(int on)
 {
@@ -84,56 +97,124 @@ void video_set_half(int on)
     g_pitch = on ? 320 : SCREEN_MAX_W;
 }
 
+static void shown_size(int w, int h)
+{
+    if (w != g_shown_w || h != g_shown_h) {
+        SDL_SetWindowSize(g_win, w, h);
+        g_shown_w = w, g_shown_h = h;
+    }
+}
+
+void video_direct_begin(void)
+{
+    SDL_Surface *s;
+    if (!g_win || g_direct || !mister_on())
+        return;
+    shown_size(g_half_rows ? 640 : g_scr_w, g_half_rows ? 240 : g_surf_h);
+    s = SDL_GetWindowSurface(g_win);
+    if (!s)
+        return;
+    g_direct = s, g_direct_used = 1;
+    if (g_half_rows) {
+        g_half_to = s->pixels, g_half_step = s->pitch / 2;
+    } else {
+        g_screen = s->pixels, g_pitch = s->pitch / 2;
+    }
+}
+
+void video_direct_end(void)
+{
+    int y;
+    if (g_direct_used && g_last && !g_half_rows)        /* (a glass transition takes it from here) */
+        for (y = 0; y < g_surf_h; y++)
+            memcpy(g_pixels + y * SCREEN_MAX_W, g_last + y * g_last_step, (size_t)g_scr_w * 2);
+    g_direct_used = 0;
+    g_last = 0;
+}
+
 void video_half_3d(int on)
 {
     int x, y;
     if (on) {
-        g_screen = g_pixels, g_pitch = SCREEN_MAX_W, g_scr_w = 640, g_scr_h = 480;
+        g_screen = g_half_to, g_pitch = g_half_step / 2, g_scr_w = 640, g_scr_h = 480;
         return;
     }
-    /* what the 2D sees under it: every second pixel of the even rows */
+    /* what the 2D sees under it: every second pixel of the rows */
     for (y = 0; y < 240; y++) {
-        const uint16_t *from = g_pixels + 2 * y * SCREEN_MAX_W;
+        const uint16_t *from = g_half_to + y * g_half_step;
         uint16_t *to = g_small + y * 320;
+#ifdef __ARM_NEON
+        for (x = 0; x < 320; x += 8)
+            vst1q_u16(to + x, vld2q_u16(from + 2 * x).val[0]);
+#else
         for (x = 0; x < 320; x++)
             to[x] = from[2 * x];
+#endif
     }
-    memcpy(g_small_3d, g_small, sizeof g_small);
     g_screen = g_small, g_pitch = 320, g_scr_w = 320, g_scr_h = 240;
 }
 
 /* what the 2D changed goes over the 3D, each pixel twice as wide */
 static void half_merge(void)
 {
-    int i;
-    for (i = 0; i < 320 * 240; i++)
-        if (g_small[i] != g_small_3d[i]) {
-            uint16_t *o = g_pixels + 2 * (i / 320) * SCREEN_MAX_W + 2 * (i % 320);
-            o[0] = o[1] = g_small[i];
+    int x, y;
+    for (y = 0; y < 240; y++) {
+        const uint16_t *a = g_small + y * 320;
+        uint16_t *o = g_half_to + y * g_half_step;
+#ifdef __ARM_NEON
+        for (x = 0; x < 320; x += 8) {
+            uint16x8_t d = veorq_u16(vld1q_u16(a + x), vld2q_u16(o + 2 * x).val[0]);
+            uint64x2_t q = vreinterpretq_u64_u16(d);
+            int i;
+            if (!(vgetq_lane_u64(q, 0) | vgetq_lane_u64(q, 1)))
+                continue;
+            for (i = x; i < x + 8; i++)
+                o[2 * i] = o[2 * i + 1] = a[i];
         }
+#else
+        for (x = 0; x < 320; x++)
+            if (a[x] != o[2 * x])
+                o[2 * x] = o[2 * x + 1] = a[x];
+#endif
+    }
 }
 
-/* the rows of the screen to the core: every row, or the even ones of 640x240 */
+/* the picture to the core: drawn in its buffer already, or its rows copied there. The copy only
+   for the menus, and for a race's frame that drew nothing (the last picture again). */
 static void present_mister(void)
 {
-    static int shown_w, shown_h;
-    const uint16_t *from = g_screen;
-    int w = g_scr_w, h = g_surf_h, step = g_pitch, y;
+    const uint16_t *from = g_direct_used && g_last ? g_last : g_screen;
+    int w = g_scr_w, h = g_surf_h, step = g_direct_used && g_last ? g_last_step : g_pitch, y;
     SDL_Surface *s;
+    if (g_direct) {
+        if (g_half_rows)
+            half_merge();
+        g_last = g_half_rows ? g_half_to : g_screen;
+        g_last_step = g_half_rows ? g_half_step : g_pitch;
+        SDL_UpdateWindowSurface(g_win);
+        g_direct = 0;
+        g_half_to = g_pixels, g_half_step = 2 * SCREEN_MAX_W;
+        if (!g_half_rows)
+            g_screen = g_pixels, g_pitch = SCREEN_MAX_W;
+        prof_mark(MARK_PRESENT);
+        mister_wait();
+        return;
+    }
     if (g_half_rows) {
-        half_merge();
-        from = g_pixels, w = 640, h = 240, step = 2 * SCREEN_MAX_W;
+        if (!(g_direct_used && g_last))
+            half_merge();
+        w = 640, h = 240;
+        if (!(g_direct_used && g_last))
+            from = g_pixels, step = 2 * SCREEN_MAX_W;
     }
-    if (w != shown_w || h != shown_h) {
-        SDL_SetWindowSize(g_win, w, h);
-        shown_w = w, shown_h = h;
-    }
+    shown_size(w, h);
     s = SDL_GetWindowSurface(g_win);
     if (s) {
         for (y = 0; y < h; y++)
             memcpy((char *)s->pixels + y * s->pitch, from + y * step, (size_t)w * 2);
         SDL_UpdateWindowSurface(g_win);
     }
+    prof_mark(MARK_PRESENT);
     mister_wait();
 }
 #endif

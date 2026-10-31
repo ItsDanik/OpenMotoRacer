@@ -3,6 +3,7 @@
    riders on the grid, the player's bike (bikephys.c) and the chase camera (camera.c),
    the dashboard, the race's rules, the pause menu (Escape), the computer riders
    (cpu.c). */
+#include "prof.h"
 #include "race.h"
 #include "pointer.h"
 #include "bikephys.h"
@@ -1151,6 +1152,7 @@ void race_unload(void)
     r3d_focal(1911.0f);
     g_screen_mode = 2;                          /* 0x409f70: the menus' screen */
 #ifdef MISTER_HYBRID
+    video_direct_end();
     video_set_half(0);
 #endif
     video_set_size(640, 480, 480);
@@ -1325,6 +1327,7 @@ void race_frame(void)
             from_rider(&g_phys[k], &g_rider[k]);
         }
     }
+    prof_mark(MARK_STEPS);
     a = g_smooth ? (float)(g_now - g_step_at) / STEP_MS : 1.0f;
     for (k = 1; k < g_riders; k++)
         blend(&g_shown[k], &g_before[k], &g_rider[k], a);
@@ -1335,6 +1338,7 @@ void race_frame(void)
                        ? -1 : me->sec);
     g_eye_sec = sec;
 #ifdef MISTER_HYBRID
+    video_direct_begin();
     /* the 3D at 640x480, its dials and horizon that screen's */
     if (g_half_rows) {
         video_half_3d(1);
@@ -1381,7 +1385,9 @@ void race_frame(void)
         r3d_screen();
 #endif
     }
+    prof_mark(MARK_SCENE);
     r3d_render();
+    prof_mark(MARK_RENDER);
 #ifdef MISTER_HYBRID
     if (g_half_rows) {
         video_half_3d(0);
