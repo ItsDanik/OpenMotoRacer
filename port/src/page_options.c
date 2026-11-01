@@ -103,7 +103,7 @@ static void volume_row(int y, int line, unsigned nb_minus, unsigned nb_plus)
 void page_options_frame(void)
 {
 #ifdef MISTER_HYBRID
-    static const char *const screen[3] = { "320*240", "640*240", "640*480" };
+    static const char *const screen[MR_COUNT] = { "320*240", "640*240" };
 #else
     static const char *const screen[3] = { "320*240", "512*384", "640*480" };
 #endif

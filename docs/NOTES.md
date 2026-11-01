@@ -10984,7 +10984,7 @@ The constants below are [asm]. **hi** means ScreenMode 2 with SmallFonts 0; **lo
   - Triangle (tail, side+, tip) has colour 0x45a2e0(0x1f,0x10,0).
 - **0x45a2e0(r,g,b) = r<<11 | g<<6 | b.** Green is shifted by 6, not 5, so the two colours are the oranges (206,130,0) and (255,130,0).
 - **Rev needle:**
-  - The target is ftol(int O+0x11c ÷ float bike[+0x70] × 16000), where bike = 0x50927c + bike number·0x124.
+  - The target is ftol(int O+0x11c ÷ float [0x5092ec + bike number·0x124] × 16000). 0x5092ec is C+0x74, RegimeMax, of the carac row 0x509278 (written here for a while as "bike+0x70" from the table 0x50927c, which the port read as C+0x70, NbSpeed: the needle stood at the end of its range as soon as the engine ran, in the port only, until 2026-11-01).
   - The shown value moves toward the target by at most ±3000 (0xbb8) per drawn picture, stays ≥ 0, and is stored in 0x4f0e10. That limit is per picture, not per 60th of a second.
   - One triangle with corners (−2,+2)/(−4,+4), the tip, and (−2,−2)/(−4,−4), colour (0x1f,0x10,0).
 - **Depth:** the needles use sort key 4.0 (0x40800000). That puts them in front of the face (15.0) and of all 3D, which starts at Z 64.
@@ -11672,10 +11672,10 @@ All of it behind `MISTER_HYBRID` (`port/src/mister.c`, `mister.h`); the PC's pic
 - **Which copy**: one menu entry. `Moto Racer/` holds GOG's or the CD's, `Moto Racer CD/` the CD's; GOG's
   first when both are there, known by what is in the folder (`game.EXE`, `DISK1/data.z`). Game Behaviour stays.
   `MH_PickGame()`'s message takes `%s` once only: a second `%s` is garbage or a crash.
-- **Resolutions** (Danik: no 200-line modes, the original has none): the race at 320x240 (default),
-  640x240, 640x480 (480i at 15 kHz); menus always 640x480, taking a frame each field
+- **Resolutions** (Danik: no 200-line modes, the original has none; 2026-11-01: no 640x480 race): the race at
+  320x240 (default) and 640x240; menus always 640x480 (480i at 15 kHz, Flicker Filter Strong by default: `FLICKER` 2), taking a frame each field
   (`MH_SetFieldRate`), races not. No 512x384 (the core has no such mode) and no 16:9. F2, F3, the F12
-  column and the Options row cycle the three; the OSD wins when it is moved.
+  column and the Options row change it; the OSD wins when it is moved.
 - **640x240**: the game believes it is at 320x240 (texts, dials' digits, dialogs at low resolution), and only
   the 3D phase is drawn at 640x480 on the even rows (`g_half_rows`: `r3d.c`, `horizon.c`). The 2D is drawn into
   a 320x240 side buffer over a sample of the 3D, and the pixels it changed are merged doubled across. The
@@ -11691,8 +11691,9 @@ All of it behind `MISTER_HYBRID` (`port/src/mister.c`, `mister.h`); the PC's pic
   away, OK ends (`page_top5_letter`). A demo's dialog does not hold the race (`dialog_holds()` is 0), so the pad
   counts it as a menu through `dialog_open()`: before that a pad could not leave a demo.
 - **The settings page's buttons**: in menus the core's buttons reach the game only as OK, Back and Select, so page 12 waiting at "Press..." heard nothing else (found on the real core, 2026-11-01). While `g_pad_listen` is set `mister_pad` gives them as in a race, and Y as PAD_Y; a Y that an action uses no longer changes the camera. Data on a USB drive (`TEST_USB`), settings written there at the end, Flicker Filter usable at 480i, the `_Test` entry through the launcher: all tried on the real core.
-- **HUD margins**: `g_hud_top` moves the top texts, `g_hud_bottom` the dials and bottom texts up; the signs and the
+- **HUD margins**: `g_hud_top` moves the top texts, `g_hud_bottom` the dials and bottom texts up, and the main menu's Options and Exit (Danik, overscan cut them); the signs and the
   place's 3D figure go down through `r3d_screen_down()`.
+- **The clock's 60ths** (`g_ticks`) were never worked out on the core (`ticks` unset on that path of `clock_frame`, 0 in practice from the first build to 2026-11-01): no bike change on page 10, no drifting dialog rows, tiles or blinking. `--shot` and the replays take the other path, so no check could see it; only playing on the core did.
 - **Cheats on the OSD**: the game's three follow `g_island_unlocked`, `g_reverse_unlocked2`,
   `g_pocket_unlocked2` only when moved, typing them still works; No Time Limit; Slow Rivals, latched at the
   race's start, not in demos.
@@ -11703,9 +11704,8 @@ All of it behind `MISTER_HYBRID` (`port/src/mister.c`, `mister.h`); the PC's pic
 |---|---|---|---|---|
 | 320x240 | 59.5-59.8 | 10-14 | 16-23 | 0/0 in 6 stretches of 7, 1/1 in the other |
 | 640x240 | 52.8-60 | 14-19 | 21-27 | 0-10 / 0-29 |
-| 640x480i | 28.5-29.9 (a frame every 2 fields at most) | 23-33 | 33-48 | frames: 30-43 / 34-46 |
 
-Before this work: 320x240 57-60, 640x240 33-45, 640x480i 24-29. So 320x240 is a steady 60 (the field rate, 59.64); 640x240 is near it and drops in the heaviest
+Before this work: 320x240 57-60, 640x240 33-45. (A 640x480 race, measured then at 28.5-30, was dropped afterwards.) So 320x240 is a steady 60 (the field rate, 59.64); 640x240 is near it and drops in the heaviest
 stretches, not a solid 60; its Limit to 30 FPS stays for those who want no drops. A picture may take up to about two fields as long as the average stays under 16.7 ms, which is what drawing ahead buys.
 
 What the profile showed and what was done (`-DOMR_PROF=ON`: 1 kHz sampling and marks per stage, `tools/prof.py`; slower than the release, so compare stages only between profile runs and take the real numbers from a release):

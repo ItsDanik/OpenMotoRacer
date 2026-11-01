@@ -33,8 +33,8 @@ void clock_frame(void)
     {
         Uint64 dt = SDL_GetPerformanceCounter() - g_t0;
         g_now = 1000 + (unsigned)(dt / g_freq * 1000 + dt % g_freq * 1000 / g_freq);
-        ticks = (unsigned long long)(g_now - 1000) * 60 / 1000;
     }
+    ticks = (unsigned long long)(g_now - 1000) * 60 / 1000;
     /* a stall (a window dragged) counts 12 at most, as the game's own 200 ms cap */
     g_ticks = ticks - g_done > 12 ? 12 : (int)(ticks - g_done);
     g_done = ticks;

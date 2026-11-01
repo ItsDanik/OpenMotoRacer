@@ -123,7 +123,7 @@ void mister_frame(void)
     if (!MH_IsOpen())
         return;
     s = MH_OSDStatus();
-    FOLLOW(res, MH_OSD_GAME_BITS(s, 24, 2) % MR_COUNT, race_set_resolution(v_res));
+    FOLLOW(res, MH_OSD_GAME_BITS(s, 24, 1), race_set_resolution(v_res));
     g_limit30 = MH_OSD_GAME_BITS(s, 26, 1);
     FOLLOW(smooth, !MH_OSD_GAME_BITS(s, 27, 1), g_smooth = v_smooth);
     FOLLOW(analog, !MH_OSD_GAME_BITS(s, 28, 1), g_analog = v_analog);

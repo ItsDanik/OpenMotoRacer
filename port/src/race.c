@@ -122,11 +122,11 @@ static void screen_set(void)
 }
 
 #ifdef MISTER_HYBRID
-/* the OSD's Resolution, F2, F3, Options and the F12 column: the game's 320x240 or 640x480 */
+/* the OSD's Resolution, F2, F3, Options and the F12 column: to the game always 320x240 */
 void race_set_resolution(int r)
 {
     g_mister_res = r;
-    g_race_screen = r == MR_640x480 ? 2 : 0;
+    g_race_screen = 0;
     if (g_racing)
         g_new_screen = 1;
 }
@@ -248,7 +248,7 @@ void race_key(int vk, int down)
         if (down) {
 #ifdef MISTER_HYBRID
             if (vk != 0x73)
-                race_set_resolution((g_mister_res + (vk == 0x71 ? 2 : 1)) % MR_COUNT);
+                race_set_resolution((g_mister_res + (vk == 0x71 ? MR_COUNT - 1 : 1)) % MR_COUNT);
             return;
 #endif
             if (vk == 0x73)

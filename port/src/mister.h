@@ -30,8 +30,8 @@ enum { MISTER_NO_TIME_LIMIT = 1, MISTER_SLOW_RIVALS = 2 };
 int mister_cheat(int which);
 
 /* the race's resolution, the OSD's list: 320x240, 640x240 (the 640x480 race with only the
-   even rows painted and shown), 640x480 */
-enum { MR_320x240, MR_640x240, MR_640x480, MR_COUNT };
+   even rows painted and shown). The menus are 640x480 whatever this says */
+enum { MR_320x240, MR_640x240, MR_COUNT };
 extern int g_mister_res;
 
 #endif

@@ -136,7 +136,7 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
   under wine (how: NOTES): title and main menu differ in the pointer only; Solo can't be pressed there, so no race
   or later page compared. It is GOG's logic with plain colours on the CD's data. No music from the CD yet.
 - The ARM build (`tools/arm.sh`, NOTES §4.23): pictures and physics the same as the PC's under qemu; `OMR_PERF=1`. Speed on the
-  real core: NOTES §4.25 (320x240 a steady 60, 640x240 53-60, 640x480i 28-30, after the profile's work).
+  real core: NOTES §4.25 (320x240 a steady 60, 640x240 53-60, after the profile's work).
 - The glass after a race (the old question of its page 2 against the level's pages 2..19): a race, back through the menus,
   Options: the glass whole, no track picture in it (seen in the port).
 
