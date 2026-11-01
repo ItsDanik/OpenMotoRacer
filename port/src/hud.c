@@ -677,14 +677,14 @@ static void needle_shadow(Face *f, const int (*xy)[2], int off)
     r3d_screen_faces(r3d_screen_points(3, (const int (*)[2])s, 2048.0f), 1, f, 8.0f);
 }
 
-/* 0x484810's reads: the speed O+0x118, the rev needle's target ftol(O+0x11c / bike+0x70
-   x 16000), the gear O+0x7c; and the gear-change hint's state (0x484d97) */
+/* 0x484810's reads: the speed O+0x118, the rev needle's target ftol(O+0x11c / RegimeMax
+   (0x5092ec, C+0x74) x 16000), the gear O+0x7c; and the gear-change hint's state (0x484d97) */
 void hud_bike(const BikePhys *b)
 {
     float nb = g_bikes[b->bike].phys[(0x70 - 0x14) / 4];        /* NbSpeed */
     float g;
     g_dash.speed = b->kmh;
-    g_dash.rev = (int)(b->rpm / (double)nb * 16000.0);
+    g_dash.rev = (int)(b->rpm / (double)g_bikes[b->bike].phys[(0x74 - 0x14) / 4] * 16000.0);
     g_dash.gear = b->gear;
     /* 0 none, 2 sliding or crashed, 3 shifting, 1 in the band, 4 change down, 5 up */
     g_dash.hint = 0;
