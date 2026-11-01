@@ -19,3 +19,5 @@ __pycache__/
 # release packages
 /dist/
 /Moto Racer CD/
+# helper agents' working copies
+/.claude/
