@@ -10984,7 +10984,7 @@ The constants below are [asm]. **hi** means ScreenMode 2 with SmallFonts 0; **lo
   - Triangle (tail, side+, tip) has colour 0x45a2e0(0x1f,0x10,0).
 - **0x45a2e0(r,g,b) = r<<11 | g<<6 | b.** Green is shifted by 6, not 5, so the two colours are the oranges (206,130,0) and (255,130,0).
 - **Rev needle:**
-  - The target is ftol(int O+0x11c ÷ float bike[+0x70] × 16000), where bike = 0x50927c + bike number·0x124.
+  - The target is ftol(int O+0x11c ÷ float [0x5092ec + bike number·0x124] × 16000). 0x5092ec is C+0x74, RegimeMax, of the carac row 0x509278 (written here for a while as "bike+0x70" from the table 0x50927c, which the port read as C+0x70, NbSpeed: the needle stood at the end of its range as soon as the engine ran, in the port only, until 2026-11-01).
   - The shown value moves toward the target by at most ±3000 (0xbb8) per drawn picture, stays ≥ 0, and is stored in 0x4f0e10. That limit is per picture, not per 60th of a second.
   - One triangle with corners (−2,+2)/(−4,+4), the tip, and (−2,−2)/(−4,−4), colour (0x1f,0x10,0).
 - **Depth:** the needles use sort key 4.0 (0x40800000). That puts them in front of the face (15.0) and of all 3D, which starts at Z 64.
