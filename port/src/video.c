@@ -298,9 +298,18 @@ void video_error(const char *msg)
 
 int video_shot(const char *file)
 {
-    SDL_Surface *s = SDL_CreateRGBSurfaceWithFormatFrom(g_screen, g_scr_w, g_surf_h, 16,
-                                                         g_pitch * 2, SDL_PIXELFORMAT_RGB565);
-    int ok = s && SDL_SaveBMP(s, file) == 0;
+    void *from = g_screen;
+    int w = g_scr_w, h = g_surf_h, pitch = g_pitch * 2;
+    SDL_Surface *s;
+    int ok;
+#ifdef MISTER_HYBRID
+    if (g_half_rows) {                  /* the picture as the core would have it */
+        half_merge();
+        from = g_half_to, w = 640, h = 240, pitch = g_half_step * 2;
+    }
+#endif
+    s = SDL_CreateRGBSurfaceWithFormatFrom(from, w, h, 16, pitch, SDL_PIXELFORMAT_RGB565);
+    ok = s && SDL_SaveBMP(s, file) == 0;
     SDL_FreeSurface(s);
     return ok;
 }

@@ -94,7 +94,9 @@ static void usage(void)
          "  OMR_DIFFICULTY=N   0 easy, 1 medium, 2 hard (and saved so, as the Options page does)\n"
          "  OMR_UNLOCK_ALL=1   every track of the list in use available (and saved so when the\n"
          "                     program ends; tools/unlock_all.sh does it for every list)\n"
-         "  OMR_PERF=1         every 5 seconds: pictures a second, the time to make one, the slowest";
+         "  OMR_PERF=1         every 5 seconds: pictures a second, the time to make one, the slowest\n"
+         "  OMR_ONE_CPU=1      on the MiSTer: the race drawn by one CPU, not two\n"
+         "  OMR_R3D_TWO=1      a build with R3D_TWO, no core: two threads draw, to compare the pictures";
 #ifdef _WIN32
     /* (a windowed program has no terminal to print on) */
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "OpenMotoRacer", text, 0);

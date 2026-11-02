@@ -18,6 +18,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef MISTER_HYBRID
+#include <pthread.h>
+#include <sched.h>
+#endif
 
 #define RATE 44100
 #define SLOTS 1024              /* CfxServer +0x30 */
@@ -167,6 +171,18 @@ static void callback(void *user, Uint8 *stream, int len)
     int16_t *out = (int16_t *)stream;
     int frames = len / 4;
     (void)user;
+#ifdef MISTER_HYBRID
+    {   /* the second CPU also draws every other row now: the sound goes first (it takes little) */
+        static int once;
+        if (!once) {
+            struct sched_param p;
+            once = 1;
+            memset(&p, 0, sizeof p);
+            p.sched_priority = 1;
+            pthread_setschedparam(pthread_self(), SCHED_FIFO, &p);
+        }
+    }
+#endif
     while (frames > 0) {
         int n = frames < MIX_BLOCK ? frames : MIX_BLOCK;
         lock();
@@ -272,7 +288,8 @@ out:
     return s;
 }
 
-/* 0x4415a0: a sample and 4 copies of it, chained */
+/* 0x4415a0: a sample and 4 copies of it, chained. The file is read with the mixer free to go on:
+   a race's set takes 30 ms, which it could not wait for */
 static int load(const char *path)
 {
     Sample *s = read_wav(path);
@@ -281,12 +298,14 @@ static int load(const char *path)
         fprintf(stderr, "openmotoracer: the sound %s could not be read\n", path);
         return -1;
     }
+    lock();
     h = prev = new_slot(s, 0);
     for (k = 0; k < 4 && prev >= 0; k++) {
         int c = new_slot(s, 1);
         g_slot[prev].next = c;
         prev = c;
     }
+    unlock();
     return h;
 }
 
@@ -351,7 +370,9 @@ static void load_table(int which, int count, const char *folder)
                  exe_str(exe_u32(a + 8 * k)));
         h = load(path);
         g_handle[id] = h;
+        lock();
         set_volume(h, 0xff);    /* 0x424030, 0x424070: full, in the middle */
+        unlock();
     }
 }
 
@@ -455,14 +476,12 @@ void sound_menu_load(void)
 {
     if (!sound_running())
         return;
-    lock();
     if (g_handle[0x29] < 0)     /* (the game frees them before a race) */
         load_table(X_SFX_MENU, 7, "Menu\\");
     if (g_voices_on && !g_menu_loaded) {
         load_table(X_SFX_MENU_VOICES, 11, "Voices\\Menu\\");
         g_menu_loaded = 1;
     }
-    unlock();
 }
 
 /* every sound of a set freed and its ids forgotten (0x4042c0 for the menu's, the race's
@@ -489,7 +508,6 @@ void sound_race_load(int ktm)
     if (!sound_running())
         return;
     free_all();
-    lock();
     if (ktm)
         load_table(X_SFX_KTM, 16, "Ktm\\");
     else
@@ -498,7 +516,6 @@ void sound_race_load(int ktm)
     if (g_voices_on)
         load_table(X_SFX_VOICES, 30, "Voices\\");
     g_race_set = 1;
-    unlock();
 }
 
 /* the race's end: its set freed; the menu loads its own as it comes back */
@@ -506,10 +523,8 @@ void sound_podium_load(void)
 {
     if (!sound_running())
         return;
-    lock();
     if (g_handle[4] < 0)
         load_table(X_SFX_PODIUM, 2, "Menu\\");
-    unlock();
 }
 
 void sound_podium_free(void)
@@ -574,11 +589,8 @@ void sound_toggle_voices(void)
         return;
     if (!g_race_set)
         sound_menu_load();
-    else if (sound_running() && g_handle[0x30] < 0) {
-        lock();
+    else if (sound_running() && g_handle[0x30] < 0)
         load_table(X_SFX_VOICES, 30, "Voices\\");
-        unlock();
-    }
 }
 
 /* 0x409410: off stops the music, on plays the track again */
@@ -1077,8 +1089,8 @@ void sound_load_named(int id, const char *name)
     if (!sound_running() || id < 0 || id > 255 || g_handle[id] >= 0)
         return;
     snprintf(path, sizeof path, "data\\sfx\\16_Bits\\Divers\\%s.wav", name);
-    lock();
     g_handle[id] = load(path);
+    lock();
     set_volume(g_handle[id], 0xff);
     unlock();
 }

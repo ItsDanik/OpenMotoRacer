@@ -6,6 +6,7 @@
 #include "input.h"
 #include "joy.h"
 #include "menu.h"
+#include "r3d.h"
 #include "race.h"
 #include "video.h"
 #include <SDL.h>
@@ -85,6 +86,8 @@ int mister_start(char *out, unsigned size)
     if (MH_PickGame(&game, 1, dir, NO_GAME, &g_listed) < 0)
         return 0;
     snprintf(out, size, "%s", dir);
+    if (!getenv("OMR_ONE_CPU"))
+        r3d_two_cpus(MH_PinThreadToCPU1);
     return 1;
 }
 

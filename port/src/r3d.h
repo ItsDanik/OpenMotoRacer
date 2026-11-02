@@ -90,6 +90,9 @@ void r3d_screen_faces(int base, int nf, const Face *f, float key);
 /* the same with the kinds through a detail row (0x4f1a18 = 0; detail < 0: the race's own) */
 void r3d_key_faces(int base, int nf, const Face *f, float key, int detail);
 void r3d_render(void);                          /* 0x49ad90 */
+#ifdef R3D_TWO
+void r3d_two_cpus(int (*pin)(void));            /* a second thread draws every other row; pin puts it on its CPU */
+#endif
 /* 0x410e10: the race's near plane (64) and its kinds for a detail row (0..4); -1 the
    menus' (near 256, kinds as they are) */
 void r3d_race(int detail);
