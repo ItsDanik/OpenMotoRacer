@@ -2247,8 +2247,9 @@ the game's folder itself. `music_open()` (`sound.c`) takes, in this order: GOG's
 read raw as before), such a file, the CD's image. The decoders are OpenScreamer's (`port/src/third_party`: stb_vorbis 1.22,
 dr_mp3 0.7.4, dr_wav 0.14.6, public domain or MIT-0); a file's frames are made two sides (mono doubled) and the mixer's
 44.1 kHz by a line between two frames where its rate is another. The end of a track and the loop are the same as the raw
-tracks' (`music_read()` 0, then the disc's stop or GOG's `music_rewind()`). On the MiSTer the music thread is `SCHED_IDLE` on
-CPU1, so that the decoding takes only the time the second CPU's rows leave (§4.25).
+tracks' (`music_read()` 0, then the disc's stop or GOG's `music_rewind()`). On the MiSTer the music thread, on CPU1 with the second
+CPU's rows (§4.25), goes from the game's nice -20 to -10: the rows come first, Main_MiSTer's polling at nice 0 after it
+(`SCHED_IDLE` would have left it next to nothing beside that polling, which takes all of CPU1's idle time).
 Checked (`OMR_WAV`, intro and title, 25 s): GOG's `NN.wav` and the image give the same bytes as before; Ogg q4 of the image's
 tracks against the image, every second correlated 0.996..0.999 at the same loudness; MP3 at 48 kHz stereo and WAV at 22.05 kHz
 1.000; a 2 s `13.ogg` loops under GOG RELEASE and plays once under 1997 CD.

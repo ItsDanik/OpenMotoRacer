@@ -27,6 +27,9 @@
 #ifdef MISTER_HYBRID
 #include <pthread.h>
 #include <sched.h>
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 #endif
 
 #define RATE 44100
@@ -398,19 +401,19 @@ static void load_table(int which, int count, const char *folder)
 static void music_fill(unsigned want);
 
 /* The music is read on its own thread: a read from the MiSTer's SD card can take several ms,
-   and a file of music/ is decoded there. On the MiSTer it takes only the time the second CPU's
-   rows of the picture leave (r3d.c): SCHED_IDLE, the half second it keeps ahead covering. */
+   and a file of music/ is decoded there. On the MiSTer CPU1 is shared with the second CPU's rows
+   of the picture (r3d.c), at the game's nice -20, and Main_MiSTer's polling at nice 0: the music
+   thread goes to nice -10, so that the rows come first and Main_MiSTer after it (the half second
+   it keeps ahead covers the waits). */
 static int music_thread(void *user)
 {
     (void)user;
 #ifdef MISTER_HYBRID
     MH_PinThreadToCPU1();
     {
-#ifndef SCHED_IDLE
-#define SCHED_IDLE 5            /* (Linux's; glibc names it with _GNU_SOURCE only) */
-#endif
-        struct sched_param p = { 0 };
-        pthread_setschedparam(pthread_self(), SCHED_IDLE, &p);
+        id_t tid = (id_t)syscall(SYS_gettid);
+        if (getpriority(PRIO_PROCESS, tid) < -10)
+            setpriority(PRIO_PROCESS, tid, -10);
     }
 #endif
     while (!SDL_AtomicGet(&g_mus_quit)) {
