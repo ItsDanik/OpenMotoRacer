@@ -328,6 +328,7 @@ static void draw_char(const Font *f, int c, int x, int y, int level)
     const unsigned char *g = f->glyph[c];
     if (!g)
         return;
+    VIDEO_ROWS(y, y + h - 1);
     for (row = 0; row < h; row++) {
         uint16_t *dst;
         if (y + row < 0 || y + row >= g_scr_h)

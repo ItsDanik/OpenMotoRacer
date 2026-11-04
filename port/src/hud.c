@@ -62,6 +62,11 @@ static void put(int font, const char *s, int x, int y, int flags, int noscale, i
         return;
     if (!noscale && halving())
         x /= 2, y /= 2;
+    /* the OSD's HUD margins: towards the middle from the edge the text is placed from */
+    if (flags & 0x80)
+        y += g_hud_bottom;
+    else if (!(flags & 0x40))
+        y += g_hud_top;
     bx = x, by = y;
     if (flags != 0x21)
         font_place(f, s, &bx, &by, flags, &w, &h);
@@ -641,7 +646,7 @@ static void corner(int xy[2], const Dial *d, double a, int along, int across)
 {
     double co = cos(a), si = sin(a);
     xy[0] = d->cx + ftol(co * along - si * across) + g_dash.bx;
-    xy[1] = d->cy - ftol(si * along + co * across) + g_dash.by;
+    xy[1] = d->cy - ftol(si * along + co * across) + g_dash.by - g_hud_bottom;
 }
 
 static void needle(Face *f, const int (*xy)[2], int colour)
@@ -773,7 +778,7 @@ void hud_dials_3d(void)
             const Model *m = &g_land.lib[i].m[0];
             static int pts[512][2];
             double sx = hi ? 1.9 : 1.0, sy = hi ? 2.0 : 1.0;
-            double ox = (g_scr_w - 1) - 0x5d * sx, oy = g_scr_h - 1;
+            double ox = (g_scr_w - 1) - 0x5d * sx, oy = g_scr_h - 1 - g_hud_bottom;
             int k, n = m->nv < 512 ? m->nv : 512;
             for (k = 0; k < n; k++) {
                 pts[k][0] = ftol(m->v[k][0] * sx + ox);
@@ -796,10 +801,10 @@ static void dials_digits(void)
         v = (int)(((long long)v * 0x3e800 / 0x649) >> 8);
     if (g_counter_type == 1) {
         snprintf(s, sizeof s, "%3d", v);
-        font_draw(font_get(16), s, g_dash.bx + g_dash.dx, g_dash.by + g_dash.dy, 0x21, 0);
+        font_draw(font_get(16), s, g_dash.bx + g_dash.dx, g_dash.by + g_dash.dy - g_hud_bottom, 0x21, 0);
         s[0] = (char)(g_dash.gear + 0x30 + 7);
         s[1] = 0;
-        font_draw(font_get(23), s, g_dash.bx + g_dash.gx, g_dash.by + g_dash.gy, 0x21, 0);
+        font_draw(font_get(23), s, g_dash.bx + g_dash.gx, g_dash.by + g_dash.gy - g_hud_bottom, 0x21, 0);
     } else if (g_counter_type) {
         /* 0x484d70: with the manual box, a blinking bar of font 11 near the top (change
            up) or the bottom (change down), as wide as an eighth of the screen allows */
@@ -817,7 +822,7 @@ static void dials_digits(void)
             put(F_SPRITES, bar, 0, g_scr_h / 16, (g_dash.hint == 4 ? 0x80 : 0x20) | 2, 1, 0);
         }
         snprintf(s, sizeof s, "%d\n%c", v, g_speed_unit == 1 ? ';' : ':');
-        font_draw(font_get(28), s, 6, 4, 0x90, 0);
+        font_draw(font_get(28), s, 6, 4 + g_hud_bottom, 0x90, 0);
     }
 }
 
@@ -858,7 +863,7 @@ static void labels(void)
         snprintf(s, sizeof s, "%c^%s\\\n]", rules_place_of(k) + 0x29, name);
         font_measure(f, s, &w, &h, 1);
         /* (the colour 0x490a90 gives it does nothing here: fonts 1 and 5 use their own) */
-        put(5, s, sx - f->width[']'] / 2, sy - f->height - h, 0x21, 1, NULL);
+        put(5, s, sx - f->width[']'] / 2, sy - f->height - h - g_hud_top, 0x21, 1, NULL);   /* (in the view) */
     }
 }
 

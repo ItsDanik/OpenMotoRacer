@@ -18,6 +18,8 @@ void page_track_frame(void);    /* 0x448110 */
 void page_track_end(void);      /* 0x4480d0 */
 
 void page_top5_start(void);     /* 9: TOP 5, 0x44cfd0 */
+int page_top5_typing(void);     /* the pad: a new name is being typed */
+void page_top5_letter(int vk);  /* and an arrow */
 void page_top5_frame(void);     /* 0x44d540 */
 void page_top5_end(void);       /* 0x44d510 */
 
@@ -55,6 +57,7 @@ void page_title_frame(void);    /* 0x446b80 */
 void page_title_end(void);      /* 0x446b40 */
 
 void page_name_start(void);     /* 15: the name entry, 0x487070 */
+int page_name_picks(void);      /* the pad's A picks the letter under the cursor */
 void page_name_frame(void);     /* 0x487bb0 */
 void page_name_end(void);       /* 0x488790 */
 

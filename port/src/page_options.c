@@ -5,6 +5,7 @@
    port answers for itself. */
 #include "choices.h"
 #include "config.h"
+#include "mister.h"
 #include "exe.h"
 #include "files.h"
 #include "font.h"
@@ -13,6 +14,7 @@
 #include "pad.h"
 #include "pages.h"
 #include "r3d.h"
+#include "race.h"
 #include "sound.h"
 #include <SDL.h>
 #include <stdio.h>
@@ -100,7 +102,11 @@ static void volume_row(int y, int line, unsigned nb_minus, unsigned nb_plus)
 
 void page_options_frame(void)
 {
+#ifdef MISTER_HYBRID
+    static const char *const screen[MR_COUNT] = { "320*240", "640*240" };
+#else
     static const char *const screen[3] = { "320*240", "512*384", "640*480" };
+#endif
     char buf[64];
     int sel, p, page = -1, on[3];
     Font *f12 = font_get(12);
@@ -136,7 +142,11 @@ void page_options_frame(void)
     menu_add_text_button(300, 240, sound_running() ? on_off(on[2]) : T(133), 12, 0x0709ffffu,
                          0, -1, 0);
     label(260, T(43), sel == 9);
+#ifdef MISTER_HYBRID
+    menu_add_text_button(300, 260, screen[g_mister_res], 12, 0x080affffu, 0, -1, 0);
+#else
     menu_add_text_button(300, 260, screen[g_race_screen], 12, 0x080affffu, 0, -1, 0);
+#endif
     label(280, T(44), sel == 10);
     menu_add_text_button(300, 280, on_off(g_mode169), 12, 0x090bffffu, 0, -1, 0);
     label(300, T(93), sel == 11);
@@ -208,10 +218,16 @@ void page_options_frame(void)
         music_toggle();
         break;
     case 9:
+#ifdef MISTER_HYBRID
+        race_set_resolution((g_mister_res + 1) % MR_COUNT);
+#else
         g_race_screen = (g_race_screen + 1) % 3;
+#endif
         break;
     case 10:
+#ifndef MISTER_HYBRID
         g_mode169 ^= 1;
+#endif
         break;
     case 11:
         /* 0x409570 on a card that does 16 bits and stereo: 16 bits off and on, then the

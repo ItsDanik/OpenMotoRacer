@@ -14,6 +14,9 @@ enum {                          /* the control bits (+0x31e9, NOTES §4.18.2.1) 
 extern unsigned g_keys[RIDERS];
 
 void race_ask_screen(int mode);
+#ifdef MISTER_HYBRID
+void race_set_resolution(int r);
+#endif
 void race_ask_169(void);
 int race_is_169(void);
 void race_key(int vk, int down);        /* 0x431250 / 0x432700 */

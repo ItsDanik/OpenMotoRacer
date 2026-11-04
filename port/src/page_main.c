@@ -8,6 +8,7 @@
 #include "pages.h"
 #include "r3d.h"
 #include "sound.h"
+#include "video.h"
 
 #define PIC(id) (&g_pics[id])
 enum {
@@ -83,9 +84,14 @@ void page_main_frame(void)
     int pressed, page = -1, solo = 0;
     menu_begin_frame();
     if (!PIC(P_SOLO)->sliding && !g_rise_started) {
-        bitmap_slide(PIC(P_OPTIONS), 240, 420, 0.7f, 1, 0);
-        bitmap_slide(PIC(P_EXIT), 510, 430, 0.7f, 1, 0);
+        /* (the MiSTer's HUD (Bottom), so overscan leaves them whole) */
+        bitmap_slide(PIC(P_OPTIONS), 240, 420 - g_hud_bottom, 0.7f, 1, 0);
+        bitmap_slide(PIC(P_EXIT), 510, 430 - g_hud_bottom, 0.7f, 1, 0);
         g_rise_started = 1;
+    }
+    if (g_rise_started && !PIC(P_OPTIONS)->sliding) {       /* the OSD's line moved while here */
+        bitmap_place(PIC(P_OPTIONS), 240, 420 - g_hud_bottom, 0);
+        bitmap_place(PIC(P_EXIT), 510, 430 - g_hud_bottom, 0);
     }
     menu_hit();
     bitmap_step(PIC(P_TILE), 1, 1);

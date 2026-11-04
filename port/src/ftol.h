@@ -8,6 +8,12 @@
    MiSTer's ARM: the usual case first.) */
 static inline int ftol(double x)
 {
+#ifdef __arm__
+    /* (the ARM's conversion stops at the ends and makes a NaN 0; comparing doubles stalls it) */
+    int r = (int)x;
+    if (r != 2147483647 && r != -2147483647 - 1)
+        return r;
+#endif
     if (x > -2147483649.0 && x < 2147483648.0)
         return (int)x;
     if (x >= -9223372036854775808.0 && x < 9223372036854775808.0)

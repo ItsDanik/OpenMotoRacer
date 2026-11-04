@@ -82,6 +82,7 @@ int sprite_draw(const Sprite *s, int x, int y, int r[4])
     if (r)
         r[0] = L, r[1] = T, r[2] = R, r[3] = B;
     key = s->key == SPRITE_KEY_GREEN ? 0x07e0 : 0;
+    VIDEO_ROWS(T, B);
     for (yy = T; yy <= B; yy++) {
         const uint16_t *src = p->pix + (st + yy - T) * p->w + sl;
         uint16_t *dst = g_screen + yy * g_pitch + L;

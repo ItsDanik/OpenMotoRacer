@@ -3,6 +3,7 @@
    rewrite after it do. */
 #include "video.h"
 #include "config.h"
+#include "mister.h"
 #include "exe.h"
 #include "trackmap.h"
 #include "video.h"
@@ -32,8 +33,11 @@ static int g_behaviour = -1;    /* the player's choice: -1 none, so what the fil
 
 int behaviour_cd(void)
 {
-    const char *e;
-    if ((e = getenv("OMR_BEHAVIOUR")) != 0)
+    static int read;
+    static const char *e;
+    if (!read)
+        e = getenv("OMR_BEHAVIOUR"), read = 1;
+    if (e)
         return strcmp(e, "gog") != 0;
     return g_behaviour >= 0 ? g_behaviour : exe_is_cd();
 }
@@ -150,6 +154,13 @@ void config_load(void)
         g_binding[i][0] = g_cfg[CFG_ACTION0_KEY + 2 * i];
         g_binding[i][1] = g_cfg[CFG_ACTION0_BTN + 2 * i];
     }
+#ifdef MISTER_HYBRID
+    if (!own)
+        mister_default_bindings();
+    g_input_device = 4;         /* the core's pad, always (a keyboard works beside it) */
+    g_joy_type = 4;
+    g_mode169 = 0;              /* no 16:9 here: the core's screen is 4:3 */
+#endif
     g_enum_session = g_cfg[CFG_ENUM_SESSION];
     g_small_fonts = g_cfg[CFG_SMALL_FONTS];
     g_show_counter = g_cfg[CFG_SHOW_COUNTER];

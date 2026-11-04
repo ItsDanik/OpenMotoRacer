@@ -160,16 +160,20 @@ static void blit(const int r[4], int x, int y)
     if (!(T < B && L < R))
         return;
     for (yy = T; yy <= B; yy++)
-        memcpy(g_screen + yy * g_pitch + L, g_pix + (st + yy - T) * g_pw + sl,
+        if (!g_half_rows || !(yy & 1))
+            memcpy(g_screen + yy * g_pitch + L, g_pix + (st + yy - T) * g_pw + sl,
                sizeof(uint16_t) * (size_t)(R - L + 1));
 }
 
 static void fill(int y0, int y1, uint16_t c)    /* rows y0 .. y1 - 1 */
 {
-    int x, y;
+    int x, y, w = g_scr_w;
     for (y = y0 < 0 ? 0 : y0; y < y1 && y < g_scr_h; y++)
-        for (x = 0; x < g_scr_w; x++)
-            g_screen[y * g_pitch + x] = c;
+        if (!g_half_rows || !(y & 1)) {
+            uint16_t *to = g_screen + y * g_pitch;
+            for (x = 0; x < w; x++)
+                to[x] = c;
+        }
 }
 
 void horizon_draw(const float c[3][3], const float t[3], float cam_y, int offset,
@@ -181,8 +185,10 @@ void horizon_draw(const float c[3][3], const float t[3], float cam_y, int offset
     int n, i, tw, th, k, m, x, ytop, cnt;
     const int *first, *second;
     const Picture *o = &g_pics[g_screen_mode];
-    if (!o->pix)
+    if (!o->pix) {
+        fill(0, g_scr_h, 0);
         return;
+    }
     g_pix = o->pix, g_pw = o->pw, g_rect = g_rects[g_screen_mode];
     /* the heading: atan2 of the camera's third row (0x402990) */
     vx = (float)((double)c[2][0] + t[0]);
@@ -238,6 +244,10 @@ void horizon_draw(const float c[3][3], const float t[3], float cam_y, int offset
     for (cnt = 0; x + tw < 0; cnt++)
         x += tw;
     first = g_rect[cnt & 1 ? 0 : 1], second = g_rect[cnt & 1 ? 1 : 0];
+    /* black where nothing below comes: under the strip (a sliver at its right end is not drawn), and
+       the last row */
+    fill(ytop, ytop + th, 0);
+    fill(g_scr_h - 1, g_scr_h, 0);
     while (x <= g_scr_w - 1) {
         blit(first, x, ytop);
         x += tw;

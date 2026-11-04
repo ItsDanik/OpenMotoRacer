@@ -146,7 +146,8 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
   zone, `OMR_DEVICE` the input device, `OMR_INPUT` `F:joy:X,Y,B` a pretend joystick.
 - A gamepad, the port's own (NOTES §4.22): `joy.c` through SDL_GameController, triggers bindable and by degrees (key bits 8..23), RT and LT accelerate and brake without being set (`joy_spare_trigger`), `tools/padtest.sh` what a real pad sends, the settings page's Analog and Rumble (openmotoracer.ini, both on), `pad.c` the cross and stick in the menus and dialogs, Start the pause; `OMR_INPUT` `F:pad:X,Y,B,LT,RT,CROSS`.
 - The MiSTer's ARM (NOTES §4.23): `tools/arm.sh` the static build, `tools/arm.sh check` all pictures and replays on it
-  under qemu (the same as the PC's); `OMR_PERF=1` the speed readout. Not yet measured on a real MiSTer.
+  under qemu (the same as the PC's); `OMR_PERF=1` the speed readout.
+- The MiSTer core (NOTES §4.25, branch `mister`, `~/MiSTer-openmotoracer`): both CPUs draw the race (`R3D_TWO`, every other row: the same pixels), 320x240 and 640x240 a steady 60 on the real core on every track; `OMR_ONE_CPU=1` one CPU; `-DOMR_PROF=ON` the profile, `tools/prof.py`; the ARM's build in Thumb with LTO.
 - The race's small keys (NOTES §4.20 §2.6): F9 the map (`trackmap.c`), numpad + and − the detail, * and / the volumes, Ctrl+F the
   fonts, Shift+F1 the size (`racekeys.c`), Ctrl+U; T, A, Shift+A, Ctrl+H left out. Losing the focus (§4.10.5.3): music held, no texts,
   race goes on. `-windowed`, `-fullscreen`, `-NoSound`, Alt+Return (the window starts as CONFIG says). Link stays on page 3.

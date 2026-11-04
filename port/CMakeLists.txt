@@ -38,7 +38,39 @@ set(OMR_SOURCES
   src/text.c
 )
 
-add_executable(openmotoracer ${OMR_SOURCES})
-target_include_directories(openmotoracer PRIVATE ${SDL2_INCLUDE_DIRS})
-target_compile_options(openmotoracer PRIVATE ${SDL2_CFLAGS_OTHER})
-target_link_libraries(openmotoracer PRIVATE ${SDL2_LDFLAGS} m)
+# MISTER_HYBRID (branch mister): the MiSTer hybrid core (~/MiSTer-openmotoracer). SDL is the
+# framework's, linked statically with its "mister" drivers; src/mister.c is what the core adds.
+# The sums stay exact (no -ffast-math): the races and replays must be the PC's.
+option(MISTER_HYBRID "Build for the MiSTer hybrid core (needs SDL2 with the MiSTer drivers)" OFF)
+if(MISTER_HYBRID)
+  add_executable(openmotoracer ${OMR_SOURCES} src/mister.c)
+  target_compile_definitions(openmotoracer PRIVATE MISTER_HYBRID=1 R3D_TWO=1)
+  target_include_directories(openmotoracer PRIVATE ${SDL2_STATIC_INCLUDE_DIRS})
+  target_compile_options(openmotoracer PRIVATE ${SDL2_STATIC_CFLAGS_OTHER})
+  target_link_libraries(openmotoracer PRIVATE ${SDL2_STATIC_LDFLAGS} m)
+  # OMR_PROF: the sampling profiler (src/prof.c, tools/prof.py), the code otherwise as released
+  option(OMR_PROF "Sample where the game thread spends its time (OMR_PROF=FILE)" OFF)
+  if(OMR_PROF)
+    target_compile_definitions(openmotoracer PRIVATE OMR_PROF=1)
+    target_compile_options(openmotoracer PRIVATE -g)
+    target_sources(openmotoracer PRIVATE src/prof.c)
+    target_link_libraries(openmotoracer PRIVATE rt)
+  endif()
+else()
+  add_executable(openmotoracer ${OMR_SOURCES})
+  target_include_directories(openmotoracer PRIVATE ${SDL2_INCLUDE_DIRS})
+  target_compile_options(openmotoracer PRIVATE ${SDL2_CFLAGS_OTHER})
+  target_link_libraries(openmotoracer PRIVATE ${SDL2_LDFLAGS} m)
+  # OMR_R3D_TWO: the MiSTer's drawing on two CPUs here, to compare its pictures (OMR_R3D_TWO=1)
+  option(OMR_R3D_TWO "Build the two-CPU drawing on the PC, for the pictures' check" OFF)
+  if(OMR_R3D_TWO)
+    target_compile_definitions(openmotoracer PRIVATE R3D_TWO=1)
+    target_link_libraries(openmotoracer PRIVATE pthread)
+  endif()
+endif()
+# The ARM's build (the MiSTer's and tools/arm.sh's): Thumb's smaller code keeps more of it in the
+# Cortex-A9's cache, measured on the real core against ARM mode (NOTES 4.25)
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
+  target_compile_options(openmotoracer PRIVATE -O3 -mthumb -flto)
+  target_link_options(openmotoracer PRIVATE -O3 -mthumb -flto -flto-partition=none)
+endif()

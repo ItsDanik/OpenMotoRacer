@@ -11664,6 +11664,92 @@ Comparing those pictures found two faults of the port's in every race, neither s
 Memory: demos in a row hold 56 MB at most from 16000 to 128000 pictures; the leak checker finds nothing over 12000 pictures.
 
 
+### 4.25 The MiSTer hybrid core (2026-10-31, branch `mister`, the core `~/MiSTer-openmotoracer`)
+
+All of it behind `MISTER_HYBRID` (`port/src/mister.c`, `mister.h`); the PC's pictures are unchanged
+(`tools/shots.sh`, 91 of 91). The game runs on the ARM, the core shows it and has the sound and input.
+
+- **Which copy**: one menu entry. `Moto Racer/` holds GOG's or the CD's, `Moto Racer CD/` the CD's; GOG's
+  first when both are there, known by what is in the folder (`game.EXE`, `DISK1/data.z`). Game Behaviour stays.
+  `MH_PickGame()`'s message takes `%s` once only: a second `%s` is garbage or a crash.
+- **Resolutions** (Danik: no 200-line modes, the original has none; 2026-11-01: no 640x480 race): the race at
+  320x240 (default) and 640x240; menus always 640x480 (480i at 15 kHz, Flicker Filter Strong by default: `FLICKER` 2), taking a frame each field
+  (`MH_SetFieldRate`), races not. No 512x384 (the core has no such mode) and no 16:9. F2, F3, the F12
+  column and the Options row change it; the OSD wins when it is moved.
+- **640x240**: the game believes it is at 320x240 (texts, dials' digits, dialogs at low resolution), and only
+  the 3D phase is drawn at 640x480 on the even rows (`g_half_rows`: `r3d.c`, `horizon.c`). The 2D is drawn into
+  a 320x240 side buffer over a sample of the 3D, and the pixels it changed are merged doubled across. The
+  first try, the 640x480 HUD with rows dropped, had unreadable small fonts.
+- **Time**: `g_now` from the core's field counter (59.64 Hz), 1000 + fields x 100000/5964.
+- **Input**: the core's joystick 1 becomes the game's pretend gamepad (`joy_fake_pad`). The stick steers by
+  degrees, `MH_StickDpad` drops the d-pad bits the stick causes. In menus Menu OK and Menu Back are the
+  MiSTer menu's (hybrid/CLAUDE.md), with no mapping the bottom button is OK, the right one Back. A
+  first press where nothing is selected does what the game's Return does: nothing without a Return
+  button on the page, an arrow selects first.
+- **A pad alone**: name entry page 15 takes A as Space (picks the letter under the cursor,
+  `page_name_picks`), the record's name on TOP 5: up and down turn the last letter, right adds one, left takes one
+  away, OK ends (`page_top5_letter`). A demo's dialog does not hold the race (`dialog_holds()` is 0), so the pad
+  counts it as a menu through `dialog_open()`: before that a pad could not leave a demo.
+- **The settings page's buttons**: in menus the core's buttons reach the game only as OK, Back and Select, so page 12 waiting at "Press..." heard nothing else (found on the real core, 2026-11-01). While `g_pad_listen` is set `mister_pad` gives them as in a race, and Y as PAD_Y; a Y that an action uses no longer changes the camera. Data on a USB drive (`TEST_USB`), settings written there at the end, Flicker Filter usable at 480i, the `_Test` entry through the launcher: all tried on the real core.
+- **HUD margins**: `g_hud_top` moves the top texts, `g_hud_bottom` the dials and bottom texts up, and the main menu's Options and Exit (Danik, overscan cut them); the signs and the
+  place's 3D figure go down through `r3d_screen_down()`.
+- **The clock's 60ths** (`g_ticks`) were never worked out on the core (`ticks` unset on that path of `clock_frame`, 0 in practice from the first build to 2026-11-01): no bike change on page 10, no drifting dialog rows, tiles or blinking. `--shot` and the replays take the other path, so no check could see it; only playing on the core did.
+- **Cheats on the OSD**: the game's three follow `g_island_unlocked`, `g_reverse_unlocked2`,
+  `g_pocket_unlocked2` only when moved, typing them still works; No Time Limit; Slow Rivals, latched at the
+  race's start, not in demos.
+
+**Speed, measured on the real MiSTer** (Speed Bay, 24 riders, autopilot, the settings of a new player; the time to make a picture without the wait; stretches of 300 pictures, 2026-11-01):
+
+| Mode | Pictures a second | ms a picture | Slowest | Of 300: never shown / shown twice |
+|---|---|---|---|---|
+| 320x240 | 59.5-59.8 | 10-14 | 16-23 | 0/0 in 6 stretches of 7, 1/1 in the other |
+| 640x240 | 52.8-60 | 14-19 | 21-27 | 0-10 / 0-29 |
+
+Before this work: 320x240 57-60, 640x240 33-45. (A 640x480 race, measured then at 28.5-30, was dropped afterwards.) So 320x240 was a steady 60 (the field rate, 59.64) and 640x240 near it, dropping in the heaviest stretches. A picture may take up to about two fields as long as the average stays under 16.7 ms, which is what drawing ahead buys. Those are one CPU's numbers; the two CPUs' are below.
+
+**Both CPUs draw the race (2026-11-02): 640x240 a steady 60.** Measured on the real core with the new player's settings (detail 4, the highest), 24 riders, autopilot, a race on each of the ten tracks (both lists), 48 s each; the first 300 pictures, the race's load, apart:
+
+| Mode | Pictures a second | ms a picture, stretches of 5 s | Slowest | Of the pictures after the first 300: never shown / shown twice |
+|---|---|---|---|---|
+| 640x240, every track | 59.6-59.9 | 9.2-14.7 | 42.6 once, else at most 22.7 | 1 / 1 of 21000 |
+| 320x240, Speed Bay | 59.6-59.7 | 7.0-9.8 | 14.0 | 1 / 1 of 2700 |
+| 640x240 on one CPU (`OMR_ONE_CPU=1`), Speed Bay | 55.5-59.9 | 12.5-17.6 | 25.5 | 29 / 64 of 2700 |
+
+The first 300 pictures have 1 or 2 of each at every track: the load's end. A race of 9600 pictures (autopilot, 160 s) stayed the same, and the on-board view (F6) too, on the heaviest track 11-13 ms. The one slow picture of the table, 42.6 ms, came once in those ten races and not again on that track's other runs: taken for something else on the MiSTer, not looked into further.
+
+- **How.** A profile showed the drawing at two thirds of a picture, and the s-buffer's rows do not depend on each other: a row's pixels come from its free pieces alone. So `r3d_render` (`R3D_TWO`, on with `MISTER_HYBRID`) has a second thread on CPU1 walk the same faces and draw every other row (at 640x240, of its even ones, rows 0 mod 4 and 2 mod 4). The see-through pieces each puts off are its own (`Drawer`). It sleeps between pictures on a futex. `triangle` and `flat_triangle` step over the other's rows at once; `rows6` keeps stepping each row, its floats running on as the game has them.
+- **CPU1 looks full and is not**: `/proc/stat` shows no idle time there, but that is Main_MiSTer's polling at nice 0, which gives way to our nice -20. The present thread's copy comes first in a picture, during the steps and the scene, so it should hardly meet the drawing (reasoned from the code's order, not measured).
+- **Cache lines.** A row's count sits beside its first free pieces (`FreeRow`, aligned): `g_nfree` as an array of ints would have had the two threads writing one line. Each row's list gets a line that no other row's uses.
+- **What only one thread may do**: a paletted page's texels are made in `queue_kind` now, not on first drawing in `face`, where two threads would both have made them. `face` only reads them.
+- **Floats through doubles**: `(float)((double)a + b)` is `a + b` in float, always (double rounding does no harm when 53 >= 2 x 24 + 2), so `rows6` and `span6` use the float sum without the two conversions.
+- **The sound.** With the second drawer the audio ring dipped lower: in a race at least 1344-1376 frames left against the old 1408, and in the first 10 s of sound as low as 96, twice empty (-192, -224) in 10 races, against 256-1024 with one CPU. Two fixes. The mixer's thread is `SCHED_FIFO` from its first callback (`sound.c`; it takes little and sleeps in between): in a race at least 1472 (800 once, at the 42.6 ms picture above). What was left, at the race's start, was no CPU's doing: `sound_race_load` held the sound's lock through reading its files, 30 ms in which the mixer waited (found with a probe on the lock, which also shows why the old builds dipped there). Only `new_slot` and `set_volume` hold it now, the files read with the mixer running: first 10 s at least 608, mostly 1024, none empty in any run since.
+- **The picture is the same.** `tools/shots.sh` 91 of 91 with one thread and with two (`-DOMR_R3D_TWO=ON` on the PC, `OMR_R3D_TWO=1`), `tools/arm.sh check` 91 and 3 replays (`SDLPREFIX` and `HYBRID` this core's: with its default ECWolf prefix the build found no `SDL.h`). 240 pictures one thread against two, the 16-bit pixels, all ten tracks plain, reversed and Pocket, both resolutions, four moments each: all the same, in a host build of the core (`./build.sh host`, F3 in `OMR_INPUT` for 640x240; `--shot` there saves the merged 640x240 picture now). ThreadSanitizer and AddressSanitizer + UBSan over 60 races each, two threads, both resolutions: nothing. On the real core its own screenshots (`echo screenshot > /dev/MiSTer_cmd`) of a race, on board, the pause dialog after F3 and page 10's bike: right.
+- **What can differ, and has not been seen**: each thread counts its own pieces and batches, so a frame that ran out of them (10240, 1000) drops fewer see-through faces; and a painter running off its row (the game's own fault, under `span6`) can meet the other thread. Both only ever in such a fault's frame.
+- `DRAW_AHEAD` measured again, as the framework's rule asks: 55 s on the heaviest track (list 0, track 4), two runs each in turns, after the first 300 pictures: 640x240 0/0 and 0/0 ahead, 418/418 and 406/406 of 2700 without; 320x240 0/0 and 0/0 ahead, 8/8 and 10/10 of 2400 without. It stays 1.
+- **How to measure it.** The OSD's Resolution from the test's settings: `/media/fat/config/OpenMotoRacer_TEST.CFG`, 16 bytes, the fourth 1 for 640x240; `TEST_ENV="OMR_PERF=1 MISTER_HYBRID_PACE=1 MISTER_HYBRID_STATS=1 OMR_PAGE=1 OMR_LIST=0 OMR_CHOICES=1,4,4,0,0 OMR_AUTOPILOT=1" tools/test_on_mister.sh MotoRacer`, `tools/test_on_mister.sh log`. Limit to 30 FPS stays on the OSD as Danik decided it.
+
+What the profile showed and what was done (`-DOMR_PROF=ON`: 1 kHz sampling and marks per stage, `tools/prof.py`; slower than the release, so compare stages only between profile runs and take the real numbers from a release):
+- **The sound's lock.** The game thread waited up to 8-20 ms for the device lock, held by the mixer through a whole callback (1024 slots a sample, with 64-bit division). `sound.c` has its own lock, taken per block of 256 samples (`MIX_BLOCK`), and `mix_voice()` runs voice by voice into float arrays. The WAV's sum is unchanged.
+- **The music's file reads** on the game thread: now `music_thread` on CPU1 (`MH_PinThreadToCPU1`). Without a thread (`OMR_WAV`) it fills directly as before.
+- **Drawing straight into the core's next buffer** (`SDL_MISTER_DIRECT`) in place of a copy a picture.
+- **640x240's 2D rows only as needed.** The sample of the 3D and the merge took every row; now `VIDEO_ROWS(y0,y1)` says which rows a writer touches (`font.c`, `bitmap.c`, `sprite.c`, `dialog.c`, `pointer.c`), only those are taken and merged. `OMR_ROWS_CHECK` in the profile build compares and prints any row drawn on without saying; 0 through help, map, dialogs, F7, pause and the winner's credits.
+- **The horizon's clear**: only its strip's rows and the last one (`horizon.c`), not the whole screen a picture.
+- **The drawing loops split by kind**: `span` and `span6` chose the kind per pixel through a jump table the compiler did not lift out of the loop. `TEXELS` writes a loop for each kind. `row6`'s common cases return early; a prefetch of the next face in `r3d_render`; `span`'s kind 0x10 in assembler on the ARM.
+- **The build**: Thumb's smaller code stays in the Cortex-A9's cache and gave the best pacing, with `-O3 -flto -flto-partition=none` (`port/CMakeLists.txt`, also in `tools/arm.sh`'s build). Measured against ARM mode with the same sources, in turns.
+
+What did not help: prefetching textures (no gain, undone); profile-guided optimisation about 2%, not worth keeping counts files in the repository; whole-program optimisation alone little. An earlier remark here, that splitting the loops gained nothing, was wrong: that first try split only two kinds.
+
+Checked after all of it: `tools/shots.sh` 91 of 91, `tools/arm.sh check` 91 pictures and 3 replays, all the same; on the real core the audio ring never empty (`MISTER_HYBRID_STATS`, at least 1408 frames in it).
+
+**Drawing ahead** (`DRAW_AHEAD`, hybrid/CLAUDE.md's rule), pictures of 300 shown never / twice, two runs each in turns:
+
+| Mode | Ahead | Without (`MISTER_HYBRID_AHEAD=0`) |
+|---|---|---|
+| 320x240 | 2/5, 0/0, 4/6, 13/22, 0/0, 11/24 | 39/39, 51/51, 35/36, 29/42, 54/53, 25/39 |
+| 640x240 | 0/131, 0/120, 0/190, 0/152, 0/117 | 0/108, 0/132, 3/156, 1/142 |
+
+So `DRAW_AHEAD` 1: a clear gain at 320x240, nothing lost at 640x240. Not in an interlaced race (the framework's rule). (Those two tables' runs are from before the speed work above.)
+
 ## 5. Running the original (for checking)
 `tools/orig.sh start|shot|key|stop`, unseen, nobody's screen needed (2026-10-26):
 - A private copy in `build/orig` (with GOG's dgVoodoo `DDraw.dll`, `D3DImm.dll` and

@@ -11,6 +11,7 @@
 #include "rand.h"
 #include "sound.h"
 #include "config.h"
+#include "mister.h"
 #include "land.h"
 #include "horizon.h"
 #include "saves.h"
@@ -18,6 +19,10 @@
 #include "input.h"
 #include "joy.h"
 #include "pad.h"
+#include "prof.h"
+#ifdef OMR_PROF
+void prof_frame(void);
+#endif
 #include "dialog.h"
 #include "race.h"
 #include <SDL.h>
@@ -89,7 +94,9 @@ static void usage(void)
          "  OMR_DIFFICULTY=N   0 easy, 1 medium, 2 hard (and saved so, as the Options page does)\n"
          "  OMR_UNLOCK_ALL=1   every track of the list in use available (and saved so when the\n"
          "                     program ends; tools/unlock_all.sh does it for every list)\n"
-         "  OMR_PERF=1         every 5 seconds: pictures a second, the time to make one, the slowest";
+         "  OMR_PERF=1         every 5 seconds: pictures a second, the time to make one, the slowest\n"
+         "  OMR_ONE_CPU=1      on the MiSTer: the race drawn by one CPU, not two\n"
+         "  OMR_R3D_TWO=1      a build with R3D_TWO, no core: two threads draw, to compare the pictures";
 #ifdef _WIN32
     /* (a windowed program has no terminal to print on) */
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "OpenMotoRacer", text, 0);
@@ -122,6 +129,12 @@ static void perf_frame(Uint64 start, Uint64 drawn)
 static void fail(const char *msg, int headless)
 {
     fprintf(stderr, "openmotoracer: %s\n", msg);
+#ifdef MISTER_HYBRID
+    if (!headless && mister_on()) {
+        mister_fatal(msg);
+        exit(mister_exit_code());
+    }
+#endif
     if (!headless)
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "OpenMotoRacer", msg, 0);
     exit(1);
@@ -378,6 +391,15 @@ int main(int argc, char **argv)
         page = 25;
     if (shot)
         SDL_setenv("SDL_VIDEODRIVER", "dummy", 1);
+#ifdef MISTER_HYBRID
+    /* the pick and its logo; the message saying what goes where, if the game isn't there */
+    if (!shot && !data && mister_on()) {
+        static char dir[64];
+        if (!mister_start(dir, sizeof dir))
+            return mister_exit_code();
+        data = dir;
+    }
+#endif
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0)
         fail(SDL_GetError(), 1);
     if (!shot)                          /* (tests read no real joystick) */
@@ -394,6 +416,10 @@ int main(int argc, char **argv)
     config_load();
     if ((env = getenv("OMR_DIFFICULTY")))
         g_difficulty = atoi(env) % 3;
+#ifdef MISTER_HYBRID
+    if ((env = getenv("OMR_MISTER_RES")))       /* (without the core: the OSD's Resolution) */
+        race_set_resolution(atoi(env));
+#endif
     if ((env = getenv("OMR_SCREEN"))) {
         int m = 2, wide = 0;
         sscanf(env, "%d,%d", &m, &wide);
@@ -517,6 +543,14 @@ int main(int argc, char **argv)
             }
         }
         scripted_input(script, frame);
+#ifdef OMR_PROF
+        prof_frame();
+#endif
+        prof_mark(MARK_TOP);
+#ifdef MISTER_HYBRID
+        mister_frame();
+        mister_pad();
+#endif
         pad_frame();
         if (g_view_sec >= 0)
             race_view_frame();
@@ -532,14 +566,23 @@ int main(int argc, char **argv)
                 fail(SDL_GetError(), 1);
             break;
         }
+        prof_mark(MARK_2D);
         video_present();
         video_frame_end();
         sound_frame();
         clock_frame();
+        prof_mark(MARK_WAIT);
     }
     config_save();              /* (the game: on WM_DESTROY) */
     sound_quit();
     video_quit();
+#ifdef MISTER_HYBRID
+    {
+        int code = mister_on() ? mister_exit_code() : 0;
+        SDL_Quit();
+        return code;
+    }
+#endif
     SDL_Quit();
     return 0;
 }

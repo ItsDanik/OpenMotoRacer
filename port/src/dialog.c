@@ -2,6 +2,7 @@
    the others buttons with a normal item (flying in) and a highlighted one (blinking).
    Each button gets a letter of its text as a hotkey, the arrows move between them,
    Return presses; the box behind them grows from its centre and darkens the race. */
+#include "mister.h"
 #include "dialog.h"
 #include "clock.h"
 #include "config.h"
@@ -451,13 +452,25 @@ static void act_box_close(void) /* 0x43cf60's button -1 */
 }
 
 /* 0x43cf60 -> 0x47ec50: a mode sharing the width or the height with the present one is refused */
+#ifdef MISTER_HYBRID
+#define MODES MR_COUNT
+#else
+#define MODES 3
+#endif
 static void act_mode(void)
 {
+#ifndef MISTER_HYBRID
     static const int w[3] = { 320, 512, 640 }, h[3] = { 240, 384, 480 };
+#endif
     int m = g_dlg->sel - 2;
     g_dlg->done = 1;
+#ifdef MISTER_HYBRID
+    if (m >= 0 && m < MODES)
+        race_ask_screen(m);
+#else
     if (m >= 0 && m < 3 && w[m] != g_scr_w && h[m] != g_scr_h)
         race_ask_screen(m);
+#endif
 }
 
 /* 0x43c2b0 through 0x43c570: the game's three sizes in place of Windows' list; each a letter
@@ -465,8 +478,12 @@ static void act_mode(void)
 void dialog_modes(void)
 {
     static const unsigned char TITLE_FORE[3] = { 255, 127, 10 }, TITLE_BACK[3] = { 200, 100, 0 };
+#ifdef MISTER_HYBRID
+    static const int w[MODES] = { 320, 640 }, h[MODES] = { 240, 240 };
+#else
     static const int w[3] = { 320, 512, 640 }, h[3] = { 240, 384, 480 };
-    static char text[3][32];
+#endif
+    static char text[MODES][32];
     int i, a, hh, ww, step, y = 0, letter = 'A';
     Font *f = font_get(32);
     if (g_slot[SLOT_BOX]) {
@@ -490,10 +507,10 @@ void dialog_modes(void)
                                     0, 0, 0, 0, 0, 0);
         r->is_static = 1;
     }
-    for (i = 0; i < 4; i++, y += step) {
+    for (i = 0; i <= MODES; i++, y += step) {
         Row *r = &g_dlg->row[g_dlg->nrows++];
         const char *s = exe_text(103);  /* [CANCEL] */
-        if (i < 3) {
+        if (i < MODES) {
             int taken;
             do {
                 taken = 0;
@@ -510,7 +527,7 @@ void dialog_modes(void)
             r->hot[1] = VK_ESCAPE;
         r->normal = r->shown = item(s, 32, 0, y, 0, y, 0x62, FX_NONE, 0, 0, 0, 0, 0, 0, 0, 0);
         r->high = item(s, 32, 0, y, 0, y, 0x62, FX_NONE, 0, 0, 0, 0, 0, 0, 0, 0);
-        r->action = r->up = i < 3 ? act_mode : act_box_close;
+        r->action = r->up = i < MODES ? act_mode : act_box_close;
         r->cursor = CURSOR_ROW;
     }
     g_dlg->sel = -1;
@@ -1031,6 +1048,7 @@ void dialog_shade(int x0, int y0, int x1, int y1)
     if (y1 > g_scr_h - 1) y1 = g_scr_h - 1;
     if (x1 <= x0 || y1 <= y0)
         return;
+    VIDEO_ROWS(y0, y1);
     for (y = y0; y <= y1; y++) {
         uint16_t *p = g_screen + y * g_pitch;
         int t = -1;

@@ -135,8 +135,8 @@ Start), then F6 once the race runs. `tools/orig.sh shot FILE`; afterwards
 - The CD (`exe.c`, NOTES §3.5a): the port runs on the CD's files alone, every track started. MOTO.EXE itself runs
   under wine (how: NOTES): title and main menu differ in the pointer only; Solo can't be pressed there, so no race
   or later page compared. It is GOG's logic with plain colours on the CD's data. No music from the CD yet.
-- The ARM build (`tools/arm.sh`, NOTES §4.23): pictures and physics the same as the PC's under qemu; `OMR_PERF=1`. Speed on a
-  real MiSTer still to measure (Danik: the command is in the NOTES); nothing made faster yet.
+- The ARM build (`tools/arm.sh`, NOTES §4.23): pictures and physics the same as the PC's under qemu; `OMR_PERF=1`. Speed on the
+  real core: NOTES §4.25 (320x240 a steady 60, 640x240 53-60, after the profile's work).
 - The glass after a race (the old question of its page 2 against the level's pages 2..19): a race, back through the menus,
   Options: the glass whole, no track picture in it (seen in the port).
 
@@ -176,10 +176,8 @@ The port now saves the track list as the game does (it never had, so unlocks wer
 track unlocked on both discs to test them: `tools/unlock_all.sh` did it in his folder, `--undo` goes back to the game's lists.
 
 ## Next, in order
-1. Speed on a real MiSTer: Danik runs the command in NOTES §4.23 (the program: `build/arm/openmotoracer`; not reachable
-   from here without the MiSTer's address). If it is too slow, make the painters faster with the pictures' check (span6, row).
-2. The MiSTer core (`new-hybrid-core`; id `MotoRacer`) and the releases: need Danik's word. The core's step 3 pushes to
-   the shared Hybrid_MiSTer, its testing needs the MiSTer, and "local git only" still stands.
+1. The MiSTer core is built and tested on the real MiSTer (`~/MiSTer-openmotoracer`, this branch `mister`, NOTES §4.25); `~/GAMEDATA/OpenMotoRacer.tar.zst` holds the data. Waiting: Danik's playing on a CRT (rumble, triggers, flicker), his OLED verdict, his word on publishing. Nothing pushed to GitHub.
+2. Merging `mister` into `master`: not done; the PC's pictures are unchanged by it.
 3. **Last: the split screen** for two players on one PC (the original has none). Danik, 2026-10-30: leave it for last and
    **stop before starting work on it**.
 Not compared with the original, for want of a way to run both in step: computer riders' marks, the crash's debris, spray at
@@ -207,3 +205,6 @@ original has analog steering and throttle only on one stick under JOYSTICK, a br
 - Game Behaviour (NOTES §3.5c): Options, 1997 CD / GOG RELEASE, with any files. Bike browsing's slide counts 60ths; a click on + or - is one step (the port's, menu.c).
 - The player's bike under the setting (g_phys_cd), bit for bit on MOTO.EXE's recorded steps (`tools/physcheck_cd.sh`). A GOG fault found on the way and fixed: steering's 1.6 under brake only while sliding (0x46661a).
 - Open: whether the 1997 handling feels right after jumps and in slides (MOTO has no frame cap, its feel depended on the PC), Danik's by feel; the red mode strip of a race's first 0.3 s; the mixer (recommended leaving). Split screen last, not started.
+
+## 2026-11-02: 640x240 a steady 60
+Both CPUs draw the race, every other row each (`R3D_TWO`, `r3d.c`; the same pixels), and the sound no longer waits on anything: the mixer `SCHED_FIFO`, the race's sound files read outside its lock. On the real core all ten tracks hold 59.6 at 640x240, 1 picture never shown and 1 shown twice of 21000 after the race's load; `DRAW_AHEAD` measured again, stays 1. NOTES §4.25. `hybrid/` went to its main in the same step, which `package.sh` needed for the covers. The build is in the MiSTer's *Test* menu; not released, not published. Danik's to judge: the feel of a real race with a pad, and the OSD and input while both CPUs draw (only autopilot was measured).

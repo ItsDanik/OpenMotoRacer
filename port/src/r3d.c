@@ -12,6 +12,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef R3D_TWO
+#include <linux/futex.h>
+#include <pthread.h>
+#include <sched.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 
 #define W g_scr_w
 #define H g_scr_h
@@ -62,19 +69,63 @@ typedef struct {                /* 0x625790: what its pieces share */
     float g16[3];               /* sub 6: the steps over 16 pixels */
 } Batch;
 
+/* who draws a set of rows (those with (y & mask) == val), with the see-through pieces it puts off.
+   One does all the rows, or (R3D_TWO, the MiSTer) one on each CPU every other row: a row's pixels
+   depend on that row's free pieces and nothing else, so the picture is the same. (But for what
+   runs out: each counts its own pieces and batches, so with two a frame that ran out of room for
+   see-through faces draws more of them; and a painter that runs off its row, span6's note, can
+   meet the other thread. Neither was met in 240 pictures compared, NOTES 4.25.) */
+typedef struct {
+    Span *span;
+    Batch *batch;
+    int nspan, nbatch;
+    int room;                   /* 0x6d20c0: 0 once the pieces or batches ran out */
+    int mask, val;
+} __attribute__((aligned(32))) Drawer;
+
+/* 0x623bd8: a row's free pieces [start, end), the count beside the first of them (the same cache
+   line, and none shared with another row's) */
+typedef struct {
+    int n;
+    int16_t p[2 * FREE_MAX];
+} __attribute__((aligned(32))) FreeRow;
+
 static Point g_pt[VERTS];
 static int g_npt;
 static int g_head[BUCKETS];
+static int g_bucket_lo, g_bucket_hi = BUCKETS - 1;   /* the ones in use */
 static Entry g_entry[ENTRIES];
 static int g_nentry;
-static int16_t g_free[SCREEN_MAX_H][2 * FREE_MAX];   /* 0x623bd8: [start, end) pieces a row */
-static int g_nfree[SCREEN_MAX_H];
+static FreeRow g_row[SCREEN_MAX_H];
+/* (int)nearbyintf(x): the ARM has it in one instruction, the library a call */
+static inline int round_int(float x)
+{
+#if defined(__arm__) && defined(__ARM_FP)
+    float r;
+    int i;
+    __asm__("vcvtr.s32.f32 %0, %1" : "=t"(r) : "t"(x));
+    memcpy(&i, &r, sizeof i);
+    return i;
+#else
+    return (int)nearbyintf(x);
+#endif
+}
+
+#ifdef __arm__
+static uint32_t g_reciprocal[1024];     /* the MiSTer's ARM divides in software: small divisors here */
+#endif
+
 static float g_cx = 320.0f, g_cy = 240.0f;      /* 0x60d3c4, 0x624f88: half the view (0x499ba0) */
 static Span g_span[SPANS];
-static int g_nspan;
 static Batch g_batch[BATCHES + 1];
-static int g_nbatch;
-static int g_room;                        /* 0x6d20c0: 0 once the pieces or batches ran out */
+#ifdef R3D_TWO
+static Span g_span2[SPANS];
+static Batch g_batch2[BATCHES + 1];
+static int g_two;                         /* the second CPU draws every other row */
+static Drawer g_draw[2] = { { g_span, g_batch, 0, 0, 1, 0, 0 }, { g_span2, g_batch2, 0, 0, 1, 0, 0 } };
+#else
+static Drawer g_draw[1] = { { g_span, g_batch, 0, 0, 1, 0, 0 } };
+#endif
 static float g_cam[3][3], g_campos[3];    /* the camera block 0x5161c0 */
 static float g_focal = 1911.0f;           /* 0x49a0e0/0x49a100: the menu's 1911 (0x40a003) */
 static float g_near = 256.0f;             /* 0x625774: the menu's 256, the race's 64 */
@@ -105,12 +156,27 @@ void r3d_screen(void)
     g_cy = (float)(g_scr_h >> 1);
 }
 
+#ifdef MISTER_HYBRID
+void r3d_screen_down(int y)
+{
+    g_cy += (float)y;
+}
+#endif
+
 void r3d_init(void)
 {
     int k;
+#ifdef __arm__
+    for (k = 1; k < 1024; k++)
+        g_reciprocal[k] = 0xffffffffu / (uint32_t)k;
+#endif
     for (k = 0; k < 16384; k++)                         /* 0x4901e0 */
         g_cos[k] = (float)cos(k * 6.283185307178 * (double)6.103515625e-05f);
     r3d_begin();
+#ifdef R3D_TWO
+    if (getenv("OMR_R3D_TWO"))                          /* (to compare pictures without a core) */
+        r3d_two_cpus(NULL);
+#endif
 }
 
 uint16_t *r3d_page(int n)
@@ -418,7 +484,7 @@ int r3d_menu_project(const float v[3], int *sx, int *sy)
         return 0;
     rz = 1.0f / z;
     *sx = (int)nearbyintf(x * rz + CX);
-    *sy = (int)nearbyintf(CY - y * rz);
+    *sy = round_int(CY - y * rz);
     return 1;
 }
 
@@ -427,17 +493,21 @@ int r3d_menu_project(const float v[3], int *sx, int *sy)
 void r3d_begin(void)
 {
     int y;
+    unsigned i;
     g_npt = 0;
     g_nentry = 0;
-    g_nspan = 0;
-    g_nbatch = 0;
-    g_room = 1;
-    for (y = 0; y < BUCKETS; y++)
+    for (i = 0; i < sizeof g_draw / sizeof g_draw[0]; i++) {
+        g_draw[i].nspan = 0;
+        g_draw[i].nbatch = 0;
+        g_draw[i].room = 1;
+    }
+    for (y = g_bucket_lo; y <= g_bucket_hi; y++)
         g_head[y] = -1;
+    g_bucket_lo = BUCKETS, g_bucket_hi = -1;
     for (y = 0; y < H; y++) {
-        g_free[y][0] = 0;
-        g_free[y][1] = W;
-        g_nfree[y] = 1;
+        g_row[y].p[0] = 0;
+        g_row[y].p[1] = (int16_t)W;
+        g_row[y].n = 1;
     }
 }
 
@@ -480,6 +550,8 @@ static void queue_kind(const Face *f, int base, float key, int skin, int kind)
     ((Face *)f)->drawn = kind;
     if (g_nentry >= ENTRIES)
         return;
+    if (skin >= 0)              /* (made here, where no other thread draws) */
+        skin_texels(f->page, skin);
     if (b > BUCKETS - 1)
         b = BUCKETS - 1;
     g_entry[g_nentry].f = f;
@@ -488,6 +560,10 @@ static void queue_kind(const Face *f, int base, float key, int skin, int kind)
     g_entry[g_nentry].dark = g_dark;
     g_entry[g_nentry].next = g_head[b];
     g_head[b] = g_nentry++;
+    if (b < g_bucket_lo)
+        g_bucket_lo = b;
+    if (b > g_bucket_hi)
+        g_bucket_hi = b;
 }
 
 static void queue(const Face *f, int base, float key, int skin)
@@ -568,8 +644,8 @@ int r3d_points(int nv, const float (*v)[3], const float n[3][3], const float t[3
         p->z = v[i][0] * nz[0] + v[i][1] * nz[1] + v[i][2] * nz[2] + nz[3];
         if (p->z >= g_near) {
             float rz = 1.0f / p->z;
-            p->sx = (int)nearbyintf(p->x * rz + CX);
-            p->sy = (int)nearbyintf(CY - p->y * rz);
+            p->sx = round_int(p->x * rz + CX);
+            p->sy = round_int(CY - p->y * rz);
         }
     }
     return base;
@@ -659,8 +735,17 @@ void r3d_view(int nv, const float (*v)[3], int nf, const Face *f, const float n[
 
 /* ---------------------------------------------------------------- drawing */
 
-static int cdiv(int a, int b)   /* C's division, as the game's idiv */
+static inline int cdiv(int a, int b)    /* C's division, as the game's idiv */
 {
+#ifdef __arm__
+    if ((unsigned)(b - 1) < 1023) {
+        uint32_t ua = a < 0 ? 0u - (uint32_t)a : (uint32_t)a, ub = (uint32_t)b;
+        uint32_t q = (uint32_t)(((uint64_t)ua * g_reciprocal[b]) >> 32), r = ua - q * ub;
+        while (r >= ub)
+            q++, r -= ub;
+        return a < 0 ? -(int)q : (int)q;
+    }
+#endif
     return a / b;
 }
 
@@ -669,11 +754,25 @@ static int wrap(long long v)    /* a 32-bit register's sum or product */
     return (int)(uint32_t)v;
 }
 
-static int see_through(int kind)
+enum { K_SEE = 1, K_NO_PAINT = 2, K_SUB6 = 4 };
+
+#define K_TABLE_SIZE 0x100
+static const unsigned char g_kinds[K_TABLE_SIZE] = {
+    [2] = K_SEE | K_NO_PAINT, [3] = K_NO_PAINT, [4] = K_SEE | K_NO_PAINT, [8] = K_SEE | K_NO_PAINT,
+    [9] = K_SEE | K_NO_PAINT, [12] = K_SEE, [0x12] = K_NO_PAINT, [0x13] = K_SEE | K_NO_PAINT,
+    [0x14] = K_SEE, [0x1d] = K_NO_PAINT, [28] = K_SUB6, [31] = K_SUB6, [32] = K_SUB6, [37] = K_SEE,
+    [38] = K_SEE, [39] = K_SEE, [44] = K_SEE, [50] = K_SEE | K_SUB6, [51] = K_SEE | K_SUB6,
+    [53] = K_SEE | K_SUB6, [54] = K_SEE | K_SUB6, [62] = K_SEE | K_SUB6, [68] = K_SEE, [69] = K_SEE,
+};
+
+static inline int kind_is(int kind, int what)
 {
-    return kind == 2 || kind == 4 || kind == 8 || kind == 9 || kind == 12 || kind == 0x13
-           || kind == 0x14 || kind == 37 || kind == 38 || kind == 39 || kind == 44 || kind == 50
-           || kind == 51 || kind == 53 || kind == 54 || kind == 62 || kind == 68 || kind == 69;
+    return (unsigned)kind < K_TABLE_SIZE && g_kinds[kind] & what;
+}
+
+static inline int see_through(int kind)
+{
+    return kind_is(kind, K_SEE);
 }
 
 /* kind table 0x4f1a70: a span that is only a `ret`. The opaque ones (3, 0x12, 0x1d, and 1 once
@@ -681,35 +780,33 @@ static int see_through(int kind)
    what lies behind them is not drawn; the see-through ones take pieces only. In the game 3, 4,
    9, 0x12 and 0x1d go through sub 5 and 7 (0x49fa10, 0x4a2630) where 1 goes through sub 4;
    nothing reaches them, so `triangle` stands in for all */
-static int no_paint(int kind)
+static inline int no_paint(int kind)
 {
-    return kind == 2 || kind == 3 || kind == 4 || kind == 8 || kind == 9 || kind == 0x12
-           || kind == 0x13 || kind == 0x1d;
+    return kind_is(kind, K_NO_PAINT);
 }
 
-static int sub6(int kind)       /* kind table 0x4f1a70: sub 6, the perspective-correct ones */
+static inline int sub6(int kind)        /* kind table 0x4f1a70: sub 6, the perspective-correct ones */
 {
-    return kind == 28 || kind == 31 || kind == 32 || kind == 50 || kind == 51 || kind == 53
-           || kind == 54 || kind == 62;
+    return kind_is(kind, K_SUB6);
 }
 
 /* a batch closed: its pieces are g_span[first..] */
-static void batch_end(int first, int kind, const uint16_t *tex, uint16_t colour,
+static void batch_end(Drawer *w, int first, int kind, const uint16_t *tex, uint16_t colour,
                       const float g16[3])
 {
     Batch *b;
-    if (g_nspan == first)
+    if (w->nspan == first)
         return;
-    if (g_nbatch >= BATCHES) {
-        g_nspan = first;
+    if (w->nbatch >= BATCHES) {
+        w->nspan = first;
         return;
     }
-    b = &g_batch[g_nbatch++];
+    b = &w->batch[w->nbatch++];
     b->first = first, b->kind = kind, b->tex = tex, b->colour = colour;
     b->g16[0] = g16 ? g16[0] : 0.0f, b->g16[1] = g16 ? g16[1] : 0.0f;
     b->g16[2] = g16 ? g16[2] : 0.0f;
-    if (g_nbatch == BATCHES)
-        g_room = 0;
+    if (w->nbatch == BATCHES)
+        w->room = 0;
 }
 
 static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
@@ -736,6 +833,36 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
         uint32_t de = (uint32_t)du >> 13 | (uint32_t)du << 19;
         uint32_t df = (uint32_t)dv >> 13 | (uint32_t)dv << 19;
         unsigned bl = e & 0xff, bh = f & 0xff;
+#if defined(__arm__)
+        if (kind == 0x10 && x0 < x1) {  /* the ARM adds with the carry as the x86 does */
+            uint16_t *to = o + x0;
+            unsigned dl = de & 0xff, dh = df & 0xff, t0, t1;
+            int count = x1 - x0;
+            __asm__ volatile(
+                "1:\n"
+                "uxtb %[t0], %[bl]\n"
+                "uxtb %[t1], %[bh]\n"
+                "orr %[t0], %[t0], %[t1], lsl #8\n"
+#ifdef __thumb__
+                "ldrh %[t0], [%[tex], %[t0], lsl #1]\n"
+#else
+                "add %[t0], %[tex], %[t0], lsl #1\n"
+                "ldrh %[t0], [%[t0]]\n"
+#endif
+                "adds %[e], %[e], %[de]\n"
+                "adc %[bl], %[bl], %[dl]\n"
+                "adds %[f], %[f], %[df]\n"
+                "adc %[bh], %[bh], %[dh]\n"
+                "strh %[t0], [%[to]], #2\n"
+                "subs %[n], %[n], #1\n"
+                "bne 1b\n"
+                : [e] "+r"(e), [f] "+r"(f), [bl] "+r"(bl), [bh] "+r"(bh), [to] "+r"(to),
+                  [n] "+r"(count), [t0] "=&r"(t0), [t1] "=&r"(t1)
+                : [de] "r"(de), [df] "r"(df), [dl] "r"(dl), [dh] "r"(dh), [tex] "r"(tex)
+                : "cc", "memory");
+            return;
+        }
+#endif
         for (x = x0; x < x1; x++) {
             unsigned c = tex[bh << 8 | bl];
             uint32_t t;
@@ -752,66 +879,73 @@ static void span(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
         }
         return;
     }
-    for (x = x0; x < x1; x++, u += du, v += dv) {
-        unsigned c;
-        c = tex[((v >> 13) * 256 + (u >> 13)) & 0xffff];  /* 0x4a5e10, 0x4a5330, 0x4a5580 */
-        if (kind == 0x25) {                             /* 0x4a50c0: the face's colour */
-            if (c)
-                o[x] = colour;
-            continue;
-        }
-        if ((kind == 0x26 || kind == 0x27) && c == 0)
-            continue;
-        if (kind == 0x2c) {                             /* 0x4a57f0: half and half */
-            if (c)
-                o[x] = (uint16_t)(((o[x] >> 1) & HALF) + ((c >> 1) & HALF));
-            continue;
-        }
-        if (kind == 0x14) {     /* 0x4adbf0: red from the table 0x4f62f0, which nothing writes;
-                                   the palette's colour 0 halves the screen */
-            o[x] = (uint16_t)(c ? c & 0x7ff : (o[x] >> 1) & HALF);
-            continue;
-        }
-        if (kind == 0x15 || kind == 0x27)
-            c = (c >> 1) & HALF;
-        o[x] = (uint16_t)c;
+#define TEXELS(what) \
+    for (x = x0; x < x1; x++, u += du, v += dv) { \
+        unsigned c = tex[((v >> 13) * 256 + (u >> 13)) & 0xffff]; \
+        what; \
+    } \
+    return
+    switch (kind) {
+    case 0x25: TEXELS(if (c) o[x] = colour);                    /* 0x4a50c0: the face's colour */
+    case 0x26: TEXELS(if (c) o[x] = (uint16_t)c);               /* 0x4a5330 */
+    case 0x27: TEXELS(if (c) o[x] = (uint16_t)((c >> 1) & HALF));   /* 0x4a5580 */
+    case 0x2c:                                                  /* 0x4a57f0: half and half */
+        TEXELS(if (c) o[x] = (uint16_t)(((o[x] >> 1) & HALF) + ((c >> 1) & HALF)));
+    case 0x14:          /* 0x4adbf0: red from the table 0x4f62f0, which nothing writes; the
+                           palette's colour 0 halves the screen */
+        TEXELS(o[x] = (uint16_t)(c ? c & 0x7ff : (o[x] >> 1) & HALF));
+    case 0x15: TEXELS(o[x] = (uint16_t)((c >> 1) & HALF));      /* 0x4a5e10 */
+    default: TEXELS(o[x] = (uint16_t)c);
     }
+#undef TEXELS
 }
 
 /* 0x49d9e0 (opaque: draw the free pieces and close them) and 0x49dbf0 (see-through:
    keep the free pieces for the end) */
-static void row(int y, int x0, int x1, int u, int v, int du, int dv, int kind,
-                const uint16_t *tex)
+static void row(Drawer *w, int y, int x0, int x1, int u, int v, int du, int dv, int kind,
+                const uint16_t *tex, int deferred)
 {
-    int16_t out[2 * FREE_MAX];
-    int i, n = 0, deferred = see_through(kind);
-    for (i = 0; i < g_nfree[y]; i++) {
-        int a = g_free[y][2 * i], b = g_free[y][2 * i + 1];
+    int16_t out[2 * FREE_MAX], *fr = g_row[y].p;
+    int i, n, nf = g_row[y].n, first;
+    if (deferred) {
+        for (i = 0; i < nf; i++) {
+            int a = fr[2 * i], b = fr[2 * i + 1];
+            int s = a > x0 ? a : x0, e = b < x1 ? b : x1;
+            if (s < e && w->nspan < SPANS) {
+                Span *p = &w->span[w->nspan++];
+                p->y = (int16_t)y, p->x0 = (int16_t)s, p->x1 = (int16_t)e;
+                p->u = u + (s - x0) * du, p->v = v + (s - x0) * dv, p->du = du, p->dv = dv;
+            }
+        }
+        return;
+    }
+    for (first = 0; first < nf; first++) {      /* (most pieces are out of its way, and stay) */
+        int a = fr[2 * first], b = fr[2 * first + 1];
+        if ((a > x0 ? a : x0) < (b < x1 ? b : x1))
+            break;
+    }
+    if (first == nf)
+        return;
+    n = first;
+    for (i = first; i < nf; i++) {
+        int a = fr[2 * i], b = fr[2 * i + 1];
         int s = a > x0 ? a : x0, e = b < x1 ? b : x1;
         if (s < e) {
-            int us = u + (s - x0) * du, vs = v + (s - x0) * dv;
-            if (deferred) {
-                if (g_nspan < SPANS) {
-                    Span *p = &g_span[g_nspan++];
-                    p->y = (int16_t)y, p->x0 = (int16_t)s, p->x1 = (int16_t)e;
-                    p->u = us, p->v = vs, p->du = du, p->dv = dv;
-                }
-            } else {
-                span(y, s, e, us, vs, du, dv, kind, tex, 0);
-                if (n + 2 <= FREE_MAX) {
-                    if (a < s)
-                        out[2 * n] = (int16_t)a, out[2 * n + 1] = (int16_t)s, n++;
-                    if (e < b)
-                        out[2 * n] = (int16_t)e, out[2 * n + 1] = (int16_t)b, n++;
-                }
-                continue;
+            span(y, s, e, u + (s - x0) * du, v + (s - x0) * dv, du, dv, kind, tex, 0);
+            if (n + 2 <= FREE_MAX) {
+                if (a < s)
+                    out[2 * n] = (int16_t)a, out[2 * n + 1] = (int16_t)s, n++;
+                if (e < b)
+                    out[2 * n] = (int16_t)e, out[2 * n + 1] = (int16_t)b, n++;
             }
+            continue;
         }
         if (n < FREE_MAX)
             out[2 * n] = (int16_t)a, out[2 * n + 1] = (int16_t)b, n++;
     }
-    memcpy(g_free[y], out, sizeof(int16_t) * 2 * n);
-    g_nfree[y] = n;
+    if (n > first)
+        memcpy(fr + 2 * first, out + 2 * first, sizeof(int16_t) * 2 * (size_t)(n - first));
+    g_row[y].n = n;
 }
 
 typedef struct {
@@ -819,11 +953,11 @@ typedef struct {
 } Corner;
 
 /* 0x49dde0: an affine triangle, 13-bit fixed point, one du/dx and dv/dx */
-static void triangle(Corner c0, Corner c1, Corner c2, int kind, const uint16_t *tex,
+static void triangle(Drawer *w, Corner c0, Corner c1, Corner c2, int kind, const uint16_t *tex,
                      uint16_t colour)
 {
-    int x0, y0, u0, v0, x1, y1, u1, v1, x2, y2, u2, v2, A, B, D, du, dv, r, nrow = 0;
-    int first = g_nspan;
+    int x0, y0, u0, v0, x1, y1, u1, v1, x2, y2, u2, v2, A, B, D, du, dv, r, nrow = 0, deferred;
+    int first = w->nspan, step = w->mask + 1;
     struct { int y, cnt, xl, sl, xr, sr, ul, dul, vl, dvl; } rows[2];
     while (c1.sy < c0.sy || c2.sy < c0.sy) {            /* the top corner first */
         Corner t = c0;
@@ -887,9 +1021,11 @@ static void triangle(Corner c0, Corner c1, Corner c2, int kind, const uint16_t *
             nrow++;
         }
     }
+    deferred = see_through(kind);
     for (r = 0; r < nrow; r++) {
         int y = rows[r].y, cnt = rows[r].cnt, xl = rows[r].xl, xr = rows[r].xr;
-        int ul = rows[r].ul, vl = rows[r].vl;
+        int ul = rows[r].ul, vl = rows[r].vl, sl = rows[r].sl * step, sr = rows[r].sr * step;
+        int dul = rows[r].dul * step, dvl = rows[r].dvl * step, skip;
         if (y < 0) {                                    /* rows above the screen skipped */
             xl -= y * rows[r].sl, xr -= y * rows[r].sr;
             ul -= y * rows[r].dul, vl -= y * rows[r].dvl;
@@ -897,13 +1033,18 @@ static void triangle(Corner c0, Corner c1, Corner c2, int kind, const uint16_t *
         }
         if (cnt > H - y)
             cnt = H - y;
-        for (; cnt > 0; cnt--, y++) {
-            row(y, xl >> 13, xr >> 13, ul, vl, du, dv, kind, tex);
-            xl += rows[r].sl, xr += rows[r].sr, ul += rows[r].dul, vl += rows[r].dvl;
+        skip = (w->val - y) & w->mask;                  /* on to this one's first row */
+        xl += skip * rows[r].sl, xr += skip * rows[r].sr;
+        ul += skip * rows[r].dul, vl += skip * rows[r].dvl;
+        cnt -= skip, y += skip;
+        for (; cnt > 0; cnt -= step, y += step) {
+            if (g_row[y].n)
+                row(w, y, xl >> 13, xr >> 13, ul, vl, du, dv, kind, tex, deferred);
+            xl += sl, xr += sr, ul += dul, vl += dvl;
         }
     }
-    if (see_through(kind))
-        batch_end(first, kind, tex, colour, 0);
+    if (deferred)
+        batch_end(w, first, kind, tex, colour, 0);
 }
 
 /* 0x49d8f0 + 0x49e510: where the edge from B (behind) to F (in front) meets z = near */
@@ -926,11 +1067,11 @@ static void flat_row(int y, int xl, int xr, uint16_t c)
 {
     int16_t out[2 * FREE_MAX];
     uint16_t *o = g_screen + y * g_pitch;
-    int i = 0, n = 0, nf = g_nfree[y], x, top = -y * g_pitch;
+    int i = 0, n = 0, nf = g_row[y].n, x, top = -y * g_pitch;
 #define KEEP(a, b) do { if (n < FREE_MAX) out[2 * n] = (int16_t)(a), out[2 * n + 1] = (int16_t)(b), n++; } while (0)
 #define FILL(from, to) for (x = (from) < top ? top : (from); x < (to); x++) o[x] = c    /* (see span6) */
     while (i < nf) {
-        int a = g_free[y][2 * i], b = g_free[y][2 * i + 1];
+        int a = g_row[y].p[2 * i], b = g_row[y].p[2 * i + 1];
         if (xl > a) {
             if (xl > b) {
                 KEEP(a, b);
@@ -964,16 +1105,16 @@ static void flat_row(int y, int xl, int xr, uint16_t c)
             break;
     }
     for (; i < nf; i++)
-        KEEP(g_free[y][2 * i], g_free[y][2 * i + 1]);
-    memcpy(g_free[y], out, sizeof(int16_t) * 2 * n);
-    g_nfree[y] = n;
+        KEEP(g_row[y].p[2 * i], g_row[y].p[2 * i + 1]);
+    memcpy(g_row[y].p, out, sizeof(int16_t) * 2 * n);
+    g_row[y].n = n;
 #undef FILL
 }
 
 /* 0x4a34f0: a triangle of one colour, 13-bit fixed-point edges, no area test */
-static void flat_triangle(Corner c0, Corner c1, Corner c2, uint16_t c)
+static void flat_triangle(const Drawer *w, Corner c0, Corner c1, Corner c2, uint16_t c)
 {
-    int x0, y0, x1, y1, x2, y2, r, nrow = 0;
+    int x0, y0, x1, y1, x2, y2, r, nrow = 0, step = w->mask + 1;
     struct { int y, cnt, xl, sl, xr, sr; } rows[2];
     while (c1.sy < c0.sy || c2.sy < c0.sy) {
         Corner t = c0;
@@ -1021,23 +1162,27 @@ static void flat_triangle(Corner c0, Corner c1, Corner c2, uint16_t c)
     }
     for (r = 0; r < nrow; r++) {
         int y = rows[r].y, cnt = rows[r].cnt, xl = rows[r].xl, xr = rows[r].xr;
+        int sl = rows[r].sl * step, sr = rows[r].sr * step, skip;
         if (y < 0) {
             xl -= y * rows[r].sl, xr -= y * rows[r].sr;
             cnt += y, y = 0;
         }
         if (cnt > H - y)
             cnt = H - y;
-        for (; cnt > 0; cnt--, y++) {
-            if (g_nfree[y])
+        skip = (w->val - y) & w->mask;
+        xl += skip * rows[r].sl, xr += skip * rows[r].sr;
+        cnt -= skip, y += skip;
+        for (; cnt > 0; cnt -= step, y += step) {
+            if (g_row[y].n)
                 flat_row(y, xl >> 13, xr >> 13, c);
-            xl += rows[r].sl, xr += rows[r].sr;
+            xl += sl, xr += sr;
         }
     }
 }
 
 /* 0x4a3950: a fan of one colour, cut at the
    near plane as 0x49e510 cuts */
-static void flat_face(const Face *f, int base, int colour)
+static void flat_face(const Drawer *w, const Face *f, int base, int colour)
 {
     uint16_t c = (uint16_t)colour;
     int k;
@@ -1052,15 +1197,15 @@ static void flat_face(const Face *f, int base, int colour)
             nb += behind[i];
         }
         if (nb == 0)
-            flat_triangle(q[0], q[1], q[2], c);
+            flat_triangle(w, q[0], q[1], q[2], c);
         else if (nb == 2) {
             int r = !behind[0] ? 0 : !behind[1] ? 1 : 2, a = (r + 1) % 3, b = (r + 2) % 3;
-            flat_triangle(q[r], clip(p[a], 0, 0, p[r], 0, 0), clip(p[b], 0, 0, p[r], 0, 0), c);
+            flat_triangle(w, q[r], clip(p[a], 0, 0, p[r], 0, 0), clip(p[b], 0, 0, p[r], 0, 0), c);
         } else if (nb == 1) {
             int r = behind[0] ? 0 : behind[1] ? 1 : 2, a = (r + 1) % 3, b = (r + 2) % 3;
             Corner p1 = clip(p[r], 0, 0, p[a], 0, 0), p2 = clip(p[r], 0, 0, p[b], 0, 0);
-            flat_triangle(q[a], q[b], p1, c);
-            flat_triangle(q[b], p2, p1, c);
+            flat_triangle(w, q[a], q[b], p1, c);
+            flat_triangle(w, q[b], p2, p1, c);
         }
     }
 }
@@ -1103,8 +1248,8 @@ static void span6(int y, int x0, int x1, const float e[3], const float g16[3], i
     v = (uint32_t)ftol(vz * z);
     while (n) {
         if (n >= 16) {
-            uz = (float)((double)g16[0] + uz);
-            vz = (float)((double)vz + g16[1]);
+            uz = g16[0] + uz;   /* (a float sum through a double is the same float: 53 >= 2 x 24 + 2) */
+            vz = vz + g16[1];
             rze = (double)g16[2] + rz;
             rz = (float)rze;
             z = 8192.0 / rze;
@@ -1125,20 +1270,22 @@ static void span6(int y, int x0, int x1, const float e[3], const float g16[3], i
         n -= k;
         for (; k > 0 && skip > 0; k--, skip--, o++, u += du, v += dv)
             ;
-        for (; k > 0; k--, o++, u += du, v += dv) {
-            unsigned c = tex[((v >> 13) * 256 + (u >> 13)) & 0xffff];
-            switch (kind) {
-            case 31: *o = (uint16_t)c; break;                       /* 0x4a5c40 */
-            case 32: *o = (uint16_t)((c >> 1) & HALF); break;       /* 0x4a5e90 */
-            case 53: if (c) *o = (uint16_t)c; break;                /* 0x4a53b0 */
-            case 54: if (c) *o = (uint16_t)((c >> 1) & HALF); break;   /* 0x4a5610 */
-            case 51: if (c) *o = colour; break;                     /* 0x4a5150 */
-            case 62:                                                /* 0x4a5890 */
-                if (c)
-                    *o = (uint16_t)(((*o >> 1) & HALF) + ((c >> 1) & HALF));
-                break;
-            }
+#define TEXELS(what) \
+        for (; k > 0; k--, o++, u += du, v += dv) { \
+            unsigned c = tex[((v >> 13) * 256 + (u >> 13)) & 0xffff]; \
+            what; \
+        } \
+        break
+        switch (kind) {
+        case 31: TEXELS(*o = (uint16_t)c);                          /* 0x4a5c40 */
+        case 32: TEXELS(*o = (uint16_t)((c >> 1) & HALF));          /* 0x4a5e90 */
+        case 53: TEXELS(if (c) *o = (uint16_t)c);                   /* 0x4a53b0 */
+        case 54: TEXELS(if (c) *o = (uint16_t)((c >> 1) & HALF));   /* 0x4a5610 */
+        case 51: TEXELS(if (c) *o = colour);                        /* 0x4a5150 */
+        case 62: TEXELS(if (c) *o = (uint16_t)(((*o >> 1) & HALF) + ((c >> 1) & HALF)));   /* 0x4a5890 */
+        default: o += k, u += (uint32_t)k * du, v += (uint32_t)k * dv;
         }
+#undef TEXELS
     }
 }
 
@@ -1146,11 +1293,18 @@ static void span6(int y, int x0, int x1, const float e[3], const float g16[3], i
 static void row6(int y, int xl, int xr, const float e[3], const Tri6 *t)
 {
     int16_t out[2 * FREE_MAX];
-    int i = 0, n = 0, nf = g_nfree[y];
+    int i = 0, n, first, nf = g_row[y].n;
+    const int16_t *fr = g_row[y].p;
     float es[3];
+    /* (most pieces are out of its way, and stay) */
+    while (i < nf && fr[2 * i] < xl && fr[2 * i + 1] < xl)
+        i++;
+    if (i == nf || (fr[2 * i] >= xl && fr[2 * i] > xr))
+        return;
+    n = first = i;
 #define KEEP(a, b) do { if (n < FREE_MAX) out[2 * n] = (int16_t)(a), out[2 * n + 1] = (int16_t)(b), n++; } while (0)
     while (i < nf) {
-        int a = g_free[y][2 * i], b = g_free[y][2 * i + 1], d;
+        int a = fr[2 * i], b = fr[2 * i + 1], d;
         if (a < xl) {
             if (b < xl) {
                 KEEP(a, b);
@@ -1188,67 +1342,73 @@ static void row6(int y, int xl, int xr, const float e[3], const Tri6 *t)
             break;
     }
     for (; i < nf; i++)
-        KEEP(g_free[y][2 * i], g_free[y][2 * i + 1]);
+        KEEP(fr[2 * i], fr[2 * i + 1]);
 #undef KEEP
-    memcpy(g_free[y], out, sizeof(int16_t) * 2 * n);
-    g_nfree[y] = n;
+    if (n > first)
+        memcpy(g_row[y].p + 2 * first, out + 2 * first, sizeof(int16_t) * 2 * (size_t)(n - first));
+    g_row[y].n = n;
 }
 
 /* 0x4a04d0: the see-through edge, the free pieces under the row kept for the end */
-static void row6s(int y, int xl, int xr, const float e[3], const Tri6 *t)
+static void row6s(Drawer *w, int y, int xl, int xr, const float e[3], const Tri6 *t)
 {
     int i;
-    if (g_nspan == SPANS) {
-        g_room = 0;
+    if (w->nspan == SPANS) {
+        w->room = 0;
         return;
     }
-    for (i = 0; i < g_nfree[y]; i++) {
-        int a = g_free[y][2 * i], b = g_free[y][2 * i + 1], s;
+    for (i = 0; i < g_row[y].n; i++) {
+        int a = g_row[y].p[2 * i], b = g_row[y].p[2 * i + 1], s;
         Span *p;
         if (a < xl) {
             if (b < xl)
                 continue;
             s = xl;
-            p = &g_span[g_nspan];
+            p = &w->span[w->nspan];
             memcpy(p->e, e, sizeof p->e);
         } else {
             if (xr < a)
                 return;
             s = a;
-            p = &g_span[g_nspan];
+            p = &w->span[w->nspan];
             p->e[0] = (float)(e[0] + (a - xl) * (double)t->g[0]);
             p->e[1] = (float)(e[1] + (a - xl) * (double)t->g[1]);
             p->e[2] = (float)(e[2] + (a - xl) * (double)t->g[2]);
         }
-        g_nspan++;
+        w->nspan++;
         p->y = (int16_t)y, p->x0 = (int16_t)s, p->x1 = (int16_t)(xr <= b ? xr : b);
-        if (xr <= b || g_nspan == SPANS)
+        if (xr <= b || w->nspan == SPANS)
             return;
     }
 }
 
 /* the row loop of 0x4a0700 (0x4a0ce9): rows of one part; a see-through part's pieces
    make one batch */
-static void rows6(int y, int cnt, int *xl, int sl, int *xr, int sr, float e[3],
+static void rows6(Drawer *w, int y, int cnt, int *xl, int sl, int *xr, int sr, float e[3],
                   const float de[3], const Tri6 *t)
 {
-    int see = see_through(t->kind), first = g_nspan, k;
-    if (see && !g_room)
+    int see = see_through(t->kind), first = w->nspan, l = *xl, r = *xr, mask = w->mask, val = w->val;
+    float now[3], d0 = de[0], d1 = de[1], d2 = de[2];
+    if (see && !w->room)
         return;
+    now[0] = e[0], now[1] = e[1], now[2] = e[2];
     for (; cnt > 0; cnt--, y++) {
-        if (g_nfree[y]) {
+        if (!((y ^ val) & mask) && g_row[y].n) {
             if (see)
-                row6s(y, *xl >> 13, *xr >> 13, e, t);
+                row6s(w, y, l >> 13, r >> 13, now, t);
             else
-                row6(y, *xl >> 13, *xr >> 13, e, t);
+                row6(y, l >> 13, r >> 13, now, t);
         }
-        for (k = 0; k < 3; k++)
-            e[k] = (float)((double)e[k] + de[k]);
-        *xl = wrap((long long)*xl + sl);
-        *xr = wrap((long long)*xr + sr);
+        now[0] += d0;                   /* (the same float as through a double: span6) */
+        now[1] += d1;
+        now[2] += d2;
+        l += sl;
+        r += sr;
     }
+    e[0] = now[0], e[1] = now[1], e[2] = now[2];
+    *xl = l, *xr = r;
     if (see)
-        batch_end(first, t->kind, t->tex, t->colour, t->g16);
+        batch_end(w, first, t->kind, t->tex, t->colour, t->g16);
 }
 
 static void steps6(float de[3], const float *a, const float *b, int h)
@@ -1272,7 +1432,7 @@ static int bottom6(int cnt, int ylast)  /* rows past the last (0x625784) dropped
 }
 
 /* 0x4a0700: a triangle with u/z, v/z and 1/z stepped along its left edge and across */
-static void tri6(Corner6 c0, Corner6 c1, Corner6 c2, Tri6 *t)
+static void tri6(Drawer *w, Corner6 c0, Corner6 c1, Corner6 c2, Tri6 *t)
 {
     int x0, y0, x1, y1, x2, y2, A, C, sl = 0, sr, xl = 0, xr, h, y, k;
     float e0[3], e1[3], e2[3], e[3], de[3];
@@ -1311,7 +1471,7 @@ static void tri6(Corner6 c0, Corner6 c1, Corner6 c2, Tri6 *t)
                 xr = wrap(xr - (long long)y0 * sr);
                 h += y0, y = 0;
             }
-            rows6(y, bottom6(h, y1), &xl, sl, &xr, sr, e, de, t);
+            rows6(w, y, bottom6(h, y1), &xl, sl, &xr, sr, e, de, t);
         }
         h = y2 - y1;
         if (h <= 0)
@@ -1325,7 +1485,7 @@ static void tri6(Corner6 c0, Corner6 c1, Corner6 c2, Tri6 *t)
             xr = wrap(xr - (long long)y1 * sr);
             h += y1, y = 0;
         }
-        rows6(y, bottom6(h, y2), &xl, sl, &xr, sr, e, de, t);
+        rows6(w, y, bottom6(h, y2), &xl, sl, &xr, sr, e, de, t);
     } else {                                            /* the long edge 0-1 on the right */
         if (y1 <= y0 || y1 < 0)
             return;
@@ -1344,7 +1504,7 @@ static void tri6(Corner6 c0, Corner6 c1, Corner6 c2, Tri6 *t)
                 xr = wrap(xr - (long long)y0 * sr);
                 h += y0, y = 0;
             }
-            rows6(y, bottom6(h, y2), &xl, sl, &xr, sr, e, de, t);
+            rows6(w, y, bottom6(h, y2), &xl, sl, &xr, sr, e, de, t);
         }
         h = y1 - y2;
         if (h <= 0)
@@ -1360,7 +1520,7 @@ static void tri6(Corner6 c0, Corner6 c1, Corner6 c2, Tri6 *t)
             xr = wrap(((long long)x0 << 13) - (long long)y0 * sr);
             h += y2, y = 0;
         }
-        rows6(y, bottom6(h, y1), &xl, sl, &xr, sr, e, de, t);
+        rows6(w, y, bottom6(h, y1), &xl, sl, &xr, sr, e, de, t);
     }
 }
 
@@ -1385,7 +1545,7 @@ static Corner6 clip6(const Point *b, const Corner6 *cb, const Point *f, const Co
 }
 
 /* 0x4a0f90: a fan, each triangle cut at the near plane */
-static void face6(const Face *f, int kind, int base, const uint16_t *tex)
+static void face6(Drawer *w, const Face *f, int kind, int base, const uint16_t *tex)
 {
     Tri6 t;
     int k;
@@ -1404,16 +1564,16 @@ static void face6(const Face *f, int kind, int base, const uint16_t *tex)
             nb += behind[i];
         }
         if (nb == 0)
-            tri6(c[0], c[1], c[2], &t);
+            tri6(w, c[0], c[1], c[2], &t);
         else if (nb == 1) {                             /* two in front */
             int r = behind[0] ? 0 : behind[1] ? 1 : 2, a = (r + 1) % 3, b = (r + 2) % 3;
             Corner6 p1 = clip6(p[r], &c[r], p[a], &c[a], 0);
             Corner6 p2 = clip6(p[r], &c[r], p[b], &c[b], 0);
-            tri6(c[a], c[b], p1, &t);
-            tri6(c[b], p2, p1, &t);
+            tri6(w, c[a], c[b], p1, &t);
+            tri6(w, c[b], p2, p1, &t);
         } else if (nb == 2) {                           /* one in front */
             int r = !behind[0] ? 0 : !behind[1] ? 1 : 2, a = (r + 1) % 3, b = (r + 2) % 3;
-            tri6(c[r], clip6(p[a], &c[a], p[r], &c[r], 1), clip6(p[b], &c[b], p[r], &c[r], 0),
+            tri6(w, c[r], clip6(p[a], &c[a], p[r], &c[r], 1), clip6(p[b], &c[b], p[r], &c[r], 0),
                  &t);
         }
     }
@@ -1421,7 +1581,7 @@ static void face6(const Face *f, int kind, int base, const uint16_t *tex)
 
 /* ---------------------------------------------------------------- 0x4aef20 */
 
-static void face(const Entry *e)
+static void face(Drawer *w, const Entry *e)
 {
     const Face *f = e->f;
     const uint16_t *tex;
@@ -1433,7 +1593,7 @@ static void face(const Entry *e)
         if (e->dark)                                    /* the light < 0x3e000: half */
             colour = (uint16_t)((colour >> 1) & HALF);
         if (kind == 0) {                                /* 0x4a3cf0 */
-            flat_face(f, base, colour);
+            flat_face(w, f, base, colour);
             return;
         }
         if (kind != 1 && kind != 2 && kind != 3 && kind != 4 && kind != 9 && kind != 42)
@@ -1450,7 +1610,7 @@ static void face(const Entry *e)
             kind = kind == 42 ? 0x25 : kind == 1 ? (e->dark ? 0x15 : 1) : (e->dark ? 0x27 : 0x26);
     } else {
         if (kind == 0) {
-            flat_face(f, base, f->colour & 0xffdf);    /* (the 5:5:5 form: green loses its low bit) */
+            flat_face(w, f, base, f->colour & 0xffdf);    /* (the 5:5:5 form: green loses its low bit) */
             return;
         }
         if (kind == 5)                                  /* 0x4a4bc0: ret */
@@ -1469,10 +1629,10 @@ static void face(const Entry *e)
     if (!tex && kind != 12 && !no_paint(kind))
         return;
     if (sub6(kind)) {
-        face6(f, kind, base, tex);
+        face6(w, f, kind, base, tex);
         return;
     }
-    if (see_through(kind) && !g_room)
+    if (see_through(kind) && !w->room)
         return;
     for (k = 1; k < f->n - 1; k++) {
         int j[3] = { 0, k, k + 1 }, behind[3], nb = 0, i;
@@ -1486,37 +1646,39 @@ static void face(const Entry *e)
             nb += behind[i];
         }
         if (nb == 0)
-            triangle(c[0], c[1], c[2], kind, tex, colour);
+            triangle(w, c[0], c[1], c[2], kind, tex, colour);
         else if (nb == 2) {                             /* one corner in front */
             int r = !behind[0] ? 0 : !behind[1] ? 1 : 2, a = (r + 1) % 3, b = (r + 2) % 3;
-            triangle(c[r], clip(p[a], c[a].u, c[a].v, p[r], c[r].u, c[r].v),
+            triangle(w, c[r], clip(p[a], c[a].u, c[a].v, p[r], c[r].u, c[r].v),
                      clip(p[b], c[b].u, c[b].v, p[r], c[r].u, c[r].v), kind, tex, colour);
         } else if (nb == 1) {                           /* two in front */
             int r = behind[0] ? 0 : behind[1] ? 1 : 2, a = (r + 1) % 3, b = (r + 2) % 3;
             Corner p1 = clip(p[r], c[r].u, c[r].v, p[a], c[a].u, c[a].v);
             Corner p2 = clip(p[r], c[r].u, c[r].v, p[b], c[b].u, c[b].v);
-            triangle(c[a], c[b], p1, kind, tex, colour);
-            triangle(c[b], p2, p1, kind, tex, colour);
+            triangle(w, c[a], c[b], p1, kind, tex, colour);
+            triangle(w, c[b], p2, p1, kind, tex, colour);
         }
     }
 }
 
-void r3d_render(void)
+/* the faces, nearest first, then the see-through pieces, last first: of the rows this one draws */
+static void draw_rows(Drawer *w)
 {
     int b, e, i, n = 0;
-    if (video_no_3d()) {                                /* 0x49ad90: another program in front */
-        r3d_begin();
-        return;
-    }
-    for (b = 0; b < BUCKETS; b++)                       /* nearest first */
-        for (e = g_head[b]; e >= 0; e = g_entry[e].next)
+    for (b = g_bucket_lo; b <= g_bucket_hi; b++)
+        for (e = g_head[b]; e >= 0; e = g_entry[e].next) {
+#ifdef __arm__
+            if (g_entry[e].next >= 0)                   /* (the next face asked for ahead) */
+                __builtin_prefetch(g_entry[g_entry[e].next].f);
+#endif
             if (n++ <= FACES_MAX)
-                face(&g_entry[e]);
-    g_batch[g_nbatch].first = g_nspan;
-    for (b = g_nbatch - 1; b >= 0; b--) {               /* 0x4af130: the last first */
-        const Batch *t = &g_batch[b];
-        for (i = g_batch[b + 1].first - 1; i >= t->first; i--) {
-            const Span *p = &g_span[i];
+                face(w, &g_entry[e]);
+        }
+    w->batch[w->nbatch].first = w->nspan;
+    for (b = w->nbatch - 1; b >= 0; b--) {              /* 0x4af130: the last first */
+        const Batch *t = &w->batch[b];
+        for (i = w->batch[b + 1].first - 1; i >= t->first; i--) {
+            const Span *p = &w->span[i];
             if (sub6(t->kind))
                 span6(p->y, p->x0, p->x1, p->e, t->g16, t->kind, t->tex, t->colour);
             else
@@ -1524,5 +1686,79 @@ void r3d_render(void)
                      t->colour);
         }
     }
+}
+
+#ifdef R3D_TWO
+/* The second CPU (hybrid/CLAUDE.md: the helpers' CPU, Main_MiSTer's, which gives way to our
+   priority) draws every other row. It sleeps between pictures. */
+static uint32_t g_go, g_done;
+static int g_second_ok;
+
+static void futex(uint32_t *at, int op, uint32_t val)
+{
+    syscall(SYS_futex, at, op | FUTEX_PRIVATE_FLAG, val, NULL, NULL, 0);
+}
+
+static void *second_cpu(void *arg)
+{
+    uint32_t seen = 0;
+    int (*pin)(void) = (int (*)(void))arg;
+    __atomic_store_n(&g_second_ok, !pin || pin() ? 1 : -1, __ATOMIC_RELEASE);
+    for (;;) {
+        uint32_t go;
+        while ((go = __atomic_load_n(&g_go, __ATOMIC_ACQUIRE)) == seen)
+            futex(&g_go, FUTEX_WAIT, seen);
+        seen = go;
+        draw_rows(&g_draw[1]);
+        __atomic_store_n(&g_done, seen, __ATOMIC_RELEASE);
+        futex(&g_done, FUTEX_WAKE, 1);
+    }
+    return NULL;
+}
+
+void r3d_two_cpus(int (*pin)(void))
+{
+    pthread_t t;
+    if (g_two || pthread_create(&t, NULL, second_cpu, (void *)pin))
+        return;
+    pthread_detach(t);
+    while (!__atomic_load_n(&g_second_ok, __ATOMIC_ACQUIRE))
+        sched_yield();
+    g_two = g_second_ok > 0;
+}
+
+static void draw_both(int rows)
+{
+    uint32_t go = g_go + 1, d;
+    int i;
+    g_draw[0].mask = g_draw[1].mask = 2 * rows - 1;     /* (rows 1, or 2 at 640x240: its even ones) */
+    g_draw[0].val = 0;
+    g_draw[1].val = rows;
+    __atomic_store_n(&g_go, go, __ATOMIC_RELEASE);
+    futex(&g_go, FUTEX_WAKE, 1);
+    draw_rows(&g_draw[0]);
+    for (i = 0; i < 2000 && __atomic_load_n(&g_done, __ATOMIC_ACQUIRE) != go; i++)
+        ;
+    while ((d = __atomic_load_n(&g_done, __ATOMIC_ACQUIRE)) != go)
+        futex(&g_done, FUTEX_WAIT, d);
+}
+#endif
+
+void r3d_render(void)
+{
+    if (video_no_3d()) {                                /* 0x49ad90: another program in front */
+        r3d_begin();
+        return;
+    }
+#ifdef R3D_TWO
+    if (g_two) {
+        draw_both(g_half_rows ? 2 : 1);
+        r3d_begin();
+        return;
+    }
+#endif
+    g_draw[0].mask = g_half_rows ? 1 : 0;
+    g_draw[0].val = 0;
+    draw_rows(&g_draw[0]);
     r3d_begin();
 }

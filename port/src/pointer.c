@@ -121,6 +121,7 @@ void pointer_draw(void)
             uint16_t *p;
             if (sx < 0 || sx >= g_scr_w)
                 continue;
+            VIDEO_ROWS(sy, sy);
             p = g_screen + sy * g_pitch + sx;
             g_under[y][x] = *p;
             if (!(c->andm[y][x >> 3] & 0x80 >> (x & 7)))
@@ -143,8 +144,10 @@ void pointer_undraw(void)
             continue;
         for (x = 0; x < CUR_W; x++) {
             int sx = g_under_x + x;
-            if (sx >= 0 && sx < g_scr_w)
+            if (sx >= 0 && sx < g_scr_w) {
+                VIDEO_ROWS(sy, sy);
                 g_screen[sy * g_pitch + sx] = g_under[y][x];
+            }
         }
     }
 }

@@ -51,7 +51,7 @@ void racekeys_info(void)
         text_leave(id);
         return;
     }
-    n = snprintf(s, sizeof s, "[  %dX%d]", g_scr_w, video_surface_h());
+    n = snprintf(s, sizeof s, "[  %dX%d]", g_half_rows ? 640 : g_scr_w, video_surface_h());
     if (g_mode169)
         n += snprintf(s + n, sizeof s - (size_t)n, "\n[%s", exe_text(143));
     if (video_fullscreen())

@@ -10,16 +10,24 @@
 #include "exe.h"
 #include "files.h"
 #include <SDL.h>
+#ifdef MISTER_HYBRID
+#include <mister_hybrid.h>
+#endif
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef MISTER_HYBRID
+#include <pthread.h>
+#include <sched.h>
+#endif
 
 #define RATE 44100
 #define SLOTS 1024              /* CfxServer +0x30 */
 #define MUSIC_RING 65536        /* frames: about 1.5 s */
 #define MUSIC_AHEAD 22050       /* kept queued: half a second */
+#define MIX_BLOCK 256           /* frames mixed at a time */
 
 typedef struct {
     int16_t *pcm;               /* mono */
@@ -41,6 +49,7 @@ typedef struct {                /* a DirectSound buffer: a sample object (0x30 b
 } Buffer;
 
 static SDL_AudioDeviceID g_dev;
+static SDL_mutex *g_lock;           /* what the mixer reads */
 static FILE *g_wav;
 static unsigned long g_wav_frames, g_frames;
 static int g_ok;
@@ -67,67 +76,121 @@ static unsigned g_ring_r, g_ring_w;                 /* frames, read and written 
 static int g_mus_paused;                            /* the music holds its place (0x4b1660) */
 static int g_mus_ended, g_mus_repeat;               /* the CD's: read to the end; +0xc */
 static int g_mus_mode;                              /* +0x1c */
+static SDL_mutex *g_mus_lock;                       /* the file, while its thread reads it */
+static SDL_Thread *g_mus_thread;
+static SDL_atomic_t g_mus_quit;
 
+/* (the mixer holds the lock for a short block at a time, so the game never waits long for it) */
 static void lock(void)
 {
-    if (g_dev)
-        SDL_LockAudioDevice(g_dev);
+    if (g_lock)
+        SDL_LockMutex(g_lock);
 }
 
 static void unlock(void)
 {
-    if (g_dev)
-        SDL_UnlockAudioDevice(g_dev);
+    if (g_lock)
+        SDL_UnlockMutex(g_lock);
+}
+
+static void mus_lock(void)
+{
+    if (g_mus_lock)
+        SDL_LockMutex(g_mus_lock);
+}
+
+static void mus_unlock(void)
+{
+    if (g_mus_lock)
+        SDL_UnlockMutex(g_mus_lock);
 }
 
 /* ------------------------------------------------------------------ the mixer */
 
+/* one voice into the frames' sums */
+static void mix_voice(Buffer *b, float *ls, float *rs, int frames)
+{
+    const int16_t *pcm = b->s->pcm;
+    unsigned n = b->s->n;
+    uint64_t pos = b->pos, step = ((uint64_t)b->freq << 32) / RATE;
+    float gl = b->gl, gr = b->gr;
+    int i;
+    for (i = 0; i < frames; i++) {
+        unsigned at = (unsigned)(pos >> 32);
+        float a, f;
+        if (at >= n) {
+            if (!b->loop || !n) {
+                b->playing = 0;
+                break;
+            }
+            pos %= (uint64_t)n << 32;
+            at = (unsigned)(pos >> 32);
+        }
+        f = (float)(uint32_t)pos * (1.0f / 4294967296.0f);
+        a = pcm[at];
+        if (at + 1 < n)
+            a += (pcm[at + 1] - a) * f;
+        else if (b->loop)
+            a += (pcm[0] - a) * f;
+        ls[i] += a * gl;
+        rs[i] += a * gr;
+        pos += step;
+    }
+    b->pos = pos;
+}
+
 static void mix(int16_t *out, int frames)
 {
+    float ls[MIX_BLOCK], rs[MIX_BLOCK];
+    float gain = g_fx_silent ? 0.0f : g_fx_gain;
     int i, k;
-    for (i = 0; i < frames; i++) {
-        float l = 0, r = 0;
-        for (k = 0; k < g_top; k++) {
-            Buffer *b = &g_slot[k];
-            unsigned at;
-            float a, f;
-            if (!b->s || !b->playing)
-                continue;
-            at = (unsigned)(b->pos >> 32);
-            if (at >= b->s->n) {
-                if (!b->loop || !b->s->n) {
-                    b->playing = 0;
-                    continue;
-                }
-                b->pos %= (uint64_t)b->s->n << 32;
-                at = (unsigned)(b->pos >> 32);
+    while (frames > 0) {
+        int n = frames < MIX_BLOCK ? frames : MIX_BLOCK;
+        memset(ls, 0, sizeof(float) * (size_t)n);
+        memset(rs, 0, sizeof(float) * (size_t)n);
+        for (k = 0; k < g_top; k++)
+            if (g_slot[k].s && g_slot[k].playing)
+                mix_voice(&g_slot[k], ls, rs, n);
+        for (i = 0; i < n; i++) {
+            float l = ls[i] * gain, r = rs[i] * gain;
+            if (!g_mus_paused && g_ring_r != g_ring_w) {
+                l += g_ring[g_ring_r % MUSIC_RING][0] * g_mus_gain;
+                r += g_ring[g_ring_r % MUSIC_RING][1] * g_mus_gain;
+                g_ring_r++;
             }
-            f = (float)(uint32_t)b->pos * (1.0f / 4294967296.0f);
-            a = b->s->pcm[at];
-            if (at + 1 < b->s->n)
-                a += (b->s->pcm[at + 1] - a) * f;
-            else if (b->loop)
-                a += (b->s->pcm[0] - a) * f;
-            l += a * b->gl;
-            r += a * b->gr;
-            b->pos += ((uint64_t)b->freq << 32) / RATE;
+            out[2 * i] = (int16_t)(l > 32767 ? 32767 : l < -32768 ? -32768 : l);
+            out[2 * i + 1] = (int16_t)(r > 32767 ? 32767 : r < -32768 ? -32768 : r);
         }
-        l *= g_fx_silent ? 0.0f : g_fx_gain;
-        r *= g_fx_silent ? 0.0f : g_fx_gain;
-        if (!g_mus_paused && g_ring_r != g_ring_w) {
-            l += g_ring[g_ring_r % MUSIC_RING][0] * g_mus_gain;
-            r += g_ring[g_ring_r % MUSIC_RING][1] * g_mus_gain;
-            g_ring_r++;
-        }
-        out[2 * i] = (int16_t)(l > 32767 ? 32767 : l < -32768 ? -32768 : l);
-        out[2 * i + 1] = (int16_t)(r > 32767 ? 32767 : r < -32768 ? -32768 : r);
+        out += 2 * n;
+        frames -= n;
     }
 }
 
 static void callback(void *user, Uint8 *stream, int len)
 {
+    int16_t *out = (int16_t *)stream;
+    int frames = len / 4;
     (void)user;
-    mix((int16_t *)stream, len / 4);
+#ifdef MISTER_HYBRID
+    {   /* the second CPU also draws every other row now: the sound goes first (it takes little) */
+        static int once;
+        if (!once) {
+            struct sched_param p;
+            once = 1;
+            memset(&p, 0, sizeof p);
+            p.sched_priority = 1;
+            pthread_setschedparam(pthread_self(), SCHED_FIFO, &p);
+        }
+    }
+#endif
+    while (frames > 0) {
+        int n = frames < MIX_BLOCK ? frames : MIX_BLOCK;
+        lock();
+        mix(out, n);
+        unlock();
+        out += 2 * n;
+        frames -= n;
+    }
 }
 
 /* ------------------------------------------------------------------ the buffers */
@@ -225,7 +288,8 @@ out:
     return s;
 }
 
-/* 0x4415a0: a sample and 4 copies of it, chained */
+/* 0x4415a0: a sample and 4 copies of it, chained. The file is read with the mixer free to go on:
+   a race's set takes 30 ms, which it could not wait for */
 static int load(const char *path)
 {
     Sample *s = read_wav(path);
@@ -234,12 +298,14 @@ static int load(const char *path)
         fprintf(stderr, "openmotoracer: the sound %s could not be read\n", path);
         return -1;
     }
+    lock();
     h = prev = new_slot(s, 0);
     for (k = 0; k < 4 && prev >= 0; k++) {
         int c = new_slot(s, 1);
         g_slot[prev].next = c;
         prev = c;
     }
+    unlock();
     return h;
 }
 
@@ -304,11 +370,31 @@ static void load_table(int which, int count, const char *folder)
                  exe_str(exe_u32(a + 8 * k)));
         h = load(path);
         g_handle[id] = h;
+        lock();
         set_volume(h, 0xff);    /* 0x424030, 0x424070: full, in the middle */
+        unlock();
     }
 }
 
 /* ------------------------------------------------------------------ the game's calls */
+
+static void music_fill(unsigned want);
+
+/* The music is read on its own thread: a read from the MiSTer's SD card can take several ms. */
+static int music_thread(void *user)
+{
+    (void)user;
+#ifdef MISTER_HYBRID
+    MH_PinThreadToCPU1();
+#endif
+    while (!SDL_AtomicGet(&g_mus_quit)) {
+        mus_lock();
+        music_fill(MUSIC_AHEAD);
+        mus_unlock();
+        SDL_Delay(50);
+    }
+    return 0;
+}
 
 int sound_init(const char *wav, int no_effects)
 {
@@ -337,9 +423,13 @@ int sound_init(const char *wav, int no_effects)
         want.channels = 2;
         want.samples = 1024;
         want.callback = callback;
+        g_lock = SDL_CreateMutex();
         g_dev = SDL_OpenAudioDevice(0, 0, &want, &got, 0);
-        if (g_dev)
+        if (g_dev) {
             SDL_PauseAudioDevice(g_dev, 0);
+            g_mus_lock = SDL_CreateMutex();
+            g_mus_thread = SDL_CreateThread(music_thread, "music", 0);
+        }
     }
     if (!g_dev)
         fprintf(stderr, "openmotoracer: no sound (%s)\n", SDL_GetError());
@@ -366,6 +456,11 @@ static void wav_close(void)
 void sound_quit(void)
 {
     int k;
+    if (g_mus_thread) {
+        SDL_AtomicSet(&g_mus_quit, 1);
+        SDL_WaitThread(g_mus_thread, 0);
+        g_mus_thread = 0;
+    }
     if (g_dev)
         SDL_CloseAudioDevice(g_dev);
     g_dev = 0;
@@ -381,14 +476,12 @@ void sound_menu_load(void)
 {
     if (!sound_running())
         return;
-    lock();
     if (g_handle[0x29] < 0)     /* (the game frees them before a race) */
         load_table(X_SFX_MENU, 7, "Menu\\");
     if (g_voices_on && !g_menu_loaded) {
         load_table(X_SFX_MENU_VOICES, 11, "Voices\\Menu\\");
         g_menu_loaded = 1;
     }
-    unlock();
 }
 
 /* every sound of a set freed and its ids forgotten (0x4042c0 for the menu's, the race's
@@ -415,7 +508,6 @@ void sound_race_load(int ktm)
     if (!sound_running())
         return;
     free_all();
-    lock();
     if (ktm)
         load_table(X_SFX_KTM, 16, "Ktm\\");
     else
@@ -424,7 +516,6 @@ void sound_race_load(int ktm)
     if (g_voices_on)
         load_table(X_SFX_VOICES, 30, "Voices\\");
     g_race_set = 1;
-    unlock();
 }
 
 /* the race's end: its set freed; the menu loads its own as it comes back */
@@ -432,10 +523,8 @@ void sound_podium_load(void)
 {
     if (!sound_running())
         return;
-    lock();
     if (g_handle[4] < 0)
         load_table(X_SFX_PODIUM, 2, "Menu\\");
-    unlock();
 }
 
 void sound_podium_free(void)
@@ -500,11 +589,8 @@ void sound_toggle_voices(void)
         return;
     if (!g_race_set)
         sound_menu_load();
-    else if (sound_running() && g_handle[0x30] < 0) {
-        lock();
+    else if (sound_running() && g_handle[0x30] < 0)
         load_table(X_SFX_VOICES, 30, "Voices\\");
-        unlock();
-    }
 }
 
 /* 0x409410: off stops the music, on plays the track again */
@@ -877,6 +963,7 @@ void music_play(int track, int mode)
     g_mus_mode = mode;          /* +0x1c */
     if (!g_cd_on || ((mode == 1 || mode == 3) && g_mus_playing))
         return;
+    mus_lock();
     lock();
     g_ring_r = g_ring_w = 0;
     g_mus_paused = 0;
@@ -887,6 +974,7 @@ void music_play(int track, int mode)
     if (!g_mus_playing)
         g_mus_repeat = 0;
     music_fill(MUSIC_AHEAD);
+    mus_unlock();
 }
 
 /* The CD's 1 s timer 0x4b12e0, and what MCI says of the drive: a track at its end has stopped;
@@ -899,6 +987,7 @@ static void music_timer(void)
         return;
     if (g_mus_ended) {
         unsigned left;
+        mus_lock();
         lock();
         left = g_ring_w - g_ring_r;
         unlock();
@@ -906,6 +995,7 @@ static void music_timer(void)
             g_mus_ended = 0;
             g_mus_playing = 0;
         }
+        mus_unlock();
     }
     if (g_now < next)
         return;
@@ -916,6 +1006,7 @@ static void music_timer(void)
 
 void music_stop(void)
 {
+    mus_lock();
     if (g_mus)
         fclose(g_mus);
     g_mus = 0;
@@ -925,6 +1016,7 @@ void music_stop(void)
     g_ring_r = g_ring_w = 0;
     g_mus_paused = 0;
     unlock();
+    mus_unlock();
 }
 
 static void music_hold(int on)
@@ -965,7 +1057,8 @@ void sound_frame(void)
 {
     if (!g_ok)
         return;
-    music_fill(g_wav ? RATE / 60 + 2 : MUSIC_AHEAD);
+    if (!g_mus_thread)
+        music_fill(g_wav ? RATE / 60 + 2 : MUSIC_AHEAD);
     music_timer();
     if (g_wav) {                /* exactly 44100 frames every 60 pictures */
         int16_t out[2 * (RATE / 60 + 2)];
@@ -996,8 +1089,8 @@ void sound_load_named(int id, const char *name)
     if (!sound_running() || id < 0 || id > 255 || g_handle[id] >= 0)
         return;
     snprintf(path, sizeof path, "data\\sfx\\16_Bits\\Divers\\%s.wav", name);
-    lock();
     g_handle[id] = load(path);
+    lock();
     set_volume(g_handle[id], 0xff);
     unlock();
 }
