@@ -99,6 +99,9 @@ static int g_mus_mode;                              /* +0x1c */
 static SDL_mutex *g_mus_lock;                       /* the file, while its thread reads it */
 static SDL_Thread *g_mus_thread;
 static SDL_atomic_t g_mus_quit;
+static SDL_sem *g_mus_wake;                         /* a track to open, for the thread */
+static int g_mus_open;                              /* that track (under g_mus_lock), 0 none */
+static SDL_atomic_t g_mus_failed;                   /* the thread could not open it */
 
 /* (the mixer holds the lock for a short block at a time, so the game never waits long for it) */
 static void lock(void)
@@ -399,12 +402,16 @@ static void load_table(int which, int count, const char *folder)
 /* ------------------------------------------------------------------ the game's calls */
 
 static void music_fill(unsigned want);
+static int music_open(int track);
 
 /* The music is read on its own thread: a read from the MiSTer's SD card can take several ms,
    and a file of music/ is decoded there. On the MiSTer CPU1 is shared with the second CPU's rows
    of the picture (r3d.c), at the game's nice -20, and Main_MiSTer's polling at nice 0: the music
    thread goes to nice -10, so that the rows come first and Main_MiSTer after it (the half second
-   it keeps ahead covers the waits). */
+   it keeps ahead covers the waits). It opens the tracks too (music_play): stb_vorbis builds its
+   decoder there, and the half second it fills first took the game's picture at a race's end to
+   41 ms on the MiSTer. It fills 4096 frames at a time, so that music_play() never waits long for
+   the lock. */
 static int music_thread(void *user)
 {
     (void)user;
@@ -417,10 +424,23 @@ static int music_thread(void *user)
     }
 #endif
     while (!SDL_AtomicGet(&g_mus_quit)) {
+        unsigned have, target;
+        int more;
         mus_lock();
-        music_fill(MUSIC_AHEAD);
+        if (g_mus_open) {
+            if (!music_open(g_mus_open))
+                SDL_AtomicSet(&g_mus_failed, 1);
+            g_mus_open = 0;
+        }
+        lock();
+        have = g_ring_w - g_ring_r;
+        unlock();
+        target = have + 4096 < MUSIC_AHEAD ? have + 4096 : MUSIC_AHEAD;
+        music_fill(target);
+        more = g_mus_kind && target < MUSIC_AHEAD;
         mus_unlock();
-        SDL_Delay(50);
+        if (!more)
+            SDL_SemWaitTimeout(g_mus_wake, 50);
     }
     return 0;
 }
@@ -457,6 +477,7 @@ int sound_init(const char *wav, int no_effects)
         if (g_dev) {
             SDL_PauseAudioDevice(g_dev, 0);
             g_mus_lock = SDL_CreateMutex();
+            g_mus_wake = SDL_CreateSemaphore(0);
             g_mus_thread = SDL_CreateThread(music_thread, "music", 0);
         }
     }
@@ -487,6 +508,7 @@ void sound_quit(void)
     int k;
     if (g_mus_thread) {
         SDL_AtomicSet(&g_mus_quit, 1);
+        SDL_SemPost(g_mus_wake);
         SDL_WaitThread(g_mus_thread, 0);
         g_mus_thread = 0;
     }
@@ -1165,6 +1187,15 @@ void music_play(int track, int mode)
     unlock();
     g_mus_ended = 0;
     g_mus_repeat = mode == 2 || mode == 3;      /* +0xc */
+    if (g_mus_thread) {         /* opened and filled there; a track it cannot open: music_timer */
+        music_close();
+        g_mus_open = track;
+        SDL_AtomicSet(&g_mus_failed, 0);
+        g_mus_playing = 1;
+        mus_unlock();
+        SDL_SemPost(g_mus_wake);
+        return;
+    }
     g_mus_playing = music_open(track);
     if (!g_mus_playing)
         g_mus_repeat = 0;
@@ -1178,6 +1209,14 @@ void music_play(int track, int mode)
 static void music_timer(void)
 {
     static unsigned next;
+    if (SDL_AtomicGet(&g_mus_failed)) {         /* (as music_play() without the thread) */
+        mus_lock();
+        if (SDL_AtomicGet(&g_mus_failed) && !g_mus_open) {
+            SDL_AtomicSet(&g_mus_failed, 0);
+            g_mus_playing = g_mus_repeat = 0;
+        }
+        mus_unlock();
+    }
     if (!behaviour_cd())
         return;
     if (g_mus_ended) {
@@ -1203,6 +1242,7 @@ void music_stop(void)
 {
     mus_lock();
     music_close();
+    g_mus_open = 0;
     g_mus_playing = 0;
     g_mus_ended = g_mus_repeat = 0;
     lock();
