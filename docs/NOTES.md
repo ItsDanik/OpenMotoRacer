@@ -2253,6 +2253,15 @@ CPU's rows (§4.25), goes from the game's nice -20 to -10: the rows come first, 
 Checked (`OMR_WAV`, intro and title, 25 s): GOG's `NN.wav` and the image give the same bytes as before; Ogg q4 of the image's
 tracks against the image, every second correlated 0.996..0.999 at the same loudness; MP3 at 48 kHz stereo and WAV at 22.05 kHz
 1.000; a 2 s `13.ogg` loops under GOG RELEASE and plays once under 1997 CD.
+On the MiSTer (640x240, list 0 track 4, 21600 pictures, the CD's copy with Ogg q4 of its tracks, `OMR_COPY`): first a 41 ms
+picture at the race's end, its one frame never shown and one twice: `music_play()` opened track 12 on the game thread,
+stb_vorbis building its decoder and the first half second decoded there (GOG's raw `12.wav` 23 ms at the same place). With a
+music thread the open and every fill are its own now, 4096 frames per hold of `g_mus_lock`, the thread woken at once by
+`music_play()` (a track it cannot open: `g_mus_failed`, which `music_timer()` takes as `music_play()` did); without one
+(`OMR_WAV`) as before. Then, never shown / shown twice after the load: Ogg 1/1 and 2/2 (slowest 41, 31 and 28 ms, at no music
+call: on the PC the race calls `music_play()` at its start and its end only), GOG's `NN.wav` 0/0 and 0/0 (slowest 25 ms);
+the average the same to 0.1 ms, the audio ring never empty. Within the noise of 2026-11-02's 1/1, or the decoding on CPU1
+now and then in the second drawer's way: not taken further.
 
 ##### 4.10.5.4 Track use (both the CD and the GOG files: 02..13.wav, 44.1 kHz stereo 16-bit)
 
