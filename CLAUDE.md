@@ -45,8 +45,8 @@ format question stalls, find the code that reads the field.**
   network or modem play (DirectPlay).
 - **Hand-written from the start.** Decompiled code is read and clean C is written that does
   the same. Machine-converted code only as an unpublished reference under `build/`.
-- **Local git only** until Danik says so; commit after each finished step. GPL-3 when it
-  goes public.
+- **Public since 2026-11-04** (Danik, for the MiSTer release): `github.com/ItsDanik/OpenMotoRacer`, GPL-3.0
+  (`LICENSE`), branches `master` and `mister` only; commit after each finished step.
 
 ## Legal
 
