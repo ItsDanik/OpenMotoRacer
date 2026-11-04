@@ -47,6 +47,10 @@ format question stalls, find the code that reads the field.**
   the same. Machine-converted code only as an unpublished reference under `build/`.
 - **Public since 2026-11-04** (Danik, for the MiSTer release): `github.com/ItsDanik/OpenMotoRacer`, GPL-3.0
   (`LICENSE`), branches `master` and `mister` only; commit after each finished step.
+- **PC releases** as ReNFS's: a GitHub pre-release `v<version>` with `tools/release_linux.sh` and
+  `tools/release_windows.sh`'s packages (`dist/`), the version from `VERSION` and `tools/version.sh`;
+  `tools/shots.sh`, `tools/replaycheck.sh` and `tools/windows.sh check` first. 0.6.0b the first
+  (2026-11-04, from master after mister was merged into it; mister kept equal to master since).
 
 ## Legal
 
