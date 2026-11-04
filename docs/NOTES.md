@@ -137,7 +137,7 @@ the only difference with a pixel to it is page 8's grey rows, 128 against 127, a
 Which program's logic the port runs is the Game Behaviour setting, whichever files it reads (§3.5c).
 "FULL D3D VERSION" is the patch's: not on this build. Registry value `Version` 1 makes the program use the
 `title*GP.lez` pictures (0x4d247c) ("Moto Racer GP"); the port doesn't read it and shows the plain title.
-The CD's audio tracks come from its image (§4.10.5.3a).
+The CD's audio tracks come from its image (§4.10.5.3a), or from files the player made from it (§4.10.5.3b).
 
 **Running MOTO.EXE under wine** (build/origcd: MOTO.EXE, DATA, GOG's DDraw.dll, D3DImm.dll, dgVoodoo.conf; drive
 e: at that folder with `.windows-label` moto_rac and `HKLM\Software\Wine\Drives` e: cdrom). Without the install's
@@ -2239,6 +2239,19 @@ The rules are the disc's (asm above), not GOG's loop: a track at its end has sto
 mode 0 (twice in all), then it stays stopped until a page asks for it. In both builds 0x404990 chooses first and plays with -1, so modes 1 and 3 leave going whatever
 plays, and the podium's track runs on into the menus [asm; GOG's mode status answers playing from its own flags]. Checked (`OMR_WAV`, main menu, 5 minutes): track 3 twice with a gap of
 under a second and then silence from 281 s; 2 s from the middle found in GOG's 03.wav at score 0.99999.
+
+##### 4.10.5.3b The CD's music as files of the player's own (Danik, 2026-11-04)
+As the other hybrid ports take a disc's music (OpenScreamer, jfSW, YQuake2): track n as a file the player made from the disc,
+`music/trackNN`, `track_NN`, `track NN` or `NN` (any case), `.ogg`, `.mp3` or `.wav`, in the game's folder's `music/`, else in
+the game's folder itself. `music_open()` (`sound.c`) takes, in this order: GOG's `NN.wav` beside the files (44.1 kHz 16-bit stereo,
+read raw as before), such a file, the CD's image. The decoders are OpenScreamer's (`port/src/third_party`: stb_vorbis 1.22,
+dr_mp3 0.7.4, dr_wav 0.14.6, public domain or MIT-0); a file's frames are made two sides (mono doubled) and the mixer's
+44.1 kHz by a line between two frames where its rate is another. The end of a track and the loop are the same as the raw
+tracks' (`music_read()` 0, then the disc's stop or GOG's `music_rewind()`). On the MiSTer the music thread is `SCHED_IDLE` on
+CPU1, so that the decoding takes only the time the second CPU's rows leave (§4.25).
+Checked (`OMR_WAV`, intro and title, 25 s): GOG's `NN.wav` and the image give the same bytes as before; Ogg q4 of the image's
+tracks against the image, every second correlated 0.996..0.999 at the same loudness; MP3 at 48 kHz stereo and WAV at 22.05 kHz
+1.000; a 2 s `13.ogg` loops under GOG RELEASE and plays once under 1997 CD.
 
 ##### 4.10.5.4 Track use (both the CD and the GOG files: 02..13.wav, 44.1 kHz stereo 16-bit)
 

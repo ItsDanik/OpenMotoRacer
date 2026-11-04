@@ -29,8 +29,10 @@ Built programs are on the [releases page](https://github.com/ItsDanik/OpenMotoRa
 The port brings none of the game's files. Use your copy of *Moto Racer*, either one of these:
 
 - **GOG**: the folder as installed (`game.EXE`, `data/` and the music `02.wav` to `13.wav`).
-- **The 1997 CD**: the files of the CD, with the CD's image (`.cue` and `.bin`) for its music,
-  in the same folder, the folder above it, or a folder named `CD` there.
+- **The 1997 CD**: the files of the CD, and for its music either the CD's image (`.cue` and
+  `.bin`, in the same folder, the folder above it, or a folder named `CD` there) or its audio
+  tracks as files in a `music` folder there: `track02.ogg` to `track13.ogg` (Ogg Vorbis; `.mp3`
+  and `.wav` do as well, and `Track02`, `track_02` or `02` as the name).
 
 Name the folder `Moto Racer` and put it next to the program, or start the program with
 `-data <folder>`.

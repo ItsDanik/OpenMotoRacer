@@ -20,8 +20,10 @@ YOU NEED THE GAME
 
       the 1997 CD's files:        Moto Racer/DISK1/...
                                   Moto Racer/DATA/...
-        and for its music the CD's image (.cue and .bin) in that folder,
-        the folder above it, or a folder named CD there.
+        and for its music either the CD's image (.cue and .bin) in that
+        folder, the folder above it or a folder named CD there, or its
+        audio tracks as files:    Moto Racer/music/track02.ogg ... track13.ogg
+        (.mp3 or .wav do as well).
 
   (or anywhere, and start the program with  -data <that folder>). Upper or
   lower case does not matter; nothing has to be installed.

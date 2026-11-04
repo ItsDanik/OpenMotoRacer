@@ -2,7 +2,8 @@
    game's tables, each with 4 more copies (0x4415a0), played, stopped and turned as
    DirectSound buffers (0x441a40..0x441fa0) and mixed here. The queues of delayed sounds
    (0x404b30). The music: the CD's audio tracks as GOG's winmm.dll plays them, NN.wav
-   beside game.EXE, read ahead a piece a picture. */
+   beside game.EXE, else as files of the player's own in music/ (Ogg Vorbis, MP3 or WAV), else
+   from the 1997 CD's image; read ahead a piece a picture. */
 #include "sound.h"
 #include "clock.h"
 #include "config.h"
@@ -10,6 +11,10 @@
 #include "exe.h"
 #include "files.h"
 #include <SDL.h>
+#define STB_VORBIS_HEADER_ONLY
+#include "third_party/stb_vorbis.c"
+#include "third_party/dr_mp3.h"
+#include "third_party/dr_wav.h"
 #ifdef MISTER_HYBRID
 #include <mister_hybrid.h>
 #endif
@@ -18,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #ifdef MISTER_HYBRID
 #include <pthread.h>
 #include <sched.h>
@@ -70,6 +76,17 @@ static float g_fx_gain = 1.0f, g_mus_gain = 1.0f;   /* the mixer's lines (config
 /* the music */
 static FILE *g_mus;
 static long g_mus_data, g_mus_len, g_mus_pos;        /* bytes: where the samples start */
+/* or a file of music/, decoded: its rate made the mixer's by a line between two frames */
+enum { MUS_NONE, MUS_RAW, MUS_OGG, MUS_MP3, MUS_WAV };
+static int g_mus_kind;                              /* MUS_RAW: g_mus, 44.1 kHz 16-bit stereo */
+static stb_vorbis *g_ogg;
+static drmp3 g_mp3;
+static drwav g_dwav;
+static int g_dec_ch, g_dec_rate;
+static int16_t g_dec[2048][2];                      /* decoded, as two sides, at its own rate */
+static unsigned g_dec_have, g_dec_at;
+static int16_t g_res_a[2], g_res_b[2];              /* the two frames the output lies between */
+static double g_res_t, g_res_step;
 static int g_mus_track = -1, g_mus_playing;
 static int16_t g_ring[MUSIC_RING][2];
 static unsigned g_ring_r, g_ring_w;                 /* frames, read and written */
@@ -380,12 +397,21 @@ static void load_table(int which, int count, const char *folder)
 
 static void music_fill(unsigned want);
 
-/* The music is read on its own thread: a read from the MiSTer's SD card can take several ms. */
+/* The music is read on its own thread: a read from the MiSTer's SD card can take several ms,
+   and a file of music/ is decoded there. On the MiSTer it takes only the time the second CPU's
+   rows of the picture leave (r3d.c): SCHED_IDLE, the half second it keeps ahead covering. */
 static int music_thread(void *user)
 {
     (void)user;
 #ifdef MISTER_HYBRID
     MH_PinThreadToCPU1();
+    {
+#ifndef SCHED_IDLE
+#define SCHED_IDLE 5            /* (Linux's; glibc names it with _GNU_SOURCE only) */
+#endif
+        struct sched_param p = { 0 };
+        pthread_setschedparam(pthread_self(), SCHED_IDLE, &p);
+    }
 #endif
     while (!SDL_AtomicGet(&g_mus_quit)) {
         mus_lock();
@@ -857,32 +883,107 @@ void sound_update(void)
 
 /* ------------------------------------------------------------------ the music */
 
+static void music_close(void)
+{
+    if (g_mus)
+        fclose(g_mus);
+    g_mus = 0;
+    if (g_mus_kind == MUS_OGG)
+        stb_vorbis_close(g_ogg);
+    else if (g_mus_kind == MUS_MP3)
+        drmp3_uninit(&g_mp3);
+    else if (g_mus_kind == MUS_WAV)
+        drwav_uninit(&g_dwav);
+    g_ogg = 0;
+    g_mus_kind = MUS_NONE;
+}
+
+/* The CD's track n as a file of the player's own, made from the disc: music/trackNN, track_NN
+   or NN (any case), .ogg, .mp3 or .wav, in the game's folder's music/, else in the game's
+   folder itself (where GOG's NN.wav are found first). */
+static int music_find_file(int track, char *path, size_t size)
+{
+    static const char *const forms[] = { "track%02d.%s", "track_%02d.%s", "track %02d.%s", "%02d.%s" };
+    static const char *const kinds[] = { "ogg", "mp3", "wav" };
+    char name[64], rel[96];
+    int d, f, k;
+    for (d = 0; d < 2; d++)
+        for (f = 0; f < 4; f++)
+            for (k = 0; k < 3; k++) {
+                snprintf(name, sizeof name, forms[f], track, kinds[k]);
+                snprintf(rel, sizeof rel, "%s%s", d ? "" : "music/", name);
+                if (files_find(rel, path, size))
+                    return 1;
+            }
+    return 0;
+}
+
+static int music_open_file(const char *path)
+{
+    const char *dot = strrchr(path, '.');
+    int err = 0;
+    if (!dot)
+        return 0;
+    if (!strcasecmp(dot, ".ogg")) {
+        stb_vorbis_info in;
+        if (!(g_ogg = stb_vorbis_open_filename(path, &err, NULL)))
+            return 0;
+        in = stb_vorbis_get_info(g_ogg);
+        g_mus_kind = MUS_OGG;
+        g_dec_ch = in.channels;
+        g_dec_rate = (int)in.sample_rate;
+    } else if (!strcasecmp(dot, ".mp3")) {
+        if (!drmp3_init_file(&g_mp3, path, NULL))
+            return 0;
+        g_mus_kind = MUS_MP3;
+        g_dec_ch = (int)g_mp3.channels;
+        g_dec_rate = (int)g_mp3.sampleRate;
+    } else {
+        if (!drwav_init_file(&g_dwav, path, NULL))
+            return 0;
+        g_mus_kind = MUS_WAV;
+        g_dec_ch = (int)g_dwav.channels;
+        g_dec_rate = (int)g_dwav.sampleRate;
+    }
+    if (g_dec_ch < 1 || g_dec_rate < 8000 || g_dec_rate > 192000) {
+        fprintf(stderr, "openmotoracer: %s: %d channels at %d Hz cannot be played\n", path,
+                g_dec_ch, g_dec_rate);
+        music_close();
+        return 0;
+    }
+    g_dec_have = g_dec_at = 0;
+    g_res_step = (double)g_dec_rate / RATE;
+    g_res_t = 2.0;              /* (the first two frames are read before the first is given) */
+    return 1;
+}
+
 /* GOG's winmm.dll: MCI_PLAY of track n is PlaySound("0n.wav" or "n.wav", SND_LOOP), so
    every track goes round and round (NOTES §4.10.5); a copy without them has the music in
-   the CD's image. Where the music comes from is what the player has; how it is played,
-   the Game Behaviour setting. */
+   the CD's image, or as files the player made from it (music/). Where the music comes from
+   is what the player has; how it is played, the Game Behaviour setting. */
 static int music_open(int track)
 {
     char name[16], path[1024];
     unsigned char h[12], c[8];
-    if (g_mus)
-        fclose(g_mus);
-    g_mus = 0;
+    music_close();
     snprintf(name, sizeof name, track < 10 ? "0%d.wav" : "%d.wav", track);
-    if (!files_find(name, path, sizeof path)
-        && cdaudio_track(track, path, sizeof path, &g_mus_data, &g_mus_len)) {
+    if (!files_find(name, path, sizeof path)) {
+        if (music_find_file(track, path, sizeof path))
+            return music_open_file(path);
+        if (!cdaudio_track(track, path, sizeof path, &g_mus_data, &g_mus_len))
+            return 0;
         if (!(g_mus = fopen(path, "rb")) || fseek(g_mus, g_mus_data, SEEK_SET)) {
-            if (g_mus)
-                fclose(g_mus);
-            g_mus = 0;
+            music_close();
             return 0;
         }
+        g_mus_kind = MUS_RAW;
         g_mus_len &= ~3L;
         g_mus_pos = 0;
         return 1;
     }
-    if (!files_find(name, path, sizeof path) || !(g_mus = fopen(path, "rb")))
+    if (!(g_mus = fopen(path, "rb")))
         return 0;
+    g_mus_kind = MUS_RAW;
     if (fread(h, 1, 12, g_mus) != 12 || memcmp(h, "RIFF", 4) || memcmp(h + 8, "WAVE", 4))
         goto bad;
     for (;;) {                  /* the chunks, to "data"; "fmt " is 44.1 kHz 16-bit stereo */
@@ -910,42 +1011,133 @@ static int music_open(int track)
             goto bad;
     }
 bad:
-    fclose(g_mus);
-    g_mus = 0;
+    music_close();
     return 0;
+}
+
+/* up to n frames of the file at its own rate, as two sides; 0 at its end */
+static unsigned music_decode(int16_t (*out)[2], unsigned n)
+{
+    static int16_t raw[2048 * 8];
+    unsigned got = 0, i, ch = g_dec_ch > 8 ? 8 : (unsigned)g_dec_ch;
+    if (n > 2048)
+        n = 2048;
+    if (g_mus_kind == MUS_OGG) {    /* (stb_vorbis gives the sides it is asked for) */
+        int k = ch >= 2 ? 2 : 1;
+        int r = stb_vorbis_get_samples_short_interleaved(g_ogg, k, raw, (int)n * k);
+        got = r > 0 ? (unsigned)r : 0;
+        for (i = 0; i < got; i++) {
+            out[i][0] = raw[k * i];
+            out[i][1] = raw[k * i + k - 1];
+        }
+        return got;
+    }
+    got = g_mus_kind == MUS_MP3 ? (unsigned)drmp3_read_pcm_frames_s16(&g_mp3, n, raw)
+                                : (unsigned)drwav_read_pcm_frames_s16(&g_dwav, n, raw);
+    for (i = 0; i < got; i++) {
+        out[i][0] = raw[i * ch];
+        out[i][1] = raw[i * ch + (ch >= 2 ? 1 : 0)];
+    }
+    return got;
+}
+
+/* up to n frames at the mixer's rate, as two sides; 0 at the track's end */
+static unsigned music_read(int16_t (*out)[2], unsigned n)
+{
+    unsigned i;
+    if (g_mus_kind == MUS_RAW) {
+        unsigned char buf[4096];
+        size_t got;
+        if (g_mus_pos >= g_mus_len)
+            return 0;
+        if (n > sizeof buf / 4)
+            n = sizeof buf / 4;
+        if ((long)n * 4 > g_mus_len - g_mus_pos)
+            n = (unsigned)((g_mus_len - g_mus_pos) / 4);
+        got = fread(buf, 4, n, g_mus);
+        g_mus_pos += (long)got * 4;
+        if (!got)
+            g_mus_pos = g_mus_len;
+        for (i = 0; i < got; i++) {
+            out[i][0] = (int16_t)(buf[4 * i] | buf[4 * i + 1] << 8);
+            out[i][1] = (int16_t)(buf[4 * i + 2] | buf[4 * i + 3] << 8);
+        }
+        return (unsigned)got;
+    }
+    if (g_dec_rate == RATE)
+        return music_decode(out, n);
+    for (i = 0; i < n; i++) {
+        while (g_res_t >= 1.0) {
+            if (g_dec_at >= g_dec_have) {
+                g_dec_have = music_decode(g_dec, 2048);
+                g_dec_at = 0;
+                if (!g_dec_have)
+                    return i;
+            }
+            g_res_a[0] = g_res_b[0];
+            g_res_a[1] = g_res_b[1];
+            g_res_b[0] = g_dec[g_dec_at][0];
+            g_res_b[1] = g_dec[g_dec_at][1];
+            g_dec_at++;
+            g_res_t -= 1.0;
+        }
+        out[i][0] = (int16_t)(g_res_a[0] + (g_res_b[0] - g_res_a[0]) * g_res_t);
+        out[i][1] = (int16_t)(g_res_a[1] + (g_res_b[1] - g_res_a[1]) * g_res_t);
+        g_res_t += g_res_step;
+    }
+    return n;
+}
+
+/* back to the track's start (GOG's SND_LOOP); 0 if it can't be */
+static int music_rewind(void)
+{
+    switch (g_mus_kind) {
+    case MUS_RAW:
+        g_mus_pos = 0;
+        return fseek(g_mus, g_mus_data, SEEK_SET) == 0;
+    case MUS_OGG:
+        if (!stb_vorbis_seek_start(g_ogg))
+            return 0;
+        break;
+    case MUS_MP3:
+        if (!drmp3_seek_to_pcm_frame(&g_mp3, 0))
+            return 0;
+        break;
+    case MUS_WAV:
+        if (!drwav_seek_to_pcm_frame(&g_dwav, 0))
+            return 0;
+        break;
+    default:
+        return 0;
+    }
+    g_dec_have = g_dec_at = 0;
+    g_res_t = 2.0;
+    return 1;
 }
 
 static void music_fill(unsigned want)
 {
-    unsigned char buf[4096];
-    while (g_mus && g_mus_len > 0 && g_ring_w - g_ring_r < want) {
-        unsigned n = want - (g_ring_w - g_ring_r), i;
-        size_t got;
-        if (n > sizeof buf / 4)
-            n = sizeof buf / 4;
-        if (g_mus_pos >= g_mus_len) {
+    int16_t buf[1024][2];
+    while (g_mus_kind && g_ring_w - g_ring_r < want) {
+        unsigned n = want - (g_ring_w - g_ring_r), i, got;
+        if (n > 1024)
+            n = 1024;
+        got = music_read(buf, n);
+        if (!got) {
             if (behaviour_cd()) {               /* a real disc comes to the track's end */
-                fclose(g_mus);
-                g_mus = 0;
+                music_close();
                 g_mus_ended = 1;
                 break;
             }
-            fseek(g_mus, g_mus_data, SEEK_SET); /* GOG's SND_LOOP */
-            g_mus_pos = 0;
+            if (!music_rewind() || !(got = music_read(buf, n))) {   /* GOG's SND_LOOP */
+                music_close();
+                break;
+            }
         }
-        if ((long)n * 4 > g_mus_len - g_mus_pos)
-            n = (unsigned)((g_mus_len - g_mus_pos) / 4);
-        got = fread(buf, 4, n, g_mus);
-        if (!got) {
-            fclose(g_mus);
-            g_mus = 0;
-            break;
-        }
-        g_mus_pos += (long)got * 4;
         lock();
         for (i = 0; i < got; i++) {
-            g_ring[g_ring_w % MUSIC_RING][0] = (int16_t)(buf[4 * i] | buf[4 * i + 1] << 8);
-            g_ring[g_ring_w % MUSIC_RING][1] = (int16_t)(buf[4 * i + 2] | buf[4 * i + 3] << 8);
+            g_ring[g_ring_w % MUSIC_RING][0] = buf[i][0];
+            g_ring[g_ring_w % MUSIC_RING][1] = buf[i][1];
             g_ring_w++;
         }
         unlock();
@@ -1007,9 +1199,7 @@ static void music_timer(void)
 void music_stop(void)
 {
     mus_lock();
-    if (g_mus)
-        fclose(g_mus);
-    g_mus = 0;
+    music_close();
     g_mus_playing = 0;
     g_mus_ended = g_mus_repeat = 0;
     lock();

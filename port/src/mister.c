@@ -57,7 +57,8 @@ static const char *const g_gog_files[] = { "game.EXE", DATA_FILES("data/"), NULL
 static const char *const g_cd_files[] = { "DISK1/data.z", DATA_FILES("DATA/"), NULL };
 
 #define NO_GAME "Moto Racer was not found. Copy the game's whole folder as it is, GOG's " \
-    "(game.EXE, data, 02.wav...) or the CD's (DISK1, DATA, its .cue and .bin), to %s/Moto Racer/"
+    "(game.EXE, data, 02.wav...) or the CD's (DISK1, DATA, and its .cue and .bin or " \
+    "music/track02.ogg...), to %s/Moto Racer/"
 
 static int has(const char *dir, const char *file)
 {

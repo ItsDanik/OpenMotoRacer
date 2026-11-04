@@ -83,7 +83,7 @@ C11, CMake, SDL2 linked dynamically. Built with one command:
 - **The game's tables are read from the player's game.EXE** at their addresses
   (`exe.c`: the PE placed at 0x400000, the build known by its FNV-1a sum; unknown builds
   are refused with a message).
-- The CD: `-data` at the CD's files works alone, `MOTO.EXE` read from `DISK1/data.z` (`exe.c`, NOTES §3.5a), the 1997 program's behaviour by default; title and main menu equal to MOTO.EXE's; its music from the CD's image (`cdaudio.c`, §4.10.5.3a). MOTO.EXE runs a whole race under wine (`-noD3D`, §3.5a); it differs from GOG's in 92 routines (§3.5b).
+- The CD: `-data` at the CD's files works alone, `MOTO.EXE` read from `DISK1/data.z` (`exe.c`, NOTES §3.5a), the 1997 program's behaviour by default; title and main menu equal to MOTO.EXE's; its music from the CD's image (`cdaudio.c`, §4.10.5.3a), or from the player's own files of it, `music/track02.ogg`... (.ogg, .mp3, .wav; `sound.c`, §4.10.5.3b). MOTO.EXE runs a whole race under wine (`-noD3D`, §3.5a); it differs from GOG's in 92 routines (§3.5b).
 - The screen is the game's: RGB565 (`video.c`), shown 4:3; menus 640x480, the race also 512x384 and 320x240 and 16:9 at the top (F2, F3, F4, the F12 column, Shift+F12; `OMR_SCREEN=MODE[,WIDE]`; NOTES §4.20 §1b, §4.19 §5b).
 - `--shot FILE N` (`OMR_SHOT`): no window, N frames, the screen as a BMP. `--help` lists
   the test switches (`OMR_*`).

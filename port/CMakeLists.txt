@@ -11,6 +11,10 @@ endif()
 
 add_compile_options(-Wall -Wextra -O2 -fwrapv -ffp-contract=off -fsigned-char)   # (char as on the PC: ARM's is unsigned)
 
+# the decoders of the CD's music as files (src/third_party: stb_vorbis, dr_mp3, dr_wav, as
+# OpenScreamer has them) are others' code, taken as it is: their warnings are not ours to mend
+set_source_files_properties(src/third_party/decoders.c PROPERTIES COMPILE_OPTIONS "-w")
+
 # SDL2, linked dynamically
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL2 REQUIRED sdl2)
@@ -32,7 +36,7 @@ set(OMR_SOURCES
   src/obj3d.c
   src/config.c src/choices.c src/page_mode.c src/page_track.c src/page_bike.c src/bike3d.c src/pose.c src/shadow.c src/effects.c src/race.c src/race_sound.c src/bikephys.c src/cpu.c src/camera.c src/replay.c src/ghost.c src/generic.c src/rules.c src/dialog.c src/pointer.c src/hud.c src/input.c src/joy.c src/page_top5.c src/page_load.c src/page_champ.c src/page_podium.c src/page_options.c src/saves.c src/scores.c src/bikes.c src/land.c src/horizon.c src/sprite.c src/signs.c src/trackmap.c src/racekeys.c
   src/page_name.c
-  src/pad.c src/cdaudio.c
+  src/pad.c src/cdaudio.c src/third_party/decoders.c
   src/script.c
   src/font.c
   src/text.c
