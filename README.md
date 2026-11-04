@@ -13,12 +13,27 @@ by degrees and a pad rumbles.
 
 Not in it: the Direct3D renderer and the network and modem race.
 
+## Download
+
+Built programs are on the [releases page](https://github.com/ItsDanik/OpenMotoRacer/releases):
+
+- **Windows** (10 or 11, 64-bit): `openmotoracer-<version>-windows-x86_64.zip`. Unpack it, put
+  your `Moto Racer` folder next to `openmotoracer.exe`, double-click `openmotoracer.exe`.
+- **Linux** (x86-64): `openmotoracer-<version>-linux-x86_64.tar.gz`. It needs SDL2, which most
+  systems have (`sudo apt install libsdl2-2.0-0` on Debian, Ubuntu and Mint, `sudo dnf
+  install SDL2` on Fedora, `sudo pacman -S sdl2` on Arch). Unpack it, put your `Moto Racer`
+  folder next to `openmotoracer`, run `./openmotoracer`.
+
 ## You need the game
 
 The port brings none of the game's files. Use your copy of *Moto Racer*, either one of these:
 
 - **GOG**: the folder as installed (`game.EXE`, `data/` and the music `02.wav` to `13.wav`).
-- **The 1997 CD**: the files of the CD, with the CD's image for its music.
+- **The 1997 CD**: the files of the CD, with the CD's image (`.cue` and `.bin`) for its music,
+  in the same folder, the folder above it, or a folder named `CD` there.
+
+Name the folder `Moto Racer` and put it next to the program, or start the program with
+`-data <folder>`.
 
 The port reads the game's tables from your `game.EXE` or `MOTO.EXE`, each known build by its
 checksum.
@@ -41,8 +56,8 @@ port/build/openmotoracer -data "/path/to/Moto Racer"
 
 `-data` (or `OMR_DATA`) is your Moto Racer folder; `-home` (or `OMR_HOME`) is where settings
 and saved games go, by default the folder it runs in. `--help` lists the rest.
-`tools/windows.sh` makes the Windows build with MinGW, and `tools/arm.sh` makes the MiSTer's ARM
-build.
+`tools/release_linux.sh` and `tools/release_windows.sh` make the release packages (in `dist/`),
+and `tools/arm.sh` makes the MiSTer's ARM build.
 
 ## How it was made
 
