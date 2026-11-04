@@ -35,7 +35,7 @@ docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$ROOT":"$ROOT" -w "$ROOT
     cmake --build $W/sdl -j\$(nproc) > /dev/null
     cmake --install $W/sdl > /dev/null
   fi
-  PKG_CONFIG_PATH=$ROOT/$W/prefix/lib/pkgconfig cmake -S port -B $W/game -DCMAKE_BUILD_TYPE=Release -DCMAKE_SKIP_RPATH=ON > /dev/null
+  PKG_CONFIG_PATH=$ROOT/$W/prefix/lib/pkgconfig cmake -S port -B $W/game -DCMAKE_BUILD_TYPE=Release -DCMAKE_SKIP_RPATH=ON -DCMAKE_C_FLAGS=-DOMR_OLD_GLIBC > /dev/null
   cmake --build $W/game -j\$(nproc) 2>&1 | grep -E ' error|Built target openmotoracer'
   strip $W/game/openmotoracer"
 
