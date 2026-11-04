@@ -77,12 +77,16 @@ int mister_start(char *out, unsigned size)
     unsigned i;
     if (!mister_on())
         return 0;
-    /* GOG's first when both are there; the copy is known by what is in its folder */
-    for (i = 0; i < sizeof dirs / sizeof dirs[0]; i++)
-        if (has(dirs[i], "game.EXE") || has(dirs[i], "DISK1/data.z")) {
-            dir = dirs[i];
-            break;
-        }
+    /* GOG's first when both are there; the copy is known by what is in its folder
+       (OMR_COPY=<folder>, for tests: that one, e.g. the CD's with both installed) */
+    if (getenv("OMR_COPY"))
+        dir = getenv("OMR_COPY");
+    else
+        for (i = 0; i < sizeof dirs / sizeof dirs[0]; i++)
+            if (has(dirs[i], "game.EXE") || has(dirs[i], "DISK1/data.z")) {
+                dir = dirs[i];
+                break;
+            }
     game.files = has(dir, "DISK1/data.z") && !has(dir, "game.EXE") ? g_cd_files : g_gog_files;
     if (MH_PickGame(&game, 1, dir, NO_GAME, &g_listed) < 0)
         return 0;
